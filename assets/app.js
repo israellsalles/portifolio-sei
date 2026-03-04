@@ -336,7 +336,8 @@ function renderDashboard(){
 function renderList(list){
   $('result-count').textContent = `${list.length} resultado(s)`;
   if (!list.length) {
-    $('list-main-body').innerHTML = '<tr><td colspan="10" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
+    $('list-main-body').innerHTML = '<tr><td colspan="9" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
+    $('list-desc-body').innerHTML = '<tr><td colspan="2" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
     $('list-infra-body').innerHTML = '<tr><td colspan="8" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
     $('list-db-body').innerHTML = '<tr><td colspan="7" style="color:var(--muted)">Nenhuma base de dados encontrada.</td></tr>';
     $('list-cards').innerHTML = '<div class="list-mobile-card"><div class="list-mobile-value" style="color:var(--muted)">Nenhum sistema encontrado.</div></div>';
@@ -352,9 +353,15 @@ function renderList(list){
       <td class="crit-${critKind(i.criticality)}">${esc(i.criticality || '-')}</td>
       <td>${esc(i.owner || '-')}</td>
       <td>${esc(i.version || '-')}</td>
-      <td>${esc(i.description || '-')}</td>
       <td>${esc(i.notes || '-')}</td>
       <td onclick="event.stopPropagation()"><div class="actions"><button class="act" onclick="openFormById(${i.id})">&#9998;</button><button class="act del" onclick="archiveSystem(${i.id})">&#128230;</button></div></td>
+    </tr>
+  `).join('');
+
+  $('list-desc-body').innerHTML = list.map((i) => `
+    <tr onclick="openDetail(${i.id})">
+      <td><div class="list-name">${esc(i.name)}</div></td>
+      <td>${esc(i.description || '-')}</td>
     </tr>
   `).join('');
 
@@ -495,29 +502,65 @@ function renderVmReport(){
     items: App.vms.filter((vm) => vmCategoryLabel(vm) === category).sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')))
   })).filter((g)=>g.items.length > 0);
 
-  box.innerHTML = groups.map((group) => `
-    <div class="vm-report-item">
-      <div class="vm-report-title">${esc(group.category)}</div>
-    </div>
-    ${group.items.map((vm) => {
-    const use = vmUsage(vm.id);
-    const dbs = vmDatabases(vm.id);
-    const tech = vmTechList(vm);
-    const lines = [];
-    use.prod.forEach((s) => lines.push(`${s.name} (producao)`));
-    use.hml.forEach((s) => lines.push(`${s.name} (homologacao)`));
-    const dbLines = dbs.map((d) => `${d.db_name} [${d.db_engine}${d.db_engine_version ? ' ' + d.db_engine_version : ''}] - ${d.system_name || '-'}`);
+  box.innerHTML = groups.map((group) => {
+    const groupClass = `vm-report-group-${norm(group.category).replace(/[^a-z0-9]+/g, '-')}`;
     return `
-      <div class="vm-report-item">
-        <div class="vm-report-title">${esc(vm.name)}</div>
-        <div class="vm-report-sub">IP ${esc(vm.ip || '-')} &#8226; ${use.total} sistema(s) &#8226; ${dbs.length} base(s)</div>
-        ${tech.length ? `<div class="tags">${tech.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : '<div class="vm-report-empty">Sem tecnologias cadastradas.</div>'}
-        ${lines.length ? `<ul class="vm-report-list">${lines.map((x)=>`<li>${esc(x)}</li>`).join('')}</ul>` : '<div class="vm-report-empty">Sem sistemas vinculados.</div>'}
-        ${dbLines.length ? `<ul class="vm-report-list vm-report-db">${dbLines.map((x)=>`<li>${esc(x)}</li>`).join('')}</ul>` : '<div class="vm-report-empty">Sem bases vinculadas.</div>'}
+    <section class="vm-report-group ${groupClass}">
+      <div class="vm-report-group-head">
+        <div class="vm-report-group-title">${esc(group.category)}</div>
+        <div class="vm-report-group-count">${group.items.length} maquina(s)</div>
       </div>
-    `;
-  }).join('')}
-  `).join('');
+      <div class="vm-report-group-grid">
+        ${group.items.map((vm) => {
+          const use = vmUsage(vm.id);
+          const dbs = vmDatabases(vm.id);
+          const tech = vmTechList(vm);
+          const systemsLinked = [];
+          use.prod.forEach((s) => systemsLinked.push(`${s.name} [producao]`));
+          use.hml.forEach((s) => systemsLinked.push(`${s.name} [homologacao]`));
+          const dbLines = dbs.map((d) => `${d.db_name} [${d.db_engine}${d.db_engine_version ? ' ' + d.db_engine_version : ''}] - ${d.system_name || '-'}`);
+          return `
+          <article class="vm-report-item">
+            <div class="vm-report-top">
+              <div class="vm-report-title">${esc(vm.name)}</div>
+              <div class="vm-report-ip">IP ${esc(vm.ip || '-')}</div>
+            </div>
+            <div class="vm-report-stats">
+              <div class="vm-report-stat">
+                <div class="vm-report-stat-label">Sistemas</div>
+                <div class="vm-report-stat-value">${use.total}</div>
+              </div>
+              <div class="vm-report-stat">
+                <div class="vm-report-stat-label">Bases</div>
+                <div class="vm-report-stat-value">${dbs.length}</div>
+              </div>
+              <div class="vm-report-stat">
+                <div class="vm-report-stat-label">Tecnologias</div>
+                <div class="vm-report-stat-value">${tech.length}</div>
+              </div>
+            </div>
+
+            <div class="vm-report-block">
+              <div class="vm-report-block-title">Tecnologias</div>
+              ${tech.length ? `<div class="tags">${tech.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : '<div class="vm-report-empty">Sem tecnologias cadastradas.</div>'}
+            </div>
+
+            <div class="vm-report-block">
+              <div class="vm-report-block-title">Sistemas Vinculados</div>
+              ${systemsLinked.length ? `<ul class="vm-report-list">${systemsLinked.map((x)=>`<li>${esc(x)}</li>`).join('')}</ul>` : '<div class="vm-report-empty">Sem sistemas vinculados.</div>'}
+            </div>
+
+            <div class="vm-report-block">
+              <div class="vm-report-block-title">Bases Vinculadas</div>
+              ${dbLines.length ? `<ul class="vm-report-list vm-report-db">${dbLines.map((x)=>`<li>${esc(x)}</li>`).join('')}</ul>` : '<div class="vm-report-empty">Sem bases vinculadas.</div>'}
+            </div>
+          </article>
+        `;
+        }).join('')}
+      </div>
+    </section>
+  `;
+  }).join('');
 }
 
 function renderMachines(){
@@ -543,7 +586,7 @@ function renderMachines(){
         <tr>
           <td>${esc(vm.name)}</td>
           <td>${esc(vm.ip || '-')}</td>
-          <td>${tech.length ? tech.map((t)=>`<span class="tag">${esc(t)}</span>`).join('') : '-'}</td>
+          <td class="vm-tech-col">${tech.length ? `<div class="vm-tech-tags">${tech.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : '-'}</td>
           <td>${use.prod.length}</td>
           <td>${use.hml.length}</td>
           <td>${dbs.length}</td>
@@ -581,8 +624,8 @@ function renderMachines(){
       <div class="vm-section ${categoryClass}">
         <div class="vm-section-title">${esc(category)}</div>
         <div class="table-wrap vm-desktop-table">
-          <table style="min-width:760px">
-            <thead><tr><th>Nome da Maquina</th><th>IP</th><th>Tecnologias / Versoes</th><th>Sistemas em Producao</th><th>Sistemas em Homologacao</th><th>Bases de Dados</th><th>Total Sistemas</th><th style="width:98px">Acoes</th></tr></thead>
+          <table style="min-width:980px">
+            <thead><tr><th>Nome da Maquina</th><th>IP</th><th class="vm-tech-col">Tecnologias / Versoes</th><th>Sistemas em Producao</th><th>Sistemas em Homologacao</th><th>Bases de Dados</th><th>Total Sistemas</th><th style="width:98px">Acoes</th></tr></thead>
             <tbody>${rows}</tbody>
           </table>
         </div>

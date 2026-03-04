@@ -277,6 +277,13 @@ main{padding:16px}
   grid-template-columns:1fr 1fr 1.15fr;
   gap:12px
 }
+.machines-grid{
+  grid-template-columns:minmax(0,1.65fr) minmax(320px,.85fr);
+  align-items:start
+}
+.archived-grid{
+  grid-template-columns:1fr
+}
 .panel{
   background:var(--section-bg);
   border:1px solid var(--section-border);
@@ -718,6 +725,12 @@ tbody tr:hover td{background:#101d34}
 @media(max-width:1320px){
   .dash-grid{grid-template-columns:1fr 1fr}
   .dash-grid .panel:last-child{grid-column:1/-1}
+  #view-maquinas .machines-grid{
+    grid-template-columns:1fr
+  }
+  #view-maquinas .machines-grid .panel:last-child{
+    grid-column:auto
+  }
 }
 @media(max-width:1080px){
   .top-count{display:none}
@@ -980,6 +993,18 @@ tbody tr:hover td{background:#eef4ff}
 .table-wrap a{
   color:#2f67cc
 }
+#view-lista .list-desc-table{
+  width:max-content;
+  min-width:560px
+}
+#view-lista .list-desc-table th:first-child,
+#view-lista .list-desc-table td:first-child{
+  width:220px
+}
+#view-lista .list-desc-table th:nth-child(2),
+#view-lista .list-desc-table td:nth-child(2){
+  white-space:normal
+}
 
 /* Fundo por cor de secao em todas as abas */
 #view-dashboard .dash-grid > .panel:nth-child(1),
@@ -1009,6 +1034,24 @@ tbody tr:hover td{background:#eef4ff}
   border-color:#d2acb8
 }
 
+/* Lista com 4 secoes: 1 descricao, 2 sistemas, 3 infraestrutura, 4 bases */
+#view-lista .list-section:nth-child(1){
+  background:linear-gradient(180deg,#e4ddf7 0%,#d8cfee 100%);
+  border-color:#b9acd8
+}
+#view-lista .list-section:nth-child(2){
+  background:linear-gradient(180deg,#d7e6ff 0%,#c9dbfb 100%);
+  border-color:#afc6ef
+}
+#view-lista .list-section:nth-child(3){
+  background:linear-gradient(180deg,#d7ece9 0%,#c8e0dc 100%);
+  border-color:#a5cbc3
+}
+#view-lista .list-section:nth-child(4){
+  background:linear-gradient(180deg,#f0e2cb 0%,#e6d5b8 100%);
+  border-color:#cfb48a
+}
+
 #view-maquinas .vm-section.vm-section-producao{
   background:linear-gradient(180deg,#d7ece9 0%,#c8e0dc 100%);
   border-color:#a5cbc3
@@ -1020,4 +1063,176 @@ tbody tr:hover td{background:#eef4ff}
 #view-maquinas .vm-section.vm-section-desenvolvimento{
   background:linear-gradient(180deg,#f0e2cb 0%,#e6d5b8 100%);
   border-color:#cfb48a
+}
+#view-maquinas .vm-desktop-table th.vm-tech-col,
+#view-maquinas .vm-desktop-table td.vm-tech-col{
+  width:32%;
+  min-width:240px
+}
+#view-maquinas .vm-tech-tags{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px
+}
+#view-maquinas .vm-tech-tags .tag{
+  display:inline-flex;
+  align-items:center;
+  white-space:nowrap
+}
+
+/* Relatorio por maquina: hierarquia visual mais clara */
+.vm-report{
+  display:grid;
+  gap:14px
+}
+.vm-report-group{
+  display:grid;
+  gap:10px;
+  border:1px solid #cddcf8;
+  border-radius:12px;
+  padding:10px;
+  background:linear-gradient(180deg,#f8fbff 0%,#f1f6ff 100%)
+}
+.vm-report-group-producao{
+  border-color:#b7d8cc;
+  background:linear-gradient(180deg,#f5fcfa 0%,#e9f4f0 100%)
+}
+.vm-report-group-homologacao{
+  border-color:#cdbfe8;
+  background:linear-gradient(180deg,#f9f7ff 0%,#efeaff 100%)
+}
+.vm-report-group-desenvolvimento{
+  border-color:#e3c89d;
+  background:linear-gradient(180deg,#fffaf1 0%,#f7edd9 100%)
+}
+.vm-report-group-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px
+}
+.vm-report-group-title{
+  font-size:13px;
+  font-weight:800;
+  text-transform:uppercase;
+  letter-spacing:.6px;
+  color:#254b84
+}
+.vm-report-group-count{
+  font-size:12px;
+  font-family:var(--mono);
+  color:#3a5f94;
+  padding:3px 8px;
+  border-radius:999px;
+  border:1px solid #b8cff4;
+  background:rgba(255,255,255,.75)
+}
+.vm-report-group-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(340px,1fr));
+  gap:10px
+}
+.vm-report-item{
+  border:1px solid #cfe0ff;
+  border-radius:10px;
+  padding:10px;
+  background:#fff;
+  display:grid;
+  gap:10px
+}
+.vm-report-top{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:10px
+}
+.vm-report-title{
+  font-size:19px;
+  font-weight:800;
+  color:#183565;
+  margin:0
+}
+.vm-report-ip{
+  font-family:var(--mono);
+  font-size:12px;
+  color:#42659a;
+  background:#edf4ff;
+  border:1px solid #c9dcff;
+  border-radius:999px;
+  padding:3px 8px;
+  white-space:nowrap
+}
+.vm-report-stats{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:8px
+}
+.vm-report-stat{
+  border:1px solid #d5e4ff;
+  border-radius:8px;
+  background:#f5f9ff;
+  padding:8px
+}
+.vm-report-stat-label{
+  font-size:10px;
+  text-transform:uppercase;
+  letter-spacing:.6px;
+  color:#5676aa
+}
+.vm-report-stat-value{
+  margin-top:3px;
+  font-size:19px;
+  font-weight:800;
+  line-height:1;
+  color:#203f72
+}
+.vm-report-block{
+  border:1px solid #dce8ff;
+  border-radius:8px;
+  padding:8px;
+  background:#fbfdff
+}
+.vm-report-block-title{
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:.6px;
+  font-weight:700;
+  color:#4d6691;
+  margin-bottom:6px
+}
+.vm-report-list{
+  margin:0;
+  padding-left:16px;
+  color:#2f4f84;
+  font-size:13px
+}
+.vm-report-list li + li{
+  margin-top:3px
+}
+.vm-report-db{
+  margin-top:0;
+  border-top:none;
+  padding-top:0
+}
+.vm-report-empty{
+  font-size:12px;
+  color:#6d84ad;
+  border:1px dashed #cfe0ff;
+  border-radius:8px;
+  padding:6px 8px;
+  background:#f8fbff
+}
+@media(max-width:900px){
+  .vm-report-group-grid{
+    grid-template-columns:1fr
+  }
+}
+@media(max-width:560px){
+  .vm-report-top{
+    flex-direction:column;
+    align-items:flex-start
+  }
+  .vm-report-stats{
+    grid-template-columns:1fr
+  }
 }

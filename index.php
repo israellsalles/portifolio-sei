@@ -61,16 +61,25 @@ if (isset($_GET['api'])) {
   <section id="view-lista" class="view">
     <div class="list-sections">
       <div class="list-section">
-        <div class="list-section-title">1. Sistemas</div>
+        <div class="list-section-title">1. Descricao</div>
+        <div class="table-wrap">
+          <table class="list-desc-table">
+            <thead><tr><th>Nome</th><th>Descricao</th></tr></thead>
+            <tbody id="list-desc-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="list-section">
+        <div class="list-section-title">2. Sistemas</div>
         <div class="table-wrap">
           <table style="min-width:1400px">
-            <thead><tr><th>Nome</th><th>Sistema</th><th>Categoria</th><th>Status</th><th>Criticidade</th><th>Responsavel</th><th>Versao</th><th>Descricao</th><th>Observacoes</th><th style="width:98px">Acoes</th></tr></thead>
+            <thead><tr><th>Nome</th><th>Sistema</th><th>Categoria</th><th>Status</th><th>Criticidade</th><th>Responsavel</th><th>Versao</th><th>Observacoes</th><th style="width:98px">Acoes</th></tr></thead>
             <tbody id="list-main-body"></tbody>
           </table>
         </div>
       </div>
       <div class="list-section">
-        <div class="list-section-title">2. Infraestrutura</div>
+        <div class="list-section-title">3. Infraestrutura</div>
         <div class="table-wrap">
           <table style="min-width:1650px">
             <thead><tr><th>Nome</th><th>VM Producao</th><th>IP Producao</th><th>VM Homologacao</th><th>IP Homologacao</th><th>URL</th><th>URL Homologacao</th><th>Tecnologias</th></tr></thead>
@@ -79,7 +88,7 @@ if (isset($_GET['api'])) {
         </div>
       </div>
       <div class="list-section">
-        <div class="list-section-title">3. Bases de Dados</div>
+        <div class="list-section-title">4. Bases de Dados</div>
         <div class="table-wrap">
           <table style="min-width:1200px">
             <thead><tr><th>Nome</th><th>Base de Dados</th><th>SGBD</th><th>Versao SGBD</th><th>Maquina</th><th>IP</th><th>Observacoes</th></tr></thead>
@@ -106,22 +115,22 @@ if (isset($_GET['api'])) {
     </div>
   </section>
   <section id="view-maquinas" class="view">
-    <div class="dash-grid">
-      <div class="panel" style="grid-column:1 / -1">
+    <div class="dash-grid machines-grid">
+      <div class="panel">
         <div class="panel-head">
           <h3>Maquinas Virtuais</h3>
           <button class="btn btn-save" onclick="openVmForm()">+ Nova Maquina</button>
         </div>
         <div id="vm-sections" class="vm-sections"></div>
       </div>
-      <div class="panel" style="grid-column:1 / -1">
+      <div class="panel">
         <h3>Relatorio por Maquina</h3>
         <div id="vm-report" class="vm-report"></div>
       </div>
     </div>
   </section>
   <section id="view-arquivados" class="view">
-    <div class="dash-grid">
+    <div class="dash-grid archived-grid">
       <div class="panel">
         <h3>Sistemas Arquivados</h3>
         <div class="table-wrap">
