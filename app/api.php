@@ -116,6 +116,9 @@ function listVmsSqlite3(SQLite3 $db, bool $archived=false): array {
   $out = [];
   while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
     $row['id'] = (int)$row['id'];
+    $row['vm_category'] = trim((string)($row['vm_category'] ?? '')) !== '' ? trim((string)$row['vm_category']) : 'Producao';
+    $row['vm_tech'] = trim((string)($row['vm_tech'] ?? ''));
+    $row['vm_tech_list'] = $row['vm_tech'] !== '' ? array_values(array_filter(array_map('trim', explode(',', $row['vm_tech'])))) : [];
     $row['prod_count'] = (int)$row['prod_count'];
     $row['hml_count'] = (int)$row['hml_count'];
     $row['system_count'] = (int)$row['system_count'];
@@ -139,6 +142,9 @@ function listVmsPdo(PDO $db, bool $archived=false): array {
   $rows = $db->query($sql)->fetchAll(PDO::FETCH_ASSOC);
   foreach ($rows as &$row) {
     $row['id'] = (int)$row['id'];
+    $row['vm_category'] = trim((string)($row['vm_category'] ?? '')) !== '' ? trim((string)$row['vm_category']) : 'Producao';
+    $row['vm_tech'] = trim((string)($row['vm_tech'] ?? ''));
+    $row['vm_tech_list'] = $row['vm_tech'] !== '' ? array_values(array_filter(array_map('trim', explode(',', $row['vm_tech'])))) : [];
     $row['prod_count'] = (int)$row['prod_count'];
     $row['hml_count'] = (int)$row['hml_count'];
     $row['system_count'] = (int)$row['system_count'];
@@ -149,22 +155,28 @@ function listVmsPdo(PDO $db, bool $archived=false): array {
 }
 
 function fetchVmByIdSqlite3(SQLite3 $db, int $id): ?array {
-  $st = $db->prepare("SELECT id,name,ip,created_at,updated_at FROM virtual_machines WHERE id=:id");
+  $st = $db->prepare("SELECT id,name,ip,vm_category,vm_tech,created_at,updated_at FROM virtual_machines WHERE id=:id");
   $st->bindValue(':id', $id, SQLITE3_INTEGER);
   $res = $st->execute();
   $row = $res ? $res->fetchArray(SQLITE3_ASSOC) : false;
   if (!is_array($row)) { return null; }
   $row['id'] = (int)$row['id'];
+  $row['vm_category'] = trim((string)($row['vm_category'] ?? '')) !== '' ? trim((string)$row['vm_category']) : 'Producao';
+  $row['vm_tech'] = trim((string)($row['vm_tech'] ?? ''));
+  $row['vm_tech_list'] = $row['vm_tech'] !== '' ? array_values(array_filter(array_map('trim', explode(',', $row['vm_tech'])))) : [];
   return $row;
 }
 
 function fetchVmByIdPdo(PDO $db, int $id): ?array {
-  $st = $db->prepare("SELECT id,name,ip,created_at,updated_at FROM virtual_machines WHERE id=:id");
+  $st = $db->prepare("SELECT id,name,ip,vm_category,vm_tech,created_at,updated_at FROM virtual_machines WHERE id=:id");
   $st->bindValue(':id', $id, PDO::PARAM_INT);
   $st->execute();
   $row = $st->fetch(PDO::FETCH_ASSOC);
   if (!is_array($row)) { return null; }
   $row['id'] = (int)$row['id'];
+  $row['vm_category'] = trim((string)($row['vm_category'] ?? '')) !== '' ? trim((string)$row['vm_category']) : 'Producao';
+  $row['vm_tech'] = trim((string)($row['vm_tech'] ?? ''));
+  $row['vm_tech_list'] = $row['vm_tech'] !== '' ? array_values(array_filter(array_map('trim', explode(',', $row['vm_tech'])))) : [];
   return $row;
 }
 
@@ -186,6 +198,7 @@ function normalizeDatabaseRow(array $row): array {
   $row['vm_id'] = isset($row['vm_id']) && $row['vm_id'] !== null && (int)$row['vm_id'] > 0 ? (int)$row['vm_id'] : null;
   $row['db_name'] = trim((string)($row['db_name'] ?? ''));
   $row['db_engine'] = trim((string)($row['db_engine'] ?? ''));
+  $row['db_engine_version'] = trim((string)($row['db_engine_version'] ?? ''));
   $row['notes'] = trim((string)($row['notes'] ?? ''));
   $row['archived'] = (int)($row['archived'] ?? 0);
   return $row;
@@ -305,37 +318,49 @@ function handleApiRequest(): void {
 
       $name = trim((string)($data['name'] ?? ''));
       $ip = trim((string)($data['ip'] ?? ''));
+      $vmCategory = trim((string)($data['vm_category'] ?? ''));
+      $vmTech = is_array($data['vm_tech'] ?? null) ? implode(',', array_filter(array_map('trim', $data['vm_tech']))) : trim((string)($data['vm_tech'] ?? ''));
       if ($name === '' || $ip === '') { echo json_encode(['ok'=>false,'error'=>'Nome e IP sao obrigatorios']); return; }
+      $allowedCategories = ['Producao','Homologacao','Desenvolvimento'];
+      if (!in_array($vmCategory, $allowedCategories, true)) { $vmCategory = 'Producao'; }
 
       if (!empty($data['id'])) {
         $id = (int)$data['id'];
         if ($db instanceof SQLite3) {
-          $st = $db->prepare("UPDATE virtual_machines SET name=:name, ip=:ip, updated_at=datetime('now','localtime') WHERE id=:id");
+          $st = $db->prepare("UPDATE virtual_machines SET name=:name, ip=:ip, vm_category=:vm_category, vm_tech=:vm_tech, updated_at=datetime('now','localtime') WHERE id=:id");
           $st->bindValue(':name', $name, SQLITE3_TEXT);
           $st->bindValue(':ip', $ip, SQLITE3_TEXT);
+          $st->bindValue(':vm_category', $vmCategory, SQLITE3_TEXT);
+          $st->bindValue(':vm_tech', $vmTech, SQLITE3_TEXT);
           $st->bindValue(':id', $id, SQLITE3_INTEGER);
           $st->execute();
           $row = fetchVmByIdSqlite3($db, $id);
         } else {
-          $st = $db->prepare("UPDATE virtual_machines SET name=:name, ip=:ip, updated_at=datetime('now','localtime') WHERE id=:id");
+          $st = $db->prepare("UPDATE virtual_machines SET name=:name, ip=:ip, vm_category=:vm_category, vm_tech=:vm_tech, updated_at=datetime('now','localtime') WHERE id=:id");
           $st->bindValue(':name', $name, PDO::PARAM_STR);
           $st->bindValue(':ip', $ip, PDO::PARAM_STR);
+          $st->bindValue(':vm_category', $vmCategory, PDO::PARAM_STR);
+          $st->bindValue(':vm_tech', $vmTech, PDO::PARAM_STR);
           $st->bindValue(':id', $id, PDO::PARAM_INT);
           $st->execute();
           $row = fetchVmByIdPdo($db, $id);
         }
       } else {
         if ($db instanceof SQLite3) {
-          $st = $db->prepare("INSERT INTO virtual_machines(name,ip) VALUES(:name,:ip)");
+          $st = $db->prepare("INSERT INTO virtual_machines(name,ip,vm_category,vm_tech) VALUES(:name,:ip,:vm_category,:vm_tech)");
           $st->bindValue(':name', $name, SQLITE3_TEXT);
           $st->bindValue(':ip', $ip, SQLITE3_TEXT);
+          $st->bindValue(':vm_category', $vmCategory, SQLITE3_TEXT);
+          $st->bindValue(':vm_tech', $vmTech, SQLITE3_TEXT);
           $st->execute();
           $id = (int)$db->lastInsertRowID();
           $row = fetchVmByIdSqlite3($db, $id);
         } else {
-          $st = $db->prepare("INSERT INTO virtual_machines(name,ip) VALUES(:name,:ip)");
+          $st = $db->prepare("INSERT INTO virtual_machines(name,ip,vm_category,vm_tech) VALUES(:name,:ip,:vm_category,:vm_tech)");
           $st->bindValue(':name', $name, PDO::PARAM_STR);
           $st->bindValue(':ip', $ip, PDO::PARAM_STR);
+          $st->bindValue(':vm_category', $vmCategory, PDO::PARAM_STR);
+          $st->bindValue(':vm_tech', $vmTech, PDO::PARAM_STR);
           $st->execute();
           $id = (int)$db->lastInsertId();
           $row = fetchVmByIdPdo($db, $id);
@@ -439,6 +464,7 @@ function handleApiRequest(): void {
       $vmId = (int)($data['vm_id'] ?? 0);
       $dbName = trim((string)($data['db_name'] ?? ''));
       $dbEngine = trim((string)($data['db_engine'] ?? ''));
+      $dbEngineVersion = trim((string)($data['db_engine_version'] ?? ''));
       $notes = trim((string)($data['notes'] ?? ''));
 
       if ($systemId <= 0) { echo json_encode(['ok'=>false,'error'=>'Sistema obrigatorio']); return; }
@@ -467,24 +493,26 @@ function handleApiRequest(): void {
         $id = (int)$data['id'];
         if ($db instanceof SQLite3) {
           $st = $db->prepare("UPDATE system_databases
-            SET system_id=:system_id, vm_id=:vm_id, db_name=:db_name, db_engine=:db_engine, notes=:notes, archived=0, archived_at=NULL, updated_at=datetime('now','localtime')
+            SET system_id=:system_id, vm_id=:vm_id, db_name=:db_name, db_engine=:db_engine, db_engine_version=:db_engine_version, notes=:notes, archived=0, archived_at=NULL, updated_at=datetime('now','localtime')
             WHERE id=:id");
           $st->bindValue(':system_id', $systemId, SQLITE3_INTEGER);
           $st->bindValue(':vm_id', $vmId, SQLITE3_INTEGER);
           $st->bindValue(':db_name', $dbName, SQLITE3_TEXT);
           $st->bindValue(':db_engine', $dbEngine, SQLITE3_TEXT);
+          $st->bindValue(':db_engine_version', $dbEngineVersion, SQLITE3_TEXT);
           $st->bindValue(':notes', $notes, SQLITE3_TEXT);
           $st->bindValue(':id', $id, SQLITE3_INTEGER);
           $st->execute();
           $row = fetchDatabaseByIdSqlite3($db, $id);
         } else {
           $st = $db->prepare("UPDATE system_databases
-            SET system_id=:system_id, vm_id=:vm_id, db_name=:db_name, db_engine=:db_engine, notes=:notes, archived=0, archived_at=NULL, updated_at=datetime('now','localtime')
+            SET system_id=:system_id, vm_id=:vm_id, db_name=:db_name, db_engine=:db_engine, db_engine_version=:db_engine_version, notes=:notes, archived=0, archived_at=NULL, updated_at=datetime('now','localtime')
             WHERE id=:id");
           $st->bindValue(':system_id', $systemId, PDO::PARAM_INT);
           $st->bindValue(':vm_id', $vmId, PDO::PARAM_INT);
           $st->bindValue(':db_name', $dbName, PDO::PARAM_STR);
           $st->bindValue(':db_engine', $dbEngine, PDO::PARAM_STR);
+          $st->bindValue(':db_engine_version', $dbEngineVersion, PDO::PARAM_STR);
           $st->bindValue(':notes', $notes, PDO::PARAM_STR);
           $st->bindValue(':id', $id, PDO::PARAM_INT);
           $st->execute();
@@ -492,21 +520,23 @@ function handleApiRequest(): void {
         }
       } else {
         if ($db instanceof SQLite3) {
-          $st = $db->prepare("INSERT INTO system_databases(system_id,vm_id,db_name,db_engine,notes) VALUES(:system_id,:vm_id,:db_name,:db_engine,:notes)");
+          $st = $db->prepare("INSERT INTO system_databases(system_id,vm_id,db_name,db_engine,db_engine_version,notes) VALUES(:system_id,:vm_id,:db_name,:db_engine,:db_engine_version,:notes)");
           $st->bindValue(':system_id', $systemId, SQLITE3_INTEGER);
           $st->bindValue(':vm_id', $vmId, SQLITE3_INTEGER);
           $st->bindValue(':db_name', $dbName, SQLITE3_TEXT);
           $st->bindValue(':db_engine', $dbEngine, SQLITE3_TEXT);
+          $st->bindValue(':db_engine_version', $dbEngineVersion, SQLITE3_TEXT);
           $st->bindValue(':notes', $notes, SQLITE3_TEXT);
           $st->execute();
           $id = (int)$db->lastInsertRowID();
           $row = fetchDatabaseByIdSqlite3($db, $id);
         } else {
-          $st = $db->prepare("INSERT INTO system_databases(system_id,vm_id,db_name,db_engine,notes) VALUES(:system_id,:vm_id,:db_name,:db_engine,:notes)");
+          $st = $db->prepare("INSERT INTO system_databases(system_id,vm_id,db_name,db_engine,db_engine_version,notes) VALUES(:system_id,:vm_id,:db_name,:db_engine,:db_engine_version,:notes)");
           $st->bindValue(':system_id', $systemId, PDO::PARAM_INT);
           $st->bindValue(':vm_id', $vmId, PDO::PARAM_INT);
           $st->bindValue(':db_name', $dbName, PDO::PARAM_STR);
           $st->bindValue(':db_engine', $dbEngine, PDO::PARAM_STR);
+          $st->bindValue(':db_engine_version', $dbEngineVersion, PDO::PARAM_STR);
           $st->bindValue(':notes', $notes, PDO::PARAM_STR);
           $st->execute();
           $id = (int)$db->lastInsertId();

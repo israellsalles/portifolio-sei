@@ -72,6 +72,8 @@ function ensureVmTableSqlite3(SQLite3 $db): void {
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     ip TEXT DEFAULT '',
+    vm_category TEXT DEFAULT 'Producao',
+    vm_tech TEXT DEFAULT '',
     archived INTEGER DEFAULT 0,
     archived_at TEXT DEFAULT NULL,
     created_at TEXT DEFAULT (datetime('now','localtime')),
@@ -80,6 +82,8 @@ function ensureVmTableSqlite3(SQLite3 $db): void {
   $res = $db->query('PRAGMA table_info(virtual_machines)');
   $existing = [];
   while ($row = $res->fetchArray(SQLITE3_ASSOC)) { $existing[] = (string)($row['name'] ?? ''); }
+  if (!in_array('vm_category', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_category TEXT DEFAULT 'Producao'"); }
+  if (!in_array('vm_tech', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_tech TEXT DEFAULT ''"); }
   if (!in_array('archived', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN archived INTEGER DEFAULT 0"); }
   if (!in_array('archived_at', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN archived_at TEXT DEFAULT NULL"); }
 }
@@ -89,6 +93,8 @@ function ensureVmTablePdo(PDO $db): void {
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     ip TEXT DEFAULT '',
+    vm_category TEXT DEFAULT 'Producao',
+    vm_tech TEXT DEFAULT '',
     archived INTEGER DEFAULT 0,
     archived_at TEXT DEFAULT NULL,
     created_at TEXT DEFAULT (datetime('now','localtime')),
@@ -97,6 +103,8 @@ function ensureVmTablePdo(PDO $db): void {
   $rows = $db->query('PRAGMA table_info(virtual_machines)')->fetchAll(PDO::FETCH_ASSOC);
   $existing = [];
   foreach ($rows as $row) { $existing[] = (string)($row['name'] ?? ''); }
+  if (!in_array('vm_category', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_category TEXT DEFAULT 'Producao'"); }
+  if (!in_array('vm_tech', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_tech TEXT DEFAULT ''"); }
   if (!in_array('archived', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN archived INTEGER DEFAULT 0"); }
   if (!in_array('archived_at', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN archived_at TEXT DEFAULT NULL"); }
 }

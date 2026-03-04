@@ -27,7 +27,6 @@ if (isset($_GET['api'])) {
   </div>
   <div class="tabs">
     <button id="tab-dashboard" class="tab active" onclick="setView('dashboard')">&#128202; Dashboard</button>
-    <button id="tab-grid" class="tab" onclick="setView('grid')">&#9638; Grid</button>
     <button id="tab-lista" class="tab" onclick="setView('lista')">&#9776; Lista</button>
     <button id="tab-bases" class="tab" onclick="setView('bases')">&#128187; Bases</button>
     <button id="tab-maquinas" class="tab" onclick="setView('maquinas')">&#128187; Maquinas</button>
@@ -59,13 +58,26 @@ if (isset($_GET['api'])) {
       <div class="panel"><h3>Atencao Necessaria</h3><div id="attention-list"></div></div>
     </div>
   </section>
-  <section id="view-grid" class="view"><div id="grid" class="cards"></div></section>
   <section id="view-lista" class="view">
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Nome</th><th>Sistema</th><th>Categoria</th><th>Status</th><th>Criticidade</th><th>Responsavel</th><th>Versao</th><th>VM Producao</th><th>IP Producao</th><th>VM Homologacao</th><th>IP Homologacao</th><th>URL</th><th>URL Homologacao</th><th>Tecnologias</th><th>Descricao</th><th>Observacoes</th><th style="width:98px">Acoes</th></tr></thead>
-        <tbody id="list-body"></tbody>
-      </table>
+    <div class="list-sections">
+      <div class="list-section">
+        <div class="list-section-title">1. Sistemas</div>
+        <div class="table-wrap">
+          <table style="min-width:1400px">
+            <thead><tr><th>Nome</th><th>Sistema</th><th>Categoria</th><th>Status</th><th>Criticidade</th><th>Responsavel</th><th>Versao</th><th>Descricao</th><th>Observacoes</th><th style="width:98px">Acoes</th></tr></thead>
+            <tbody id="list-main-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="list-section">
+        <div class="list-section-title">2. Infraestrutura e Bases de Dados</div>
+        <div class="table-wrap">
+          <table style="min-width:2000px">
+            <thead><tr><th>Nome</th><th>VM Producao</th><th>IP Producao</th><th>VM Homologacao</th><th>IP Homologacao</th><th>URL</th><th>URL Homologacao</th><th>Tecnologias</th><th>Bases de Dados</th><th>Hospedagem das Bases (VM/IP)</th><th>SGBD / Versao</th></tr></thead>
+            <tbody id="list-infra-body"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
     <div id="list-cards" class="list-mobile-cards"></div>
   </section>
@@ -77,7 +89,7 @@ if (isset($_GET['api'])) {
       </div>
       <div class="table-wrap">
         <table style="min-width:980px">
-          <thead><tr><th>Sistema</th><th>Base de Dados</th><th>SGBD</th><th>Maquina</th><th>IP</th><th>Observacoes</th><th style="width:98px">Acoes</th></tr></thead>
+          <thead><tr><th>Sistema</th><th>Base de Dados</th><th>SGBD</th><th>Versao SGBD</th><th>Maquina</th><th>IP</th><th>Observacoes</th><th style="width:98px">Acoes</th></tr></thead>
           <tbody id="db-body"></tbody>
         </table>
       </div>
@@ -86,20 +98,14 @@ if (isset($_GET['api'])) {
   </section>
   <section id="view-maquinas" class="view">
     <div class="dash-grid">
-      <div class="panel" style="grid-column:1 / span 2">
+      <div class="panel" style="grid-column:1 / -1">
         <div class="panel-head">
           <h3>Maquinas Virtuais</h3>
           <button class="btn btn-save" onclick="openVmForm()">+ Nova Maquina</button>
         </div>
-        <div class="table-wrap">
-          <table style="min-width:760px">
-            <thead><tr><th>Nome da Maquina</th><th>IP</th><th>Sistemas em Producao</th><th>Sistemas em Homologacao</th><th>Bases de Dados</th><th>Total Sistemas</th><th style="width:98px">Acoes</th></tr></thead>
-            <tbody id="vm-body"></tbody>
-          </table>
-        </div>
-        <div id="vm-cards" class="vm-mobile-cards"></div>
+        <div id="vm-sections" class="vm-sections"></div>
       </div>
-      <div class="panel">
+      <div class="panel" style="grid-column:1 / -1">
         <h3>Relatorio por Maquina</h3>
         <div id="vm-report" class="vm-report"></div>
       </div>
@@ -184,6 +190,11 @@ if (isset($_GET['api'])) {
         <div class="field"><label>Nome da Maquina *</label><input id="fvmname" placeholder="Ex: vm-sei-prod-01"></div>
         <div class="field"><label>IP *</label><input id="fvmip" placeholder="Ex: 10.0.0.15"></div>
       </div>
+      <div class="row2">
+        <div class="field"><label>Categoria da VM *</label><select id="fvmcategory"><option>Producao</option><option>Homologacao</option><option>Desenvolvimento</option></select></div>
+        <div class="field"><label>&nbsp;</label></div>
+      </div>
+      <div class="field"><label>Tecnologias e Versoes (virgula)</label><input id="fvmtech" placeholder="Ex: PHP 8.2, Apache 2.4, Tomcat 10, R 4.3"></div>
       <div class="form-actions">
         <button class="btn" onclick="closeModal('mvm')">Cancelar</button>
         <button class="btn btn-save" onclick="saveVm()">Salvar Maquina</button>
@@ -203,6 +214,10 @@ if (isset($_GET['api'])) {
       <div class="row2">
         <div class="field"><label>Nome da Base *</label><input id="fdbname" placeholder="Ex: bd_sistema_a"></div>
         <div class="field"><label>SGBD *</label><select id="fdbengine"><option value="">Selecionar...</option><option>MySQL</option><option>PostgreSQL</option><option>SQL Server</option><option>Oracle</option><option>MariaDB</option><option>SQLite</option></select></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Versao do SGBD</label><input id="fdbenginever" placeholder="Ex: 8.0, 16, 13c"></div>
+        <div class="field"><label>&nbsp;</label></div>
       </div>
       <div class="field"><label>Observacoes</label><textarea id="fdbnotes"></textarea></div>
       <div class="form-actions">

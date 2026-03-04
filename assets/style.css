@@ -419,6 +419,21 @@ tbody tr:hover td{background:#101d34}
   font-size:13px;
   color:var(--muted)
 }
+.list-sections{
+  display:grid;
+  gap:12px
+}
+.list-section{
+  display:grid;
+  gap:8px
+}
+.list-section-title{
+  font-size:12px;
+  text-transform:uppercase;
+  letter-spacing:.7px;
+  color:#9cb3d9;
+  font-weight:700
+}
 .actions{
   display:flex;
   gap:6px
@@ -589,6 +604,25 @@ tbody tr:hover td{background:#101d34}
   gap:6px;
   margin-top:10px
 }
+.vm-sections{
+  display:grid;
+  gap:12px
+}
+.vm-section{
+  display:grid;
+  gap:8px
+}
+.vm-section-title{
+  font-size:12px;
+  text-transform:uppercase;
+  letter-spacing:.7px;
+  color:#9cb3d9;
+  font-weight:700
+}
+.vm-section-empty{
+  color:var(--muted);
+  font-size:14px
+}
 .vm-report-item{
   border:1px solid #223659;
   background:#0d1830;
@@ -680,6 +714,9 @@ tbody tr:hover td{background:#101d34}
 }
 @media(max-width:1500px){
   #view-lista .table-wrap{
+    display:none
+  }
+  #view-lista .list-sections{
     display:none
   }
   .list-mobile-cards{
