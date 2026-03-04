@@ -13,7 +13,7 @@ if (isset($_GET['api'])) {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SysPortfolio</title>
+<title>SEI Portifólio</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/style.css">
@@ -22,7 +22,7 @@ if (isset($_GET['api'])) {
 <header>
   <div class="logo">
     <div class="logo-icon">&#9889;</div>
-    <div class="logo-name">SysPortfolio</div>
+    <div class="logo-name">SEI Portifólio</div>
     <div class="logo-ver">v1.0</div>
   </div>
   <div class="tabs">
@@ -70,11 +70,20 @@ if (isset($_GET['api'])) {
         </div>
       </div>
       <div class="list-section">
-        <div class="list-section-title">2. Infraestrutura e Bases de Dados</div>
+        <div class="list-section-title">2. Infraestrutura</div>
         <div class="table-wrap">
-          <table style="min-width:2000px">
-            <thead><tr><th>Nome</th><th>VM Producao</th><th>IP Producao</th><th>VM Homologacao</th><th>IP Homologacao</th><th>URL</th><th>URL Homologacao</th><th>Tecnologias</th><th>Bases de Dados</th><th>Hospedagem das Bases (VM/IP)</th><th>SGBD / Versao</th></tr></thead>
+          <table style="min-width:1650px">
+            <thead><tr><th>Nome</th><th>VM Producao</th><th>IP Producao</th><th>VM Homologacao</th><th>IP Homologacao</th><th>URL</th><th>URL Homologacao</th><th>Tecnologias</th></tr></thead>
             <tbody id="list-infra-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="list-section">
+        <div class="list-section-title">3. Bases de Dados</div>
+        <div class="table-wrap">
+          <table style="min-width:1200px">
+            <thead><tr><th>Nome</th><th>Base de Dados</th><th>SGBD</th><th>Versao SGBD</th><th>Maquina</th><th>IP</th><th>Observacoes</th></tr></thead>
+            <tbody id="list-db-body"></tbody>
           </table>
         </div>
       </div>

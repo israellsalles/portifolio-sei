@@ -242,18 +242,6 @@ function databaseEngineText(systemId){
   }).join(', ');
 }
 
-function databaseDetailedText(systemId){
-  const dbs = systemDatabases(systemId);
-  if (!dbs.length) return '-';
-  return dbs.map((d) => {
-    const name = String(d.db_name || '-').trim() || '-';
-    const engine = String(d.db_engine || '-').trim() || '-';
-    const version = String(d.db_engine_version || '').trim();
-    const engineLabel = version ? `${engine} ${version}` : engine;
-    return `${name} (${engineLabel})`;
-  }).join(', ');
-}
-
 function databaseSearchBlob(systemId){
   const dbs = systemDatabases(systemId);
   if (!dbs.length) return '';
@@ -349,7 +337,8 @@ function renderList(list){
   $('result-count').textContent = `${list.length} resultado(s)`;
   if (!list.length) {
     $('list-main-body').innerHTML = '<tr><td colspan="10" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
-    $('list-infra-body').innerHTML = '<tr><td colspan="11" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
+    $('list-infra-body').innerHTML = '<tr><td colspan="8" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
+    $('list-db-body').innerHTML = '<tr><td colspan="7" style="color:var(--muted)">Nenhuma base de dados encontrada.</td></tr>';
     $('list-cards').innerHTML = '<div class="list-mobile-card"><div class="list-mobile-value" style="color:var(--muted)">Nenhum sistema encontrado.</div></div>';
     return;
   }
@@ -379,11 +368,36 @@ function renderList(list){
       <td>${linkHtml(i.url)}</td>
       <td>${linkHtml(i.url_homolog)}</td>
       <td>${(i.tech || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</td>
-      <td>${esc(databaseNamesText(i.id))}</td>
-      <td>${esc(databaseHostsText(i.id))}</td>
-      <td>${esc(databaseDetailedText(i.id))}</td>
     </tr>
   `).join('');
+
+  const systemsById = new Map(list.map((i) => [Number(i.id), i]));
+  const systemIds = new Set(systemsById.keys());
+  const dbList = App.databases
+    .filter((d) => systemIds.has(Number(d.system_id)))
+    .sort((a,b) => String(a.db_name || '').localeCompare(String(b.db_name || '')));
+
+  if (!dbList.length) {
+    $('list-db-body').innerHTML = '<tr><td colspan="7" style="color:var(--muted)">Nenhuma base de dados encontrada para os filtros aplicados.</td></tr>';
+  } else {
+    $('list-db-body').innerHTML = dbList.map((d) => {
+      const systemId = Number(d.system_id);
+      const system = systemsById.get(systemId);
+      const systemName = String(system?.name || d.system_name || '-');
+      const clickable = Number.isFinite(systemId) && systemsById.has(systemId);
+      return `
+      <tr${clickable ? ` onclick="openDetail(${systemId})"` : ''}>
+        <td><div class="list-name">${esc(systemName)}</div></td>
+        <td>${esc(d.db_name || '-')}</td>
+        <td>${esc(d.db_engine || '-')}</td>
+        <td>${esc(d.db_engine_version || '-')}</td>
+        <td>${esc(d.vm_name || '-')}</td>
+        <td>${esc(d.vm_ip || '-')}</td>
+        <td>${esc(d.notes || '-')}</td>
+      </tr>
+    `;
+    }).join('');
+  }
 
   $('list-cards').innerHTML = list.map((i) => `
     <div class="list-mobile-card" onclick="openDetail(${i.id})">
