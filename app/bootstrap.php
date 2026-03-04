@@ -27,6 +27,8 @@ function ensureSystemColumnsSqlite3(SQLite3 $db): void {
     'vm_homolog' => "TEXT DEFAULT ''",
     'vm_id' => "INTEGER DEFAULT NULL",
     'vm_homolog_id' => "INTEGER DEFAULT NULL",
+    'archived' => "INTEGER DEFAULT 0",
+    'archived_at' => "TEXT DEFAULT NULL",
   ];
   $existing = [];
   $res = $db->query('PRAGMA table_info(systems)');
@@ -50,6 +52,8 @@ function ensureSystemColumnsPdo(PDO $db): void {
     'vm_homolog' => "TEXT DEFAULT ''",
     'vm_id' => "INTEGER DEFAULT NULL",
     'vm_homolog_id' => "INTEGER DEFAULT NULL",
+    'archived' => "INTEGER DEFAULT 0",
+    'archived_at' => "TEXT DEFAULT NULL",
   ];
   $existing = [];
   $rows = $db->query('PRAGMA table_info(systems)')->fetchAll(PDO::FETCH_ASSOC);
@@ -68,9 +72,16 @@ function ensureVmTableSqlite3(SQLite3 $db): void {
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     ip TEXT DEFAULT '',
+    archived INTEGER DEFAULT 0,
+    archived_at TEXT DEFAULT NULL,
     created_at TEXT DEFAULT (datetime('now','localtime')),
     updated_at TEXT DEFAULT (datetime('now','localtime'))
   )");
+  $res = $db->query('PRAGMA table_info(virtual_machines)');
+  $existing = [];
+  while ($row = $res->fetchArray(SQLITE3_ASSOC)) { $existing[] = (string)($row['name'] ?? ''); }
+  if (!in_array('archived', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN archived INTEGER DEFAULT 0"); }
+  if (!in_array('archived_at', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN archived_at TEXT DEFAULT NULL"); }
 }
 
 function ensureVmTablePdo(PDO $db): void {
@@ -78,9 +89,16 @@ function ensureVmTablePdo(PDO $db): void {
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     ip TEXT DEFAULT '',
+    archived INTEGER DEFAULT 0,
+    archived_at TEXT DEFAULT NULL,
     created_at TEXT DEFAULT (datetime('now','localtime')),
     updated_at TEXT DEFAULT (datetime('now','localtime'))
   )");
+  $rows = $db->query('PRAGMA table_info(virtual_machines)')->fetchAll(PDO::FETCH_ASSOC);
+  $existing = [];
+  foreach ($rows as $row) { $existing[] = (string)($row['name'] ?? ''); }
+  if (!in_array('archived', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN archived INTEGER DEFAULT 0"); }
+  if (!in_array('archived_at', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN archived_at TEXT DEFAULT NULL"); }
 }
 
 function findOrCreateVmIdSqlite3(SQLite3 $db, string $name, string $ip): ?int {
@@ -184,6 +202,8 @@ function db() {
       vm_homolog TEXT DEFAULT '',
       vm_id INTEGER DEFAULT NULL,
       vm_homolog_id INTEGER DEFAULT NULL,
+      archived INTEGER DEFAULT 0,
+      archived_at TEXT DEFAULT NULL,
       category TEXT DEFAULT 'Outro',
       status TEXT DEFAULT 'Ativo',
       tech TEXT DEFAULT '',
@@ -223,6 +243,8 @@ function db() {
       vm_homolog TEXT DEFAULT '',
       vm_id INTEGER DEFAULT NULL,
       vm_homolog_id INTEGER DEFAULT NULL,
+      archived INTEGER DEFAULT 0,
+      archived_at TEXT DEFAULT NULL,
       category TEXT DEFAULT 'Outro',
       status TEXT DEFAULT 'Ativo',
       tech TEXT DEFAULT '',

@@ -25,8 +25,9 @@ function normalizeSystemRow(array $row): array {
   return $row;
 }
 
-function fetchSystemsSqlite3(SQLite3 $db): array {
-  $res = $db->query(systemSelectSql() . " ORDER BY s.name COLLATE NOCASE");
+function fetchSystemsSqlite3(SQLite3 $db, bool $archived=false): array {
+  $flag = $archived ? 1 : 0;
+  $res = $db->query(systemSelectSql() . " WHERE IFNULL(s.archived,0)=$flag ORDER BY s.name COLLATE NOCASE");
   $out = [];
   while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
     $out[] = normalizeSystemRow($row);
@@ -34,8 +35,9 @@ function fetchSystemsSqlite3(SQLite3 $db): array {
   return $out;
 }
 
-function fetchSystemsPdo(PDO $db): array {
-  $rows = $db->query(systemSelectSql() . " ORDER BY s.name COLLATE NOCASE")->fetchAll(PDO::FETCH_ASSOC);
+function fetchSystemsPdo(PDO $db, bool $archived=false): array {
+  $flag = $archived ? 1 : 0;
+  $rows = $db->query(systemSelectSql() . " WHERE IFNULL(s.archived,0)=$flag ORDER BY s.name COLLATE NOCASE")->fetchAll(PDO::FETCH_ASSOC);
   foreach ($rows as &$row) { $row = normalizeSystemRow($row); }
   unset($row);
   return $rows;
@@ -66,6 +68,16 @@ function bindSystemFieldSqlite3(SQLite3Stmt $st, string $field, array $data): vo
     else { $st->bindValue(':'.$field, null, SQLITE3_NULL); }
     return;
   }
+  if ($field === 'archived') {
+    $st->bindValue(':'.$field, (int)($data[$field] ?? 0), SQLITE3_INTEGER);
+    return;
+  }
+  if ($field === 'archived_at') {
+    $val = $data[$field] ?? null;
+    if ($val === null || $val === '') { $st->bindValue(':'.$field, null, SQLITE3_NULL); }
+    else { $st->bindValue(':'.$field, trim((string)$val), SQLITE3_TEXT); }
+    return;
+  }
   $st->bindValue(':'.$field, trim((string)($data[$field] ?? '')), SQLITE3_TEXT);
 }
 
@@ -76,16 +88,28 @@ function bindSystemFieldPdo(PDOStatement $st, string $field, array $data): void 
     else { $st->bindValue(':'.$field, null, PDO::PARAM_NULL); }
     return;
   }
+  if ($field === 'archived') {
+    $st->bindValue(':'.$field, (int)($data[$field] ?? 0), PDO::PARAM_INT);
+    return;
+  }
+  if ($field === 'archived_at') {
+    $val = $data[$field] ?? null;
+    if ($val === null || $val === '') { $st->bindValue(':'.$field, null, PDO::PARAM_NULL); }
+    else { $st->bindValue(':'.$field, trim((string)$val), PDO::PARAM_STR); }
+    return;
+  }
   $st->bindValue(':'.$field, trim((string)($data[$field] ?? '')), PDO::PARAM_STR);
 }
 
-function listVmsSqlite3(SQLite3 $db): array {
+function listVmsSqlite3(SQLite3 $db, bool $archived=false): array {
+  $flag = $archived ? 1 : 0;
   $sql = "SELECT
     vm.*,
-    (SELECT COUNT(*) FROM systems s WHERE s.vm_id = vm.id) AS prod_count,
-    (SELECT COUNT(*) FROM systems s WHERE s.vm_homolog_id = vm.id) AS hml_count,
-    (SELECT COUNT(*) FROM systems s WHERE s.vm_id = vm.id OR s.vm_homolog_id = vm.id) AS system_count
+    (SELECT COUNT(*) FROM systems s WHERE s.vm_id = vm.id AND IFNULL(s.archived,0)=0) AS prod_count,
+    (SELECT COUNT(*) FROM systems s WHERE s.vm_homolog_id = vm.id AND IFNULL(s.archived,0)=0) AS hml_count,
+    (SELECT COUNT(*) FROM systems s WHERE (s.vm_id = vm.id OR s.vm_homolog_id = vm.id) AND IFNULL(s.archived,0)=0) AS system_count
   FROM virtual_machines vm
+  WHERE IFNULL(vm.archived,0) = $flag
   ORDER BY vm.name COLLATE NOCASE";
   $res = $db->query($sql);
   $out = [];
@@ -99,13 +123,15 @@ function listVmsSqlite3(SQLite3 $db): array {
   return $out;
 }
 
-function listVmsPdo(PDO $db): array {
+function listVmsPdo(PDO $db, bool $archived=false): array {
+  $flag = $archived ? 1 : 0;
   $sql = "SELECT
     vm.*,
-    (SELECT COUNT(*) FROM systems s WHERE s.vm_id = vm.id) AS prod_count,
-    (SELECT COUNT(*) FROM systems s WHERE s.vm_homolog_id = vm.id) AS hml_count,
-    (SELECT COUNT(*) FROM systems s WHERE s.vm_id = vm.id OR s.vm_homolog_id = vm.id) AS system_count
+    (SELECT COUNT(*) FROM systems s WHERE s.vm_id = vm.id AND IFNULL(s.archived,0)=0) AS prod_count,
+    (SELECT COUNT(*) FROM systems s WHERE s.vm_homolog_id = vm.id AND IFNULL(s.archived,0)=0) AS hml_count,
+    (SELECT COUNT(*) FROM systems s WHERE (s.vm_id = vm.id OR s.vm_homolog_id = vm.id) AND IFNULL(s.archived,0)=0) AS system_count
   FROM virtual_machines vm
+  WHERE IFNULL(vm.archived,0) = $flag
   ORDER BY vm.name COLLATE NOCASE";
   $rows = $db->query($sql)->fetchAll(PDO::FETCH_ASSOC);
   foreach ($rows as &$row) {
@@ -145,14 +171,53 @@ function handleApiRequest(): void {
     $api = (string)($_GET['api'] ?? '');
 
     if ($api === 'list') {
-      $out = $db instanceof SQLite3 ? fetchSystemsSqlite3($db) : fetchSystemsPdo($db);
+      $out = $db instanceof SQLite3 ? fetchSystemsSqlite3($db, false) : fetchSystemsPdo($db, false);
       echo json_encode(['ok'=>true,'data'=>$out], JSON_UNESCAPED_UNICODE);
       return;
     }
 
     if ($api === 'vm-list') {
-      $out = $db instanceof SQLite3 ? listVmsSqlite3($db) : listVmsPdo($db);
+      $out = $db instanceof SQLite3 ? listVmsSqlite3($db, false) : listVmsPdo($db, false);
       echo json_encode(['ok'=>true,'data'=>$out], JSON_UNESCAPED_UNICODE);
+      return;
+    }
+
+    if ($api === 'archived-list') {
+      $systems = $db instanceof SQLite3 ? fetchSystemsSqlite3($db, true) : fetchSystemsPdo($db, true);
+      $vms = $db instanceof SQLite3 ? listVmsSqlite3($db, true) : listVmsPdo($db, true);
+      echo json_encode(['ok'=>true,'data'=>['systems'=>$systems,'vms'=>$vms]], JSON_UNESCAPED_UNICODE);
+      return;
+    }
+
+    if ($api === 'archive') {
+      if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') { echo json_encode(['ok'=>false,'error'=>'Invalid method']); return; }
+      $data = json_decode((string)file_get_contents('php://input'), true);
+      $id = (int)($data['id'] ?? 0);
+      if ($id <= 0) { echo json_encode(['ok'=>false,'error'=>'Invalid ID']); return; }
+      if ($db instanceof SQLite3) {
+        $db->exec("UPDATE systems SET archived=1, archived_at=datetime('now','localtime') WHERE id=$id");
+      } else {
+        $st = $db->prepare("UPDATE systems SET archived=1, archived_at=datetime('now','localtime') WHERE id=:id");
+        $st->bindValue(':id', $id, PDO::PARAM_INT);
+        $st->execute();
+      }
+      echo json_encode(['ok'=>true]);
+      return;
+    }
+
+    if ($api === 'restore') {
+      if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') { echo json_encode(['ok'=>false,'error'=>'Invalid method']); return; }
+      $data = json_decode((string)file_get_contents('php://input'), true);
+      $id = (int)($data['id'] ?? 0);
+      if ($id <= 0) { echo json_encode(['ok'=>false,'error'=>'Invalid ID']); return; }
+      if ($db instanceof SQLite3) {
+        $db->exec("UPDATE systems SET archived=0, archived_at=NULL WHERE id=$id");
+      } else {
+        $st = $db->prepare("UPDATE systems SET archived=0, archived_at=NULL WHERE id=:id");
+        $st->bindValue(':id', $id, PDO::PARAM_INT);
+        $st->execute();
+      }
+      echo json_encode(['ok'=>true], JSON_UNESCAPED_UNICODE);
       return;
     }
 
@@ -205,6 +270,46 @@ function handleApiRequest(): void {
       return;
     }
 
+    if ($api === 'vm-archive') {
+      if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') { echo json_encode(['ok'=>false,'error'=>'Invalid method']); return; }
+      $data = json_decode((string)file_get_contents('php://input'), true);
+      $id = (int)($data['id'] ?? 0);
+      if ($id <= 0) { echo json_encode(['ok'=>false,'error'=>'Invalid ID']); return; }
+
+      if ($db instanceof SQLite3) {
+        $inUse = (int)$db->querySingle("SELECT COUNT(*) FROM systems WHERE (vm_id=$id OR vm_homolog_id=$id) AND IFNULL(archived,0)=0");
+        if ($inUse > 0) { echo json_encode(['ok'=>false,'error'=>'Maquina vinculada a sistemas ativos. Arquive os sistemas antes.']); return; }
+        $db->exec("UPDATE virtual_machines SET archived=1, archived_at=datetime('now','localtime') WHERE id=$id");
+      } else {
+        $stCheck = $db->prepare("SELECT COUNT(*) FROM systems WHERE (vm_id=:id OR vm_homolog_id=:id) AND IFNULL(archived,0)=0");
+        $stCheck->bindValue(':id', $id, PDO::PARAM_INT);
+        $stCheck->execute();
+        $inUse = (int)$stCheck->fetchColumn();
+        if ($inUse > 0) { echo json_encode(['ok'=>false,'error'=>'Maquina vinculada a sistemas ativos. Arquive os sistemas antes.']); return; }
+        $st = $db->prepare("UPDATE virtual_machines SET archived=1, archived_at=datetime('now','localtime') WHERE id=:id");
+        $st->bindValue(':id', $id, PDO::PARAM_INT);
+        $st->execute();
+      }
+      echo json_encode(['ok'=>true]);
+      return;
+    }
+
+    if ($api === 'vm-restore') {
+      if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') { echo json_encode(['ok'=>false,'error'=>'Invalid method']); return; }
+      $data = json_decode((string)file_get_contents('php://input'), true);
+      $id = (int)($data['id'] ?? 0);
+      if ($id <= 0) { echo json_encode(['ok'=>false,'error'=>'Invalid ID']); return; }
+      if ($db instanceof SQLite3) {
+        $db->exec("UPDATE virtual_machines SET archived=0, archived_at=NULL WHERE id=$id");
+      } else {
+        $st = $db->prepare("UPDATE virtual_machines SET archived=0, archived_at=NULL WHERE id=:id");
+        $st->bindValue(':id', $id, PDO::PARAM_INT);
+        $st->execute();
+      }
+      echo json_encode(['ok'=>true]);
+      return;
+    }
+
     if ($api === 'vm-delete') {
       if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') { echo json_encode(['ok'=>false,'error'=>'Invalid method']); return; }
       $data = json_decode((string)file_get_contents('php://input'), true);
@@ -212,15 +317,23 @@ function handleApiRequest(): void {
       if ($id <= 0) { echo json_encode(['ok'=>false,'error'=>'Invalid ID']); return; }
 
       if ($db instanceof SQLite3) {
-        $inUse = (int)$db->querySingle("SELECT COUNT(*) FROM systems WHERE vm_id=$id OR vm_homolog_id=$id");
-        if ($inUse > 0) { echo json_encode(['ok'=>false,'error'=>'Maquina vinculada a sistemas. Remova os vinculos antes de excluir.']); return; }
+        $isArchived = (int)$db->querySingle("SELECT COUNT(*) FROM virtual_machines WHERE id=$id AND IFNULL(archived,0)=1");
+        if ($isArchived === 0) { echo json_encode(['ok'=>false,'error'=>'Apenas maquinas arquivadas podem ser excluidas.']); return; }
+        $db->exec("UPDATE systems SET vm_id=NULL WHERE vm_id=$id");
+        $db->exec("UPDATE systems SET vm_homolog_id=NULL WHERE vm_homolog_id=$id");
         $db->exec("DELETE FROM virtual_machines WHERE id=$id");
       } else {
-        $stCheck = $db->prepare("SELECT COUNT(*) FROM systems WHERE vm_id=:id OR vm_homolog_id=:id");
+        $stCheck = $db->prepare("SELECT COUNT(*) FROM virtual_machines WHERE id=:id AND IFNULL(archived,0)=1");
         $stCheck->bindValue(':id', $id, PDO::PARAM_INT);
         $stCheck->execute();
-        $inUse = (int)$stCheck->fetchColumn();
-        if ($inUse > 0) { echo json_encode(['ok'=>false,'error'=>'Maquina vinculada a sistemas. Remova os vinculos antes de excluir.']); return; }
+        $isArchived = (int)$stCheck->fetchColumn();
+        if ($isArchived === 0) { echo json_encode(['ok'=>false,'error'=>'Apenas maquinas arquivadas podem ser excluidas.']); return; }
+        $stNullProd = $db->prepare("UPDATE systems SET vm_id=NULL WHERE vm_id=:id");
+        $stNullProd->bindValue(':id', $id, PDO::PARAM_INT);
+        $stNullProd->execute();
+        $stNullHml = $db->prepare("UPDATE systems SET vm_homolog_id=NULL WHERE vm_homolog_id=:id");
+        $stNullHml->bindValue(':id', $id, PDO::PARAM_INT);
+        $stNullHml->execute();
         $st = $db->prepare("DELETE FROM virtual_machines WHERE id=:id");
         $st->bindValue(':id', $id, PDO::PARAM_INT);
         $st->execute();
@@ -236,7 +349,7 @@ function handleApiRequest(): void {
       $name = trim((string)($data['name'] ?? ''));
       if ($name === '') { echo json_encode(['ok'=>false,'error'=>'Name is required']); return; }
       $tech = is_array($data['tech'] ?? null) ? implode(',', array_filter(array_map('trim', $data['tech']))) : trim((string)($data['tech'] ?? ''));
-      $fields = ['name','system_name','vm_id','vm_homolog_id','category','status','url','url_homolog','description','owner','criticality','version','notes'];
+      $fields = ['name','system_name','vm_id','vm_homolog_id','category','status','url','url_homolog','description','owner','criticality','version','notes','archived','archived_at'];
       if (!empty($data['id'])) {
         $sets = implode(',', array_map(fn($f)=>"$f=:$f", $fields));
         $st = $db->prepare("UPDATE systems SET $sets, tech=:tech, updated_at=datetime('now','localtime') WHERE id=:id");
@@ -249,6 +362,8 @@ function handleApiRequest(): void {
       }
 
       foreach ($fields as $f) {
+        if ($f === 'archived') { $data[$f] = 0; }
+        if ($f === 'archived_at') { $data[$f] = null; }
         if ($db instanceof SQLite3) { bindSystemFieldSqlite3($st, $f, $data); }
         else { bindSystemFieldPdo($st, $f, $data); }
       }
@@ -277,8 +392,15 @@ function handleApiRequest(): void {
       $id = (int)($data['id'] ?? 0);
       if ($id <= 0) { echo json_encode(['ok'=>false,'error'=>'Invalid ID']); return; }
       if ($db instanceof SQLite3) {
+        $isArchived = (int)$db->querySingle("SELECT COUNT(*) FROM systems WHERE id=$id AND IFNULL(archived,0)=1");
+        if ($isArchived === 0) { echo json_encode(['ok'=>false,'error'=>'Apenas sistemas arquivados podem ser excluidos.']); return; }
         $db->exec("DELETE FROM systems WHERE id=$id");
       } else {
+        $stCheck = $db->prepare("SELECT COUNT(*) FROM systems WHERE id=:id AND IFNULL(archived,0)=1");
+        $stCheck->bindValue(':id', $id, PDO::PARAM_INT);
+        $stCheck->execute();
+        $isArchived = (int)$stCheck->fetchColumn();
+        if ($isArchived === 0) { echo json_encode(['ok'=>false,'error'=>'Apenas sistemas arquivados podem ser excluidos.']); return; }
         $st = $db->prepare("DELETE FROM systems WHERE id=:id");
         $st->bindValue(':id', $id, PDO::PARAM_INT);
         $st->execute();

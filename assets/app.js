@@ -1,4 +1,4 @@
-﻿const App = { items: [], vms: [], view: 'dashboard' };
+﻿const App = { items: [], vms: [], archived: { systems: [], vms: [] }, view: 'dashboard' };
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 const norm = (s) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
@@ -107,7 +107,7 @@ function vmLabel(vm){
 
 function setView(view){
   App.view = view;
-  ['dashboard','grid','lista','maquinas'].forEach((v) => {
+  ['dashboard','grid','lista','maquinas','arquivados'].forEach((v) => {
     $('view-' + v).classList.toggle('active', v === view);
     $('tab-' + v).classList.toggle('active', v === view);
   });
@@ -269,7 +269,7 @@ function renderList(list){
       <td>${(i.tech || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</td>
       <td>${esc(i.description || '-')}</td>
       <td>${esc(i.notes || '-')}</td>
-      <td onclick="event.stopPropagation()"><div class="actions"><button class="act" onclick="openFormById(${i.id})">&#9998;</button><button class="act del" onclick="delSystem(${i.id})">&#128465;</button></div></td>
+      <td onclick="event.stopPropagation()"><div class="actions"><button class="act" onclick="openFormById(${i.id})">&#9998;</button><button class="act del" onclick="archiveSystem(${i.id})">&#128230;</button></div></td>
     </tr>
   `).join('');
 
@@ -295,7 +295,7 @@ function renderList(list){
       <div class="tags">${(i.tech || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>
       <div class="list-mobile-actions" onclick="event.stopPropagation()">
         <button class="act" onclick="openFormById(${i.id})">&#9998;</button>
-        <button class="act del" onclick="delSystem(${i.id})">&#128465;</button>
+        <button class="act del" onclick="archiveSystem(${i.id})">&#128230;</button>
       </div>
     </div>
   `).join('');
@@ -347,7 +347,7 @@ function renderMachines(){
         <td>${use.prod.length}</td>
         <td>${use.hml.length}</td>
         <td>${use.total}</td>
-        <td><div class="actions"><button class="act" onclick="openVmFormById(${vm.id})">&#9998;</button><button class="act del" onclick="delVm(${vm.id})">&#128465;</button></div></td>
+        <td><div class="actions"><button class="act" onclick="openVmFormById(${vm.id})">&#9998;</button><button class="act del" onclick="archiveVm(${vm.id})">&#128230;</button></div></td>
       </tr>
     `;
   }).join('');
@@ -365,13 +365,48 @@ function renderMachines(){
         </div>
         <div class="vm-mobile-actions">
           <button class="act" onclick="openVmFormById(${vm.id})">&#9998;</button>
-          <button class="act del" onclick="delVm(${vm.id})">&#128465;</button>
+          <button class="act del" onclick="archiveVm(${vm.id})">&#128230;</button>
         </div>
       </div>
     `;
   }).join('');
 
   renderVmReport();
+}
+
+function renderArchived(){
+  const systems = App.archived.systems || [];
+  const vms = App.archived.vms || [];
+
+  if (!systems.length) {
+    $('archived-systems-body').innerHTML = '<tr><td colspan="7" style="color:var(--muted)">Nenhum sistema arquivado.</td></tr>';
+  } else {
+    $('archived-systems-body').innerHTML = systems.map((i) => `
+      <tr>
+        <td>${esc(i.name || '-')}</td>
+        <td>${esc(i.system_name || '-')}</td>
+        <td>${badge(i.status)}</td>
+        <td>${esc(vmName(i, false))}</td>
+        <td>${esc(vmName(i, true))}</td>
+        <td>${esc(i.archived_at || '-')}</td>
+        <td><div class="actions"><button class="act" onclick="restoreSystem(${i.id})">&#8634;</button><button class="act del" onclick="deleteSystemPermanent(${i.id})">&#128465;</button></div></td>
+      </tr>
+    `).join('');
+  }
+
+  if (!vms.length) {
+    $('archived-vms-body').innerHTML = '<tr><td colspan="5" style="color:var(--muted)">Nenhuma maquina arquivada.</td></tr>';
+  } else {
+    $('archived-vms-body').innerHTML = vms.map((vm) => `
+      <tr>
+        <td>${esc(vm.name || '-')}</td>
+        <td>${esc(vm.ip || '-')}</td>
+        <td>${Number(vm.system_count || 0)}</td>
+        <td>${esc(vm.archived_at || '-')}</td>
+        <td><div class="actions"><button class="act" onclick="restoreVm(${vm.id})">&#8634;</button><button class="act del" onclick="deleteVmPermanent(${vm.id})">&#128465;</button></div></td>
+      </tr>
+    `).join('');
+  }
 }
 
 function renderCurrent(){
@@ -387,6 +422,12 @@ function renderCurrent(){
   if (App.view === 'maquinas') {
     $('result-count').textContent = '';
     renderMachines();
+    return;
+  }
+
+  if (App.view === 'arquivados') {
+    $('result-count').textContent = '';
+    renderArchived();
     return;
   }
 
@@ -448,7 +489,7 @@ function openDetail(id){
   `;
 
   $('dedit').onclick = () => { closeModal('mdetail'); openForm(i); };
-  $('ddel').onclick = () => delSystem(i.id);
+  $('ddel').onclick = () => archiveSystem(i.id);
   $('mdetail').classList.remove('hidden');
 }
 
@@ -487,22 +528,40 @@ async function saveSystem(){
   }
 }
 
-async function delSystem(id){
+async function archiveSystem(id){
   const item = App.items.find((x)=>Number(x.id)===Number(id));
-  if(!confirm(`Excluir ${item?.name || 'sistema'}? Esta acao nao pode ser desfeita.`)) return;
-
+  if(!confirm(`Arquivar ${item?.name || 'sistema'}?`)) return;
   try{
-    const r = await api('delete', {id});
-    if(!r.ok) throw new Error(r.error || 'Erro ao excluir');
-
+    const r = await api('archive', {id});
+    if(!r.ok) throw new Error(r.error || 'Erro ao arquivar');
     App.items = App.items.filter((x)=>Number(x.id)!==Number(id));
+    await refreshArchived();
     closeModal('mdetail');
     populateFilters();
     renderCurrent();
-    toast('Sistema excluido');
-  }catch(e){
-    toast('Erro ao excluir: ' + (e.message || '?'), true);
-  }
+    toast('Sistema arquivado');
+  }catch(e){ toast('Erro ao arquivar: ' + (e.message || '?'), true); }
+}
+
+async function restoreSystem(id){
+  if(!confirm('Restaurar sistema arquivado?')) return;
+  try{
+    const r = await api('restore', {id});
+    if(!r.ok) throw new Error(r.error || 'Erro ao restaurar');
+    await refreshAll();
+    toast('Sistema restaurado');
+  }catch(e){ toast('Erro ao restaurar: ' + (e.message || '?'), true); }
+}
+
+async function deleteSystemPermanent(id){
+  if(!confirm('Excluir sistema definitivamente? Esta acao nao pode ser desfeita.')) return;
+  try{
+    const r = await api('delete', {id});
+    if(!r.ok) throw new Error(r.error || 'Erro ao excluir');
+    await refreshArchived();
+    renderCurrent();
+    toast('Sistema excluido definitivamente');
+  }catch(e){ toast('Erro ao excluir: ' + (e.message || '?'), true); }
 }
 
 function openVmFormById(id){
@@ -547,36 +606,70 @@ async function saveVm(){
   }
 }
 
-async function delVm(id){
+async function archiveVm(id){
   const vm = App.vms.find((x)=>Number(x.id)===Number(id));
-  if(!confirm(`Excluir maquina ${vm?.name || ''}?`)) return;
+  if(!confirm(`Arquivar maquina ${vm?.name || ''}?`)) return;
 
+  try{
+    const r = await api('vm-archive', {id});
+    if(!r.ok) throw new Error(r.error || 'Erro ao arquivar maquina');
+
+    App.vms = App.vms.filter((x)=>Number(x.id)!==Number(id));
+    await refreshArchived();
+    populateVmSelects();
+    renderCurrent();
+    toast('Maquina arquivada');
+  } catch (e) {
+    toast('Erro ao arquivar maquina: ' + (e.message || '?'), true);
+  }
+}
+
+async function restoreVm(id){
+  if(!confirm('Restaurar maquina arquivada?')) return;
+  try{
+    const r = await api('vm-restore', {id});
+    if(!r.ok) throw new Error(r.error || 'Erro ao restaurar maquina');
+    await refreshAll();
+    toast('Maquina restaurada');
+  }catch(e){ toast('Erro ao restaurar maquina: ' + (e.message || '?'), true); }
+}
+
+async function deleteVmPermanent(id){
+  if(!confirm('Excluir maquina definitivamente? Esta acao nao pode ser desfeita.')) return;
   try{
     const r = await api('vm-delete', {id});
     if(!r.ok) throw new Error(r.error || 'Erro ao excluir maquina');
-
-    App.vms = App.vms.filter((x)=>Number(x.id)!==Number(id));
-    populateVmSelects();
+    await refreshArchived();
     renderCurrent();
-    toast('Maquina excluida');
-  } catch (e) {
-    toast('Erro ao excluir maquina: ' + (e.message || '?'), true);
-  }
+    toast('Maquina excluida definitivamente');
+  }catch(e){ toast('Erro ao excluir maquina: ' + (e.message || '?'), true); }
+}
+
+async function refreshArchived(){
+  const archivedRes = await api('archived-list');
+  if(!archivedRes.ok) throw new Error(archivedRes.error || 'Erro ao carregar arquivados');
+  App.archived = archivedRes.data || { systems: [], vms: [] };
+}
+
+async function refreshAll(){
+  const [systemsRes, vmRes, archivedRes] = await Promise.all([api('list'), api('vm-list'), api('archived-list')]);
+  if(!systemsRes.ok) throw new Error(systemsRes.error || 'Erro ao carregar sistemas');
+  if(!vmRes.ok) throw new Error(vmRes.error || 'Erro ao carregar maquinas');
+  if(!archivedRes.ok) throw new Error(archivedRes.error || 'Erro ao carregar arquivados');
+
+  App.items = systemsRes.data || [];
+  App.vms = vmRes.data || [];
+  App.archived = archivedRes.data || { systems: [], vms: [] };
+  App.vms.sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')));
+  populateFilters();
+  populateVmSelects();
+  renderCurrent();
 }
 
 async function boot(){
   try{
-    const [systemsRes, vmRes] = await Promise.all([api('list'), api('vm-list')]);
-    if(!systemsRes.ok) throw new Error(systemsRes.error || 'Erro ao carregar sistemas');
-    if(!vmRes.ok) throw new Error(vmRes.error || 'Erro ao carregar maquinas');
-
-    App.items = systemsRes.data || [];
-    App.vms = vmRes.data || [];
-    App.vms.sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')));
-
+    await refreshAll();
     $('loading').style.display = 'none';
-    populateFilters();
-    populateVmSelects();
     setView(App.view);
   }catch(e){
     $('loading').textContent = 'Erro: ' + (e.message || 'Falha ao carregar dados');

@@ -30,6 +30,7 @@ if (isset($_GET['api'])) {
     <button id="tab-grid" class="tab" onclick="setView('grid')">&#9638; Grid</button>
     <button id="tab-lista" class="tab" onclick="setView('lista')">&#9776; Lista</button>
     <button id="tab-maquinas" class="tab" onclick="setView('maquinas')">&#128187; Maquinas</button>
+    <button id="tab-arquivados" class="tab" onclick="setView('arquivados')">&#128230; Arquivados</button>
   </div>
   <div class="sp"></div>
   <div id="count" class="top-count"></div>
@@ -88,6 +89,28 @@ if (isset($_GET['api'])) {
       </div>
     </div>
   </section>
+  <section id="view-arquivados" class="view">
+    <div class="dash-grid">
+      <div class="panel">
+        <h3>Sistemas Arquivados</h3>
+        <div class="table-wrap">
+          <table style="min-width:900px">
+            <thead><tr><th>Nome</th><th>Sistema</th><th>Status</th><th>VM Producao</th><th>VM Homologacao</th><th>Arquivado em</th><th style="width:150px">Acoes</th></tr></thead>
+            <tbody id="archived-systems-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Maquinas Arquivadas</h3>
+        <div class="table-wrap">
+          <table style="min-width:760px">
+            <thead><tr><th>Nome da Maquina</th><th>IP</th><th>Total Sistemas</th><th>Arquivado em</th><th style="width:150px">Acoes</th></tr></thead>
+            <tbody id="archived-vms-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
 </main>
 <div id="mform" class="modal-bg hidden" onclick="closeBg(event,'mform')">
   <div class="modal" onclick="event.stopPropagation()">
@@ -132,7 +155,7 @@ if (isset($_GET['api'])) {
     <div id="dbody"></div>
     <div class="form-actions" style="margin-top:12px">
       <button id="dedit" class="btn">Editar</button>
-      <button id="ddel" class="btn">Excluir</button>
+      <button id="ddel" class="btn">Arquivar</button>
     </div>
   </div>
 </div>
