@@ -576,8 +576,9 @@ function renderMachines(){
       `;
     }).join('');
 
+    const categoryClass = `vm-section-${norm(category).replace(/[^a-z0-9]+/g, '-')}`;
     return `
-      <div class="vm-section">
+      <div class="vm-section ${categoryClass}">
         <div class="vm-section-title">${esc(category)}</div>
         <div class="table-wrap vm-desktop-table">
           <table style="min-width:760px">
