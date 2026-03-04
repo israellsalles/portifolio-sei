@@ -347,7 +347,7 @@ main{padding:16px}
 }
 table{
   width:100%;
-  min-width:2200px;
+  min-width:1700px;
   border-collapse:collapse
 }
 thead tr{background:var(--surface2)}
@@ -623,6 +623,24 @@ tbody tr:hover td{background:#101d34}
   .top-count{display:none}
   .cards{grid-template-columns:repeat(auto-fill,minmax(300px,1fr))}
 }
+@media(max-width:1500px){
+  #view-lista .table-wrap{
+    display:none
+  }
+  .list-mobile-cards{
+    display:grid;
+    gap:10px
+  }
+}
+@media(max-width:1100px){
+  #view-maquinas .table-wrap{
+    display:none
+  }
+  .vm-mobile-cards{
+    display:grid;
+    gap:10px
+  }
+}
 @media(max-width:900px){
   header{
     flex-wrap:wrap;
@@ -674,22 +692,8 @@ tbody tr:hover td{background:#101d34}
   .btn-primary{
     width:100%
   }
-  #view-lista .table-wrap{
-    display:none
-  }
-  .list-mobile-cards{
-    display:grid;
-    gap:10px
-  }
   .list-mobile-grid{
     grid-template-columns:1fr
-  }
-  #view-maquinas .table-wrap{
-    display:none
-  }
-  .vm-mobile-cards{
-    display:grid;
-    gap:10px
   }
   .vm-mobile-stats{
     grid-template-columns:1fr
