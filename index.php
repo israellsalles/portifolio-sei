@@ -29,12 +29,13 @@ if (isset($_GET['api'])) {
     <button id="tab-dashboard" class="tab active" onclick="setView('dashboard')">&#128202; Dashboard</button>
     <button id="tab-grid" class="tab" onclick="setView('grid')">&#9638; Grid</button>
     <button id="tab-lista" class="tab" onclick="setView('lista')">&#9776; Lista</button>
+    <button id="tab-bases" class="tab" onclick="setView('bases')">&#128187; Bases</button>
     <button id="tab-maquinas" class="tab" onclick="setView('maquinas')">&#128187; Maquinas</button>
     <button id="tab-arquivados" class="tab" onclick="setView('arquivados')">&#128230; Arquivados</button>
   </div>
   <div class="sp"></div>
   <div id="count" class="top-count"></div>
-  <button class="btn-primary" onclick="openForm()">+ Novo Sistema</button>
+  <button id="top-action" class="btn-primary" onclick="runPrimaryAction()">+ Novo Sistema</button>
 </header>
 <main>
   <div id="toolbar" class="toolbar">
@@ -68,6 +69,21 @@ if (isset($_GET['api'])) {
     </div>
     <div id="list-cards" class="list-mobile-cards"></div>
   </section>
+  <section id="view-bases" class="view">
+    <div class="panel">
+      <div class="panel-head">
+        <h3>Bases de Dados</h3>
+        <button class="btn btn-save" onclick="openDbForm()">+ Nova Base</button>
+      </div>
+      <div class="table-wrap">
+        <table style="min-width:980px">
+          <thead><tr><th>Sistema</th><th>Base de Dados</th><th>SGBD</th><th>Maquina</th><th>IP</th><th>Observacoes</th><th style="width:98px">Acoes</th></tr></thead>
+          <tbody id="db-body"></tbody>
+        </table>
+      </div>
+      <div id="db-cards" class="db-mobile-cards"></div>
+    </div>
+  </section>
   <section id="view-maquinas" class="view">
     <div class="dash-grid">
       <div class="panel" style="grid-column:1 / span 2">
@@ -77,7 +93,7 @@ if (isset($_GET['api'])) {
         </div>
         <div class="table-wrap">
           <table style="min-width:760px">
-            <thead><tr><th>Nome da Maquina</th><th>IP</th><th>Sistemas em Producao</th><th>Sistemas em Homologacao</th><th>Total</th><th style="width:98px">Acoes</th></tr></thead>
+            <thead><tr><th>Nome da Maquina</th><th>IP</th><th>Sistemas em Producao</th><th>Sistemas em Homologacao</th><th>Bases de Dados</th><th>Total Sistemas</th><th style="width:98px">Acoes</th></tr></thead>
             <tbody id="vm-body"></tbody>
           </table>
         </div>
@@ -171,6 +187,27 @@ if (isset($_GET['api'])) {
       <div class="form-actions">
         <button class="btn" onclick="closeModal('mvm')">Cancelar</button>
         <button class="btn btn-save" onclick="saveVm()">Salvar Maquina</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="mdb" class="modal-bg hidden" onclick="closeBg(event,'mdb')">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-head"><div id="dbtitle" class="modal-title">Nova Base de Dados</div><button class="close" onclick="closeModal('mdb')">&#10005;</button></div>
+    <div class="form">
+      <input id="fdbid" type="hidden">
+      <div class="row2">
+        <div class="field"><label>Sistema *</label><select id="fdbsystem"></select></div>
+        <div class="field"><label>Maquina *</label><select id="fdbvm"></select></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Nome da Base *</label><input id="fdbname" placeholder="Ex: bd_sistema_a"></div>
+        <div class="field"><label>SGBD *</label><select id="fdbengine"><option value="">Selecionar...</option><option>MySQL</option><option>PostgreSQL</option><option>SQL Server</option><option>Oracle</option><option>MariaDB</option><option>SQLite</option></select></div>
+      </div>
+      <div class="field"><label>Observacoes</label><textarea id="fdbnotes"></textarea></div>
+      <div class="form-actions">
+        <button class="btn" onclick="closeModal('mdb')">Cancelar</button>
+        <button class="btn btn-save" onclick="saveDb()">Salvar Base</button>
       </div>
     </div>
   </div>

@@ -101,6 +101,64 @@ function ensureVmTablePdo(PDO $db): void {
   if (!in_array('archived_at', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN archived_at TEXT DEFAULT NULL"); }
 }
 
+function ensureDatabaseTableSqlite3(SQLite3 $db): void {
+  $db->exec("CREATE TABLE IF NOT EXISTS system_databases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    system_id INTEGER NOT NULL,
+    vm_id INTEGER DEFAULT NULL,
+    db_name TEXT NOT NULL,
+    db_engine TEXT NOT NULL,
+    db_engine_version TEXT DEFAULT '',
+    notes TEXT DEFAULT '',
+    archived INTEGER DEFAULT 0,
+    archived_at TEXT DEFAULT NULL,
+    created_at TEXT DEFAULT (datetime('now','localtime')),
+    updated_at TEXT DEFAULT (datetime('now','localtime'))
+  )");
+
+  $res = $db->query('PRAGMA table_info(system_databases)');
+  $existing = [];
+  while ($row = $res->fetchArray(SQLITE3_ASSOC)) { $existing[] = (string)($row['name'] ?? ''); }
+
+  if (!in_array('db_engine_version', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_engine_version TEXT DEFAULT ''"); }
+  if (!in_array('notes', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN notes TEXT DEFAULT ''"); }
+  if (!in_array('archived', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN archived INTEGER DEFAULT 0"); }
+  if (!in_array('archived_at', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN archived_at TEXT DEFAULT NULL"); }
+  if (!in_array('updated_at', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN updated_at TEXT DEFAULT (datetime('now','localtime'))"); }
+
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_system_databases_system_id ON system_databases(system_id)");
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_system_databases_vm_id ON system_databases(vm_id)");
+}
+
+function ensureDatabaseTablePdo(PDO $db): void {
+  $db->exec("CREATE TABLE IF NOT EXISTS system_databases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    system_id INTEGER NOT NULL,
+    vm_id INTEGER DEFAULT NULL,
+    db_name TEXT NOT NULL,
+    db_engine TEXT NOT NULL,
+    db_engine_version TEXT DEFAULT '',
+    notes TEXT DEFAULT '',
+    archived INTEGER DEFAULT 0,
+    archived_at TEXT DEFAULT NULL,
+    created_at TEXT DEFAULT (datetime('now','localtime')),
+    updated_at TEXT DEFAULT (datetime('now','localtime'))
+  )");
+
+  $rows = $db->query('PRAGMA table_info(system_databases)')->fetchAll(PDO::FETCH_ASSOC);
+  $existing = [];
+  foreach ($rows as $row) { $existing[] = (string)($row['name'] ?? ''); }
+
+  if (!in_array('db_engine_version', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_engine_version TEXT DEFAULT ''"); }
+  if (!in_array('notes', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN notes TEXT DEFAULT ''"); }
+  if (!in_array('archived', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN archived INTEGER DEFAULT 0"); }
+  if (!in_array('archived_at', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN archived_at TEXT DEFAULT NULL"); }
+  if (!in_array('updated_at', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN updated_at TEXT DEFAULT (datetime('now','localtime'))"); }
+
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_system_databases_system_id ON system_databases(system_id)");
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_system_databases_vm_id ON system_databases(vm_id)");
+}
+
 function findOrCreateVmIdSqlite3(SQLite3 $db, string $name, string $ip): ?int {
   $name = trim($name);
   $ip = trim($ip);
@@ -218,6 +276,7 @@ function db() {
     )");
     ensureSystemColumnsSqlite3($db);
     ensureVmTableSqlite3($db);
+    ensureDatabaseTableSqlite3($db);
     migrateLegacyVmLinksSqlite3($db);
     $count = (int)$db->querySingle('SELECT COUNT(*) FROM systems');
     if ($count === 0) {
@@ -259,6 +318,7 @@ function db() {
     )");
     ensureSystemColumnsPdo($db);
     ensureVmTablePdo($db);
+    ensureDatabaseTablePdo($db);
     migrateLegacyVmLinksPdo($db);
     $count = (int)$db->query("SELECT COUNT(*) FROM systems")->fetchColumn();
     if ($count === 0) {

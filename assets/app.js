@@ -1,4 +1,4 @@
-﻿const App = { items: [], vms: [], archived: { systems: [], vms: [] }, view: 'dashboard' };
+const App = { items: [], vms: [], databases: [], archived: { systems: [], vms: [] }, view: 'dashboard' };
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 const norm = (s) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
@@ -105,13 +105,43 @@ function vmLabel(vm){
   return name || ip;
 }
 
+function runPrimaryAction(){
+  if (App.view === 'bases') {
+    openDbForm();
+    return;
+  }
+  if (App.view === 'maquinas') {
+    openVmForm();
+    return;
+  }
+  openForm();
+}
+
+function syncPrimaryAction(){
+  const btn = $('top-action');
+  if (!btn) return;
+
+  if (App.view === 'bases') {
+    btn.textContent = '+ Nova Base';
+    return;
+  }
+
+  if (App.view === 'maquinas') {
+    btn.textContent = '+ Nova Maquina';
+    return;
+  }
+
+  btn.textContent = '+ Novo Sistema';
+}
+
 function setView(view){
   App.view = view;
-  ['dashboard','grid','lista','maquinas','arquivados'].forEach((v) => {
+  ['dashboard','grid','lista','bases','maquinas','arquivados'].forEach((v) => {
     $('view-' + v).classList.toggle('active', v === view);
     $('tab-' + v).classList.toggle('active', v === view);
   });
   $('toolbar').style.display = (view === 'grid' || view === 'lista') ? 'flex' : 'none';
+  syncPrimaryAction();
   renderCurrent();
 }
 
@@ -138,6 +168,23 @@ function populateVmSelects(){
   };
   fillVm('fvm_id','Selecionar...');
   fillVm('fvm_homolog_id','Selecionar...');
+}
+
+function populateDbSelects(){
+  const systemEl = $('fdbsystem');
+  if (systemEl) {
+    const prev = systemEl.value;
+    const systems = [...App.items].sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')));
+    systemEl.innerHTML = '<option value="">Selecionar...</option>' + systems.map((item)=>`<option value="${item.id}">${esc(item.name || '-')}</option>`).join('');
+    if (prev && [...systemEl.options].some((o)=>o.value === prev)) systemEl.value = prev;
+  }
+
+  const vmEl = $('fdbvm');
+  if (vmEl) {
+    const prev = vmEl.value;
+    vmEl.innerHTML = '<option value="">Selecionar...</option>' + App.vms.map((vm)=>`<option value="${vm.id}">${esc(vmLabel(vm))}</option>`).join('');
+    if (prev && [...vmEl.options].some((o)=>o.value === prev)) vmEl.value = prev;
+  }
 }
 
 function filteredItems(){
@@ -308,6 +355,50 @@ function vmUsage(vmId){
   return { prod, hml, total: uniq.size };
 }
 
+function vmDatabases(vmId){
+  return App.databases.filter((d) => Number(d.vm_id) === Number(vmId));
+}
+
+function renderDatabases(){
+  const list = [...App.databases].sort((a,b)=>String(a.db_name || '').localeCompare(String(b.db_name || '')));
+  if (!list.length) {
+    $('db-body').innerHTML = '<tr><td colspan="7" style="color:var(--muted)">Nenhuma base de dados cadastrada.</td></tr>';
+    $('db-cards').innerHTML = '<div class="db-mobile-card"><div class="db-mobile-value" style="color:var(--muted)">Nenhuma base de dados cadastrada.</div></div>';
+    return;
+  }
+
+  $('db-body').innerHTML = list.map((d) => `
+    <tr>
+      <td>${esc(d.system_name || '-')}</td>
+      <td>${esc(d.db_name || '-')}</td>
+      <td>${esc(d.db_engine || '-')}</td>
+      <td>${esc(d.vm_name || '-')}</td>
+      <td>${esc(d.vm_ip || '-')}</td>
+      <td>${esc(d.notes || '-')}</td>
+      <td><div class="actions"><button class="act" onclick="openDbFormById(${d.id})">&#9998;</button><button class="act del" onclick="deleteDb(${d.id})">&#128465;</button></div></td>
+    </tr>
+  `).join('');
+
+  $('db-cards').innerHTML = list.map((d) => `
+    <div class="db-mobile-card">
+      <div class="db-mobile-head">
+        <div class="db-mobile-title">${esc(d.db_name || '-')}</div>
+        <div class="db-mobile-engine">${esc(d.db_engine || '-')}</div>
+      </div>
+      <div class="db-mobile-grid">
+        <div class="db-mobile-item"><span class="db-mobile-label">Sistema</span><span class="db-mobile-value">${esc(d.system_name || '-')}</span></div>
+        <div class="db-mobile-item"><span class="db-mobile-label">Maquina</span><span class="db-mobile-value">${esc(d.vm_name || '-')}</span></div>
+        <div class="db-mobile-item"><span class="db-mobile-label">IP</span><span class="db-mobile-value">${esc(d.vm_ip || '-')}</span></div>
+        <div class="db-mobile-item"><span class="db-mobile-label">Observacoes</span><span class="db-mobile-value">${esc(d.notes || '-')}</span></div>
+      </div>
+      <div class="db-mobile-actions">
+        <button class="act" onclick="openDbFormById(${d.id})">&#9998;</button>
+        <button class="act del" onclick="deleteDb(${d.id})">&#128465;</button>
+      </div>
+    </div>
+  `).join('');
+}
+
 function renderVmReport(){
   const box = $('vm-report');
   if (!App.vms.length) {
@@ -317,14 +408,17 @@ function renderVmReport(){
 
   box.innerHTML = App.vms.map((vm) => {
     const use = vmUsage(vm.id);
+    const dbs = vmDatabases(vm.id);
     const lines = [];
     use.prod.forEach((s) => lines.push(`${s.name} (producao)`));
     use.hml.forEach((s) => lines.push(`${s.name} (homologacao)`));
+    const dbLines = dbs.map((d) => `${d.db_name} [${d.db_engine}] - ${d.system_name || '-'}`);
     return `
       <div class="vm-report-item">
         <div class="vm-report-title">${esc(vm.name)}</div>
-        <div class="vm-report-sub">IP ${esc(vm.ip || '-')} • ${use.total} sistema(s)</div>
+        <div class="vm-report-sub">IP ${esc(vm.ip || '-')} &#8226; ${use.total} sistema(s) &#8226; ${dbs.length} base(s)</div>
         ${lines.length ? `<ul class="vm-report-list">${lines.map((x)=>`<li>${esc(x)}</li>`).join('')}</ul>` : '<div class="vm-report-empty">Sem sistemas vinculados.</div>'}
+        ${dbLines.length ? `<ul class="vm-report-list vm-report-db">${dbLines.map((x)=>`<li>${esc(x)}</li>`).join('')}</ul>` : '<div class="vm-report-empty">Sem bases vinculadas.</div>'}
       </div>
     `;
   }).join('');
@@ -332,7 +426,7 @@ function renderVmReport(){
 
 function renderMachines(){
   if (!App.vms.length) {
-    $('vm-body').innerHTML = '<tr><td colspan="6" style="color:var(--muted)">Nenhuma maquina cadastrada.</td></tr>';
+    $('vm-body').innerHTML = '<tr><td colspan="7" style="color:var(--muted)">Nenhuma maquina cadastrada.</td></tr>';
     $('vm-cards').innerHTML = '<div class="vm-mobile-card"><div class="vm-mobile-ip">Nenhuma maquina cadastrada.</div></div>';
     renderVmReport();
     return;
@@ -340,12 +434,14 @@ function renderMachines(){
 
   $('vm-body').innerHTML = App.vms.map((vm) => {
     const use = vmUsage(vm.id);
+    const dbs = vmDatabases(vm.id);
     return `
       <tr>
         <td>${esc(vm.name)}</td>
         <td>${esc(vm.ip || '-')}</td>
         <td>${use.prod.length}</td>
         <td>${use.hml.length}</td>
+        <td>${dbs.length}</td>
         <td>${use.total}</td>
         <td><div class="actions"><button class="act" onclick="openVmFormById(${vm.id})">&#9998;</button><button class="act del" onclick="archiveVm(${vm.id})">&#128230;</button></div></td>
       </tr>
@@ -354,6 +450,7 @@ function renderMachines(){
 
   $('vm-cards').innerHTML = App.vms.map((vm) => {
     const use = vmUsage(vm.id);
+    const dbs = vmDatabases(vm.id);
     return `
       <div class="vm-mobile-card">
         <div class="vm-mobile-title">${esc(vm.name)}</div>
@@ -361,6 +458,7 @@ function renderMachines(){
         <div class="vm-mobile-stats">
           <div class="vm-mobile-stat"><div class="vm-mobile-stat-label">Producao</div><div class="vm-mobile-stat-value">${use.prod.length}</div></div>
           <div class="vm-mobile-stat"><div class="vm-mobile-stat-label">Homologacao</div><div class="vm-mobile-stat-value">${use.hml.length}</div></div>
+          <div class="vm-mobile-stat"><div class="vm-mobile-stat-label">Bases</div><div class="vm-mobile-stat-value">${dbs.length}</div></div>
           <div class="vm-mobile-stat"><div class="vm-mobile-stat-label">Total</div><div class="vm-mobile-stat-value">${use.total}</div></div>
         </div>
         <div class="vm-mobile-actions">
@@ -411,7 +509,7 @@ function renderArchived(){
 
 function renderCurrent(){
   const active = App.items.filter((i)=>statusKind(i.status)==='active').length;
-  $('count').innerHTML = `${App.items.length} sistemas &#8226; ${active} ativos`;
+  $('count').innerHTML = `${App.items.length} sistemas &#8226; ${App.databases.length} bases &#8226; ${active} ativos`;
 
   if (App.view === 'dashboard') {
     $('result-count').textContent = '';
@@ -422,6 +520,12 @@ function renderCurrent(){
   if (App.view === 'maquinas') {
     $('result-count').textContent = '';
     renderMachines();
+    return;
+  }
+
+  if (App.view === 'bases') {
+    $('result-count').textContent = '';
+    renderDatabases();
     return;
   }
 
@@ -515,13 +619,8 @@ async function saveSystem(){
   try{
     const r = await api('save', data);
     if(!r.ok) throw new Error(r.error || 'Erro ao salvar');
-
-    if(data.id) App.items = App.items.map((x)=>Number(x.id)===Number(data.id) ? r.data : x);
-    else App.items.push(r.data);
-
+    await refreshAll();
     closeModal('mform');
-    populateFilters();
-    renderCurrent();
     toast(data.id ? 'Sistema atualizado' : 'Sistema adicionado');
   }catch(e){
     toast('Erro ao salvar: ' + (e.message || '?'), true);
@@ -534,11 +633,8 @@ async function archiveSystem(id){
   try{
     const r = await api('archive', {id});
     if(!r.ok) throw new Error(r.error || 'Erro ao arquivar');
-    App.items = App.items.filter((x)=>Number(x.id)!==Number(id));
-    await refreshArchived();
+    await refreshAll();
     closeModal('mdetail');
-    populateFilters();
-    renderCurrent();
     toast('Sistema arquivado');
   }catch(e){ toast('Erro ao arquivar: ' + (e.message || '?'), true); }
 }
@@ -558,10 +654,69 @@ async function deleteSystemPermanent(id){
   try{
     const r = await api('delete', {id});
     if(!r.ok) throw new Error(r.error || 'Erro ao excluir');
-    await refreshArchived();
-    renderCurrent();
+    await refreshAll();
     toast('Sistema excluido definitivamente');
   }catch(e){ toast('Erro ao excluir: ' + (e.message || '?'), true); }
+}
+
+function openDbFormById(id){
+  const item = App.databases.find((x)=>Number(x.id)===Number(id));
+  if (item) openDbForm(item);
+}
+
+function openDbForm(item=null){
+  $('dbtitle').textContent = item ? 'Editar Base de Dados' : 'Nova Base de Dados';
+  $('fdbid').value = item?.id || '';
+  $('fdbname').value = item?.db_name || '';
+  $('fdbengine').value = item?.db_engine || '';
+  $('fdbnotes').value = item?.notes || '';
+
+  populateDbSelects();
+  $('fdbsystem').value = item?.system_id ? String(item.system_id) : '';
+  $('fdbvm').value = item?.vm_id ? String(item.vm_id) : '';
+  $('mdb').classList.remove('hidden');
+}
+
+async function saveDb(){
+  const data = {
+    id: $('fdbid').value || null,
+    system_id: Number($('fdbsystem').value) || null,
+    vm_id: Number($('fdbvm').value) || null,
+    db_name: $('fdbname').value.trim(),
+    db_engine: $('fdbengine').value.trim(),
+    notes: $('fdbnotes').value.trim(),
+  };
+
+  if (!data.system_id || !data.vm_id || !data.db_name || !data.db_engine) {
+    toast('Informe sistema, maquina, nome da base e SGBD.', true);
+    return;
+  }
+
+  try{
+    const r = await api('db-save', data);
+    if(!r.ok) throw new Error(r.error || 'Erro ao salvar base');
+
+    if(data.id) App.databases = App.databases.map((x)=>Number(x.id)===Number(data.id) ? r.data : x);
+    else App.databases.push(r.data);
+
+    closeModal('mdb');
+    renderCurrent();
+    toast(data.id ? 'Base atualizada' : 'Base cadastrada');
+  }catch(e){
+    toast('Erro ao salvar base: ' + (e.message || '?'), true);
+  }
+}
+
+async function deleteDb(id){
+  const item = App.databases.find((x)=>Number(x.id)===Number(id));
+  if(!confirm(`Excluir base ${item?.db_name || ''} definitivamente?`)) return;
+  try{
+    const r = await api('db-delete', {id});
+    if(!r.ok) throw new Error(r.error || 'Erro ao excluir base');
+    App.databases = App.databases.filter((x)=>Number(x.id)!==Number(id));
+    renderCurrent();
+    toast('Base excluida');
+  }catch(e){ toast('Erro ao excluir base: ' + (e.message || '?'), true); }
 }
 
 function openVmFormById(id){
@@ -592,14 +747,8 @@ async function saveVm(){
   try {
     const r = await api('vm-save', data);
     if(!r.ok) throw new Error(r.error || 'Erro ao salvar maquina');
-
-    if (data.id) App.vms = App.vms.map((x)=>Number(x.id)===Number(data.id) ? r.data : x);
-    else App.vms.push(r.data);
-
-    App.vms.sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')));
+    await refreshAll();
     closeModal('mvm');
-    populateVmSelects();
-    renderCurrent();
     toast(data.id ? 'Maquina atualizada' : 'Maquina cadastrada');
   } catch (e) {
     toast('Erro ao salvar maquina: ' + (e.message || '?'), true);
@@ -613,11 +762,7 @@ async function archiveVm(id){
   try{
     const r = await api('vm-archive', {id});
     if(!r.ok) throw new Error(r.error || 'Erro ao arquivar maquina');
-
-    App.vms = App.vms.filter((x)=>Number(x.id)!==Number(id));
-    await refreshArchived();
-    populateVmSelects();
-    renderCurrent();
+    await refreshAll();
     toast('Maquina arquivada');
   } catch (e) {
     toast('Erro ao arquivar maquina: ' + (e.message || '?'), true);
@@ -639,8 +784,7 @@ async function deleteVmPermanent(id){
   try{
     const r = await api('vm-delete', {id});
     if(!r.ok) throw new Error(r.error || 'Erro ao excluir maquina');
-    await refreshArchived();
-    renderCurrent();
+    await refreshAll();
     toast('Maquina excluida definitivamente');
   }catch(e){ toast('Erro ao excluir maquina: ' + (e.message || '?'), true); }
 }
@@ -652,17 +796,20 @@ async function refreshArchived(){
 }
 
 async function refreshAll(){
-  const [systemsRes, vmRes, archivedRes] = await Promise.all([api('list'), api('vm-list'), api('archived-list')]);
+  const [systemsRes, vmRes, dbRes, archivedRes] = await Promise.all([api('list'), api('vm-list'), api('db-list'), api('archived-list')]);
   if(!systemsRes.ok) throw new Error(systemsRes.error || 'Erro ao carregar sistemas');
   if(!vmRes.ok) throw new Error(vmRes.error || 'Erro ao carregar maquinas');
+  if(!dbRes.ok) throw new Error(dbRes.error || 'Erro ao carregar bases');
   if(!archivedRes.ok) throw new Error(archivedRes.error || 'Erro ao carregar arquivados');
 
   App.items = systemsRes.data || [];
   App.vms = vmRes.data || [];
+  App.databases = dbRes.data || [];
   App.archived = archivedRes.data || { systems: [], vms: [] };
   App.vms.sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')));
   populateFilters();
   populateVmSelects();
+  populateDbSelects();
   renderCurrent();
 }
 
