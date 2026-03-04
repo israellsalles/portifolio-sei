@@ -368,6 +368,47 @@ td{font-size:14px}
 .table-wrap a{word-break:break-all}
 tbody tr{cursor:pointer}
 tbody tr:hover td{background:#101d34}
+.list-mobile-cards{display:none}
+.list-mobile-card{
+  border:1px solid var(--line);
+  background:var(--surface);
+  border-radius:12px;
+  padding:12px;
+  cursor:pointer
+}
+.list-mobile-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:10px;
+  margin-bottom:8px
+}
+.list-mobile-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px 10px
+}
+.list-mobile-item{
+  display:flex;
+  flex-direction:column;
+  gap:2px
+}
+.list-mobile-label{
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:.6px;
+  color:var(--muted)
+}
+.list-mobile-value{
+  font-size:13px;
+  color:var(--txt);
+  word-break:break-word
+}
+.list-mobile-actions{
+  display:flex;
+  gap:6px;
+  margin-top:10px
+}
 .list-name{
   font-size:18px;
   font-weight:700;
@@ -504,6 +545,50 @@ tbody tr:hover td{background:#101d34}
   display:grid;
   gap:10px
 }
+.vm-mobile-cards{display:none}
+.vm-mobile-card{
+  border:1px solid var(--line);
+  background:var(--surface);
+  border-radius:12px;
+  padding:12px
+}
+.vm-mobile-title{
+  font-size:16px;
+  font-weight:700;
+  margin-bottom:4px
+}
+.vm-mobile-ip{
+  color:var(--muted);
+  font-size:13px;
+  margin-bottom:10px
+}
+.vm-mobile-stats{
+  display:grid;
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  gap:8px
+}
+.vm-mobile-stat{
+  border:1px solid #223659;
+  background:#0d1830;
+  border-radius:8px;
+  padding:8px
+}
+.vm-mobile-stat-label{
+  font-size:10px;
+  text-transform:uppercase;
+  letter-spacing:.6px;
+  color:var(--muted)
+}
+.vm-mobile-stat-value{
+  margin-top:4px;
+  font-size:16px;
+  font-weight:700
+}
+.vm-mobile-actions{
+  display:flex;
+  gap:6px;
+  margin-top:10px
+}
 .vm-report-item{
   border:1px solid #223659;
   background:#0d1830;
@@ -588,5 +673,25 @@ tbody tr:hover td{background:#101d34}
   }
   .btn-primary{
     width:100%
+  }
+  #view-lista .table-wrap{
+    display:none
+  }
+  .list-mobile-cards{
+    display:grid;
+    gap:10px
+  }
+  .list-mobile-grid{
+    grid-template-columns:1fr
+  }
+  #view-maquinas .table-wrap{
+    display:none
+  }
+  .vm-mobile-cards{
+    display:grid;
+    gap:10px
+  }
+  .vm-mobile-stats{
+    grid-template-columns:1fr
   }
 }

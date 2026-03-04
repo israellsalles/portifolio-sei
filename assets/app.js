@@ -247,6 +247,7 @@ function renderList(list){
   $('result-count').textContent = `${list.length} resultado(s)`;
   if (!list.length) {
     $('list-body').innerHTML = '<tr><td colspan="17" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
+    $('list-cards').innerHTML = '<div class="list-mobile-card"><div class="list-mobile-value" style="color:var(--muted)">Nenhum sistema encontrado.</div></div>';
     return;
   }
 
@@ -270,6 +271,33 @@ function renderList(list){
       <td>${esc(i.notes || '-')}</td>
       <td onclick="event.stopPropagation()"><div class="actions"><button class="act" onclick="openFormById(${i.id})">&#9998;</button><button class="act del" onclick="delSystem(${i.id})">&#128465;</button></div></td>
     </tr>
+  `).join('');
+
+  $('list-cards').innerHTML = list.map((i) => `
+    <div class="list-mobile-card" onclick="openDetail(${i.id})">
+      <div class="list-mobile-head">
+        <div class="list-name">${esc(i.name)}</div>
+        ${badge(i.status)}
+      </div>
+      <div class="list-mobile-grid">
+        <div class="list-mobile-item"><span class="list-mobile-label">Sistema</span><span class="list-mobile-value">${esc(i.system_name || '-')}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">Categoria</span><span class="list-mobile-value">${esc(i.category || '-')}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">Criticidade</span><span class="list-mobile-value crit-${critKind(i.criticality)}">${esc(i.criticality || '-')}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">Responsavel</span><span class="list-mobile-value">${esc(i.owner || '-')}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">Versao</span><span class="list-mobile-value">${esc(i.version || '-')}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">VM Producao</span><span class="list-mobile-value">${esc(vmName(i, false))} | ${esc(vmIp(i, false))}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">VM Homologacao</span><span class="list-mobile-value">${esc(vmName(i, true))} | ${esc(vmIp(i, true))}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">URL</span><span class="list-mobile-value">${linkHtml(i.url)}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">URL Homologacao</span><span class="list-mobile-value">${linkHtml(i.url_homolog)}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">Descricao</span><span class="list-mobile-value">${esc(i.description || '-')}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">Observacoes</span><span class="list-mobile-value">${esc(i.notes || '-')}</span></div>
+      </div>
+      <div class="tags">${(i.tech || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>
+      <div class="list-mobile-actions" onclick="event.stopPropagation()">
+        <button class="act" onclick="openFormById(${i.id})">&#9998;</button>
+        <button class="act del" onclick="delSystem(${i.id})">&#128465;</button>
+      </div>
+    </div>
   `).join('');
 }
 
@@ -305,6 +333,7 @@ function renderVmReport(){
 function renderMachines(){
   if (!App.vms.length) {
     $('vm-body').innerHTML = '<tr><td colspan="6" style="color:var(--muted)">Nenhuma maquina cadastrada.</td></tr>';
+    $('vm-cards').innerHTML = '<div class="vm-mobile-card"><div class="vm-mobile-ip">Nenhuma maquina cadastrada.</div></div>';
     renderVmReport();
     return;
   }
@@ -320,6 +349,25 @@ function renderMachines(){
         <td>${use.total}</td>
         <td><div class="actions"><button class="act" onclick="openVmFormById(${vm.id})">&#9998;</button><button class="act del" onclick="delVm(${vm.id})">&#128465;</button></div></td>
       </tr>
+    `;
+  }).join('');
+
+  $('vm-cards').innerHTML = App.vms.map((vm) => {
+    const use = vmUsage(vm.id);
+    return `
+      <div class="vm-mobile-card">
+        <div class="vm-mobile-title">${esc(vm.name)}</div>
+        <div class="vm-mobile-ip">${esc(vm.ip || '-')}</div>
+        <div class="vm-mobile-stats">
+          <div class="vm-mobile-stat"><div class="vm-mobile-stat-label">Producao</div><div class="vm-mobile-stat-value">${use.prod.length}</div></div>
+          <div class="vm-mobile-stat"><div class="vm-mobile-stat-label">Homologacao</div><div class="vm-mobile-stat-value">${use.hml.length}</div></div>
+          <div class="vm-mobile-stat"><div class="vm-mobile-stat-label">Total</div><div class="vm-mobile-stat-value">${use.total}</div></div>
+        </div>
+        <div class="vm-mobile-actions">
+          <button class="act" onclick="openVmFormById(${vm.id})">&#9998;</button>
+          <button class="act del" onclick="delVm(${vm.id})">&#128465;</button>
+        </div>
+      </div>
     `;
   }).join('');
 

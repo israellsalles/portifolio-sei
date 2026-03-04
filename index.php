@@ -65,6 +65,7 @@ if (isset($_GET['api'])) {
         <tbody id="list-body"></tbody>
       </table>
     </div>
+    <div id="list-cards" class="list-mobile-cards"></div>
   </section>
   <section id="view-maquinas" class="view">
     <div class="dash-grid">
@@ -79,6 +80,7 @@ if (isset($_GET['api'])) {
             <tbody id="vm-body"></tbody>
           </table>
         </div>
+        <div id="vm-cards" class="vm-mobile-cards"></div>
       </div>
       <div class="panel">
         <h3>Relatorio por Maquina</h3>
