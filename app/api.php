@@ -108,7 +108,7 @@ function listVmsSqlite3(SQLite3 $db, bool $archived=false): array {
     (SELECT COUNT(*) FROM systems s WHERE s.vm_id = vm.id AND IFNULL(s.archived,0)=0) AS prod_count,
     (SELECT COUNT(*) FROM systems s WHERE s.vm_homolog_id = vm.id AND IFNULL(s.archived,0)=0) AS hml_count,
     (SELECT COUNT(*) FROM systems s WHERE (s.vm_id = vm.id OR s.vm_homolog_id = vm.id) AND IFNULL(s.archived,0)=0) AS system_count,
-    (SELECT COUNT(*) FROM system_databases d WHERE d.vm_id = vm.id AND IFNULL(d.archived,0)=0) AS database_count
+    (SELECT COUNT(*) FROM system_databases d WHERE (d.vm_id = vm.id OR d.vm_homolog_id = vm.id) AND IFNULL(d.archived,0)=0) AS database_count
   FROM virtual_machines vm
   WHERE IFNULL(vm.archived,0) = $flag
   ORDER BY vm.name COLLATE NOCASE";
@@ -117,6 +117,7 @@ function listVmsSqlite3(SQLite3 $db, bool $archived=false): array {
   while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
     $row['id'] = (int)$row['id'];
     $row['vm_category'] = trim((string)($row['vm_category'] ?? '')) !== '' ? trim((string)$row['vm_category']) : 'Producao';
+    $row['vm_type'] = trim((string)($row['vm_type'] ?? '')) !== '' ? trim((string)$row['vm_type']) : 'Sistemas';
     $row['vm_tech'] = trim((string)($row['vm_tech'] ?? ''));
     $row['vm_tech_list'] = $row['vm_tech'] !== '' ? array_values(array_filter(array_map('trim', explode(',', $row['vm_tech'])))) : [];
     $row['prod_count'] = (int)$row['prod_count'];
@@ -135,7 +136,7 @@ function listVmsPdo(PDO $db, bool $archived=false): array {
     (SELECT COUNT(*) FROM systems s WHERE s.vm_id = vm.id AND IFNULL(s.archived,0)=0) AS prod_count,
     (SELECT COUNT(*) FROM systems s WHERE s.vm_homolog_id = vm.id AND IFNULL(s.archived,0)=0) AS hml_count,
     (SELECT COUNT(*) FROM systems s WHERE (s.vm_id = vm.id OR s.vm_homolog_id = vm.id) AND IFNULL(s.archived,0)=0) AS system_count,
-    (SELECT COUNT(*) FROM system_databases d WHERE d.vm_id = vm.id AND IFNULL(d.archived,0)=0) AS database_count
+    (SELECT COUNT(*) FROM system_databases d WHERE (d.vm_id = vm.id OR d.vm_homolog_id = vm.id) AND IFNULL(d.archived,0)=0) AS database_count
   FROM virtual_machines vm
   WHERE IFNULL(vm.archived,0) = $flag
   ORDER BY vm.name COLLATE NOCASE";
@@ -143,6 +144,7 @@ function listVmsPdo(PDO $db, bool $archived=false): array {
   foreach ($rows as &$row) {
     $row['id'] = (int)$row['id'];
     $row['vm_category'] = trim((string)($row['vm_category'] ?? '')) !== '' ? trim((string)$row['vm_category']) : 'Producao';
+    $row['vm_type'] = trim((string)($row['vm_type'] ?? '')) !== '' ? trim((string)$row['vm_type']) : 'Sistemas';
     $row['vm_tech'] = trim((string)($row['vm_tech'] ?? ''));
     $row['vm_tech_list'] = $row['vm_tech'] !== '' ? array_values(array_filter(array_map('trim', explode(',', $row['vm_tech'])))) : [];
     $row['prod_count'] = (int)$row['prod_count'];
@@ -155,26 +157,28 @@ function listVmsPdo(PDO $db, bool $archived=false): array {
 }
 
 function fetchVmByIdSqlite3(SQLite3 $db, int $id): ?array {
-  $st = $db->prepare("SELECT id,name,ip,vm_category,vm_tech,created_at,updated_at FROM virtual_machines WHERE id=:id");
+  $st = $db->prepare("SELECT id,name,ip,vm_category,vm_type,vm_tech,os_name,os_version,vcpus,ram,disk,created_at,updated_at FROM virtual_machines WHERE id=:id");
   $st->bindValue(':id', $id, SQLITE3_INTEGER);
   $res = $st->execute();
   $row = $res ? $res->fetchArray(SQLITE3_ASSOC) : false;
   if (!is_array($row)) { return null; }
   $row['id'] = (int)$row['id'];
   $row['vm_category'] = trim((string)($row['vm_category'] ?? '')) !== '' ? trim((string)$row['vm_category']) : 'Producao';
+  $row['vm_type'] = trim((string)($row['vm_type'] ?? '')) !== '' ? trim((string)$row['vm_type']) : 'Sistemas';
   $row['vm_tech'] = trim((string)($row['vm_tech'] ?? ''));
   $row['vm_tech_list'] = $row['vm_tech'] !== '' ? array_values(array_filter(array_map('trim', explode(',', $row['vm_tech'])))) : [];
   return $row;
 }
 
 function fetchVmByIdPdo(PDO $db, int $id): ?array {
-  $st = $db->prepare("SELECT id,name,ip,vm_category,vm_tech,created_at,updated_at FROM virtual_machines WHERE id=:id");
+  $st = $db->prepare("SELECT id,name,ip,vm_category,vm_type,vm_tech,os_name,os_version,vcpus,ram,disk,created_at,updated_at FROM virtual_machines WHERE id=:id");
   $st->bindValue(':id', $id, PDO::PARAM_INT);
   $st->execute();
   $row = $st->fetch(PDO::FETCH_ASSOC);
   if (!is_array($row)) { return null; }
   $row['id'] = (int)$row['id'];
   $row['vm_category'] = trim((string)($row['vm_category'] ?? '')) !== '' ? trim((string)$row['vm_category']) : 'Producao';
+  $row['vm_type'] = trim((string)($row['vm_type'] ?? '')) !== '' ? trim((string)$row['vm_type']) : 'Sistemas';
   $row['vm_tech'] = trim((string)($row['vm_tech'] ?? ''));
   $row['vm_tech_list'] = $row['vm_tech'] !== '' ? array_values(array_filter(array_map('trim', explode(',', $row['vm_tech'])))) : [];
   return $row;
@@ -186,19 +190,25 @@ function databaseSelectSql(): string {
     s.name AS system_name,
     s.system_name AS system_alias,
     vm.name AS vm_name,
-    vm.ip AS vm_ip
+    vm.ip AS vm_ip,
+    vmh.name AS vm_homolog_name,
+    vmh.ip AS vm_homolog_ip
   FROM system_databases d
   LEFT JOIN systems s ON s.id = d.system_id
-  LEFT JOIN virtual_machines vm ON vm.id = d.vm_id";
+  LEFT JOIN virtual_machines vm ON vm.id = d.vm_id
+  LEFT JOIN virtual_machines vmh ON vmh.id = d.vm_homolog_id";
 }
 
 function normalizeDatabaseRow(array $row): array {
   $row['id'] = (int)($row['id'] ?? 0);
   $row['system_id'] = (int)($row['system_id'] ?? 0);
   $row['vm_id'] = isset($row['vm_id']) && $row['vm_id'] !== null && (int)$row['vm_id'] > 0 ? (int)$row['vm_id'] : null;
+  $row['vm_homolog_id'] = isset($row['vm_homolog_id']) && $row['vm_homolog_id'] !== null && (int)$row['vm_homolog_id'] > 0 ? (int)$row['vm_homolog_id'] : null;
   $row['db_name'] = trim((string)($row['db_name'] ?? ''));
+  $row['db_user'] = trim((string)($row['db_user'] ?? ''));
   $row['db_engine'] = trim((string)($row['db_engine'] ?? ''));
   $row['db_engine_version'] = trim((string)($row['db_engine_version'] ?? ''));
+  $row['db_engine_version_homolog'] = trim((string)($row['db_engine_version_homolog'] ?? ''));
   $row['notes'] = trim((string)($row['notes'] ?? ''));
   $row['archived'] = (int)($row['archived'] ?? 0);
   return $row;
@@ -319,48 +329,80 @@ function handleApiRequest(): void {
       $name = trim((string)($data['name'] ?? ''));
       $ip = trim((string)($data['ip'] ?? ''));
       $vmCategory = trim((string)($data['vm_category'] ?? ''));
+      $vmType = trim((string)($data['vm_type'] ?? ''));
       $vmTech = is_array($data['vm_tech'] ?? null) ? implode(',', array_filter(array_map('trim', $data['vm_tech']))) : trim((string)($data['vm_tech'] ?? ''));
+      $osName = trim((string)($data['os_name'] ?? ''));
+      $osVersion = trim((string)($data['os_version'] ?? ''));
+      $vcpus = trim((string)($data['vcpus'] ?? ''));
+      $ram = trim((string)($data['ram'] ?? ''));
+      $disk = trim((string)($data['disk'] ?? ''));
       if ($name === '' || $ip === '') { echo json_encode(['ok'=>false,'error'=>'Nome e IP sao obrigatorios']); return; }
       $allowedCategories = ['Producao','Homologacao','Desenvolvimento'];
       if (!in_array($vmCategory, $allowedCategories, true)) { $vmCategory = 'Producao'; }
+      $allowedTypes = ['Sistemas','SGBD'];
+      if (!in_array($vmType, $allowedTypes, true)) { $vmType = 'Sistemas'; }
 
       if (!empty($data['id'])) {
         $id = (int)$data['id'];
         if ($db instanceof SQLite3) {
-          $st = $db->prepare("UPDATE virtual_machines SET name=:name, ip=:ip, vm_category=:vm_category, vm_tech=:vm_tech, updated_at=datetime('now','localtime') WHERE id=:id");
+          $st = $db->prepare("UPDATE virtual_machines SET name=:name, ip=:ip, vm_category=:vm_category, vm_type=:vm_type, vm_tech=:vm_tech, os_name=:os_name, os_version=:os_version, vcpus=:vcpus, ram=:ram, disk=:disk, updated_at=datetime('now','localtime') WHERE id=:id");
           $st->bindValue(':name', $name, SQLITE3_TEXT);
           $st->bindValue(':ip', $ip, SQLITE3_TEXT);
           $st->bindValue(':vm_category', $vmCategory, SQLITE3_TEXT);
+          $st->bindValue(':vm_type', $vmType, SQLITE3_TEXT);
           $st->bindValue(':vm_tech', $vmTech, SQLITE3_TEXT);
+          $st->bindValue(':os_name', $osName, SQLITE3_TEXT);
+          $st->bindValue(':os_version', $osVersion, SQLITE3_TEXT);
+          $st->bindValue(':vcpus', $vcpus, SQLITE3_TEXT);
+          $st->bindValue(':ram', $ram, SQLITE3_TEXT);
+          $st->bindValue(':disk', $disk, SQLITE3_TEXT);
           $st->bindValue(':id', $id, SQLITE3_INTEGER);
           $st->execute();
           $row = fetchVmByIdSqlite3($db, $id);
         } else {
-          $st = $db->prepare("UPDATE virtual_machines SET name=:name, ip=:ip, vm_category=:vm_category, vm_tech=:vm_tech, updated_at=datetime('now','localtime') WHERE id=:id");
+          $st = $db->prepare("UPDATE virtual_machines SET name=:name, ip=:ip, vm_category=:vm_category, vm_type=:vm_type, vm_tech=:vm_tech, os_name=:os_name, os_version=:os_version, vcpus=:vcpus, ram=:ram, disk=:disk, updated_at=datetime('now','localtime') WHERE id=:id");
           $st->bindValue(':name', $name, PDO::PARAM_STR);
           $st->bindValue(':ip', $ip, PDO::PARAM_STR);
           $st->bindValue(':vm_category', $vmCategory, PDO::PARAM_STR);
+          $st->bindValue(':vm_type', $vmType, PDO::PARAM_STR);
           $st->bindValue(':vm_tech', $vmTech, PDO::PARAM_STR);
+          $st->bindValue(':os_name', $osName, PDO::PARAM_STR);
+          $st->bindValue(':os_version', $osVersion, PDO::PARAM_STR);
+          $st->bindValue(':vcpus', $vcpus, PDO::PARAM_STR);
+          $st->bindValue(':ram', $ram, PDO::PARAM_STR);
+          $st->bindValue(':disk', $disk, PDO::PARAM_STR);
           $st->bindValue(':id', $id, PDO::PARAM_INT);
           $st->execute();
           $row = fetchVmByIdPdo($db, $id);
         }
       } else {
         if ($db instanceof SQLite3) {
-          $st = $db->prepare("INSERT INTO virtual_machines(name,ip,vm_category,vm_tech) VALUES(:name,:ip,:vm_category,:vm_tech)");
+          $st = $db->prepare("INSERT INTO virtual_machines(name,ip,vm_category,vm_type,vm_tech,os_name,os_version,vcpus,ram,disk) VALUES(:name,:ip,:vm_category,:vm_type,:vm_tech,:os_name,:os_version,:vcpus,:ram,:disk)");
           $st->bindValue(':name', $name, SQLITE3_TEXT);
           $st->bindValue(':ip', $ip, SQLITE3_TEXT);
           $st->bindValue(':vm_category', $vmCategory, SQLITE3_TEXT);
+          $st->bindValue(':vm_type', $vmType, SQLITE3_TEXT);
           $st->bindValue(':vm_tech', $vmTech, SQLITE3_TEXT);
+          $st->bindValue(':os_name', $osName, SQLITE3_TEXT);
+          $st->bindValue(':os_version', $osVersion, SQLITE3_TEXT);
+          $st->bindValue(':vcpus', $vcpus, SQLITE3_TEXT);
+          $st->bindValue(':ram', $ram, SQLITE3_TEXT);
+          $st->bindValue(':disk', $disk, SQLITE3_TEXT);
           $st->execute();
           $id = (int)$db->lastInsertRowID();
           $row = fetchVmByIdSqlite3($db, $id);
         } else {
-          $st = $db->prepare("INSERT INTO virtual_machines(name,ip,vm_category,vm_tech) VALUES(:name,:ip,:vm_category,:vm_tech)");
+          $st = $db->prepare("INSERT INTO virtual_machines(name,ip,vm_category,vm_type,vm_tech,os_name,os_version,vcpus,ram,disk) VALUES(:name,:ip,:vm_category,:vm_type,:vm_tech,:os_name,:os_version,:vcpus,:ram,:disk)");
           $st->bindValue(':name', $name, PDO::PARAM_STR);
           $st->bindValue(':ip', $ip, PDO::PARAM_STR);
           $st->bindValue(':vm_category', $vmCategory, PDO::PARAM_STR);
+          $st->bindValue(':vm_type', $vmType, PDO::PARAM_STR);
           $st->bindValue(':vm_tech', $vmTech, PDO::PARAM_STR);
+          $st->bindValue(':os_name', $osName, PDO::PARAM_STR);
+          $st->bindValue(':os_version', $osVersion, PDO::PARAM_STR);
+          $st->bindValue(':vcpus', $vcpus, PDO::PARAM_STR);
+          $st->bindValue(':ram', $ram, PDO::PARAM_STR);
+          $st->bindValue(':disk', $disk, PDO::PARAM_STR);
           $st->execute();
           $id = (int)$db->lastInsertId();
           $row = fetchVmByIdPdo($db, $id);
@@ -381,7 +423,7 @@ function handleApiRequest(): void {
       if ($db instanceof SQLite3) {
         $inUse = (int)$db->querySingle("SELECT COUNT(*) FROM systems WHERE (vm_id=$id OR vm_homolog_id=$id) AND IFNULL(archived,0)=0");
         if ($inUse > 0) { echo json_encode(['ok'=>false,'error'=>'Maquina vinculada a sistemas ativos. Arquive os sistemas antes.']); return; }
-        $dbInUse = (int)$db->querySingle("SELECT COUNT(*) FROM system_databases WHERE vm_id=$id AND IFNULL(archived,0)=0");
+        $dbInUse = (int)$db->querySingle("SELECT COUNT(*) FROM system_databases WHERE (vm_id=$id OR vm_homolog_id=$id) AND IFNULL(archived,0)=0");
         if ($dbInUse > 0) { echo json_encode(['ok'=>false,'error'=>'Maquina vinculada a bases ativas. Remova ou mova as bases antes.']); return; }
         $db->exec("UPDATE virtual_machines SET archived=1, archived_at=datetime('now','localtime') WHERE id=$id");
       } else {
@@ -390,7 +432,7 @@ function handleApiRequest(): void {
         $stCheck->execute();
         $inUse = (int)$stCheck->fetchColumn();
         if ($inUse > 0) { echo json_encode(['ok'=>false,'error'=>'Maquina vinculada a sistemas ativos. Arquive os sistemas antes.']); return; }
-        $stCheckDb = $db->prepare("SELECT COUNT(*) FROM system_databases WHERE vm_id=:id AND IFNULL(archived,0)=0");
+        $stCheckDb = $db->prepare("SELECT COUNT(*) FROM system_databases WHERE (vm_id=:id OR vm_homolog_id=:id) AND IFNULL(archived,0)=0");
         $stCheckDb->bindValue(':id', $id, PDO::PARAM_INT);
         $stCheckDb->execute();
         $dbInUse = (int)$stCheckDb->fetchColumn();
@@ -431,6 +473,7 @@ function handleApiRequest(): void {
         $db->exec("UPDATE systems SET vm_id=NULL WHERE vm_id=$id");
         $db->exec("UPDATE systems SET vm_homolog_id=NULL WHERE vm_homolog_id=$id");
         $db->exec("UPDATE system_databases SET vm_id=NULL, updated_at=datetime('now','localtime') WHERE vm_id=$id");
+        $db->exec("UPDATE system_databases SET vm_homolog_id=NULL, updated_at=datetime('now','localtime') WHERE vm_homolog_id=$id");
         $db->exec("DELETE FROM virtual_machines WHERE id=$id");
       } else {
         $stCheck = $db->prepare("SELECT COUNT(*) FROM virtual_machines WHERE id=:id AND IFNULL(archived,0)=1");
@@ -447,6 +490,9 @@ function handleApiRequest(): void {
         $stNullDbVm = $db->prepare("UPDATE system_databases SET vm_id=NULL, updated_at=datetime('now','localtime') WHERE vm_id=:id");
         $stNullDbVm->bindValue(':id', $id, PDO::PARAM_INT);
         $stNullDbVm->execute();
+        $stNullDbVmHml = $db->prepare("UPDATE system_databases SET vm_homolog_id=NULL, updated_at=datetime('now','localtime') WHERE vm_homolog_id=:id");
+        $stNullDbVmHml->bindValue(':id', $id, PDO::PARAM_INT);
+        $stNullDbVmHml->execute();
         $st = $db->prepare("DELETE FROM virtual_machines WHERE id=:id");
         $st->bindValue(':id', $id, PDO::PARAM_INT);
         $st->execute();
@@ -462,9 +508,12 @@ function handleApiRequest(): void {
 
       $systemId = (int)($data['system_id'] ?? 0);
       $vmId = (int)($data['vm_id'] ?? 0);
+      $vmHomologId = (int)($data['vm_homolog_id'] ?? 0);
       $dbName = trim((string)($data['db_name'] ?? ''));
+      $dbUser = trim((string)($data['db_user'] ?? ''));
       $dbEngine = trim((string)($data['db_engine'] ?? ''));
       $dbEngineVersion = trim((string)($data['db_engine_version'] ?? ''));
+      $dbEngineVersionHomolog = trim((string)($data['db_engine_version_homolog'] ?? ''));
       $notes = trim((string)($data['notes'] ?? ''));
 
       if ($systemId <= 0) { echo json_encode(['ok'=>false,'error'=>'Sistema obrigatorio']); return; }
@@ -477,6 +526,10 @@ function handleApiRequest(): void {
         if ($systemExists === 0) { echo json_encode(['ok'=>false,'error'=>'Sistema invalido ou arquivado']); return; }
         $vmExists = (int)$db->querySingle("SELECT COUNT(*) FROM virtual_machines WHERE id=$vmId AND IFNULL(archived,0)=0");
         if ($vmExists === 0) { echo json_encode(['ok'=>false,'error'=>'Maquina invalida ou arquivada']); return; }
+        if ($vmHomologId > 0) {
+          $vmHmlExists = (int)$db->querySingle("SELECT COUNT(*) FROM virtual_machines WHERE id=$vmHomologId AND IFNULL(archived,0)=0");
+          if ($vmHmlExists === 0) { echo json_encode(['ok'=>false,'error'=>'Maquina de homologacao invalida ou arquivada']); return; }
+        }
       } else {
         $stSystem = $db->prepare("SELECT COUNT(*) FROM systems WHERE id=:id AND IFNULL(archived,0)=0");
         $stSystem->bindValue(':id', $systemId, PDO::PARAM_INT);
@@ -487,32 +540,46 @@ function handleApiRequest(): void {
         $stVm->bindValue(':id', $vmId, PDO::PARAM_INT);
         $stVm->execute();
         if ((int)$stVm->fetchColumn() === 0) { echo json_encode(['ok'=>false,'error'=>'Maquina invalida ou arquivada']); return; }
+        if ($vmHomologId > 0) {
+          $stVmHml = $db->prepare("SELECT COUNT(*) FROM virtual_machines WHERE id=:id AND IFNULL(archived,0)=0");
+          $stVmHml->bindValue(':id', $vmHomologId, PDO::PARAM_INT);
+          $stVmHml->execute();
+          if ((int)$stVmHml->fetchColumn() === 0) { echo json_encode(['ok'=>false,'error'=>'Maquina de homologacao invalida ou arquivada']); return; }
+        }
       }
 
       if (!empty($data['id'])) {
         $id = (int)$data['id'];
         if ($db instanceof SQLite3) {
           $st = $db->prepare("UPDATE system_databases
-            SET system_id=:system_id, vm_id=:vm_id, db_name=:db_name, db_engine=:db_engine, db_engine_version=:db_engine_version, notes=:notes, archived=0, archived_at=NULL, updated_at=datetime('now','localtime')
+            SET system_id=:system_id, vm_id=:vm_id, vm_homolog_id=:vm_homolog_id, db_name=:db_name, db_user=:db_user, db_engine=:db_engine, db_engine_version=:db_engine_version, db_engine_version_homolog=:db_engine_version_homolog, notes=:notes, archived=0, archived_at=NULL, updated_at=datetime('now','localtime')
             WHERE id=:id");
           $st->bindValue(':system_id', $systemId, SQLITE3_INTEGER);
           $st->bindValue(':vm_id', $vmId, SQLITE3_INTEGER);
+          if ($vmHomologId > 0) { $st->bindValue(':vm_homolog_id', $vmHomologId, SQLITE3_INTEGER); }
+          else { $st->bindValue(':vm_homolog_id', null, SQLITE3_NULL); }
           $st->bindValue(':db_name', $dbName, SQLITE3_TEXT);
+          $st->bindValue(':db_user', $dbUser, SQLITE3_TEXT);
           $st->bindValue(':db_engine', $dbEngine, SQLITE3_TEXT);
           $st->bindValue(':db_engine_version', $dbEngineVersion, SQLITE3_TEXT);
+          $st->bindValue(':db_engine_version_homolog', $dbEngineVersionHomolog, SQLITE3_TEXT);
           $st->bindValue(':notes', $notes, SQLITE3_TEXT);
           $st->bindValue(':id', $id, SQLITE3_INTEGER);
           $st->execute();
           $row = fetchDatabaseByIdSqlite3($db, $id);
         } else {
           $st = $db->prepare("UPDATE system_databases
-            SET system_id=:system_id, vm_id=:vm_id, db_name=:db_name, db_engine=:db_engine, db_engine_version=:db_engine_version, notes=:notes, archived=0, archived_at=NULL, updated_at=datetime('now','localtime')
+            SET system_id=:system_id, vm_id=:vm_id, vm_homolog_id=:vm_homolog_id, db_name=:db_name, db_user=:db_user, db_engine=:db_engine, db_engine_version=:db_engine_version, db_engine_version_homolog=:db_engine_version_homolog, notes=:notes, archived=0, archived_at=NULL, updated_at=datetime('now','localtime')
             WHERE id=:id");
           $st->bindValue(':system_id', $systemId, PDO::PARAM_INT);
           $st->bindValue(':vm_id', $vmId, PDO::PARAM_INT);
+          if ($vmHomologId > 0) { $st->bindValue(':vm_homolog_id', $vmHomologId, PDO::PARAM_INT); }
+          else { $st->bindValue(':vm_homolog_id', null, PDO::PARAM_NULL); }
           $st->bindValue(':db_name', $dbName, PDO::PARAM_STR);
+          $st->bindValue(':db_user', $dbUser, PDO::PARAM_STR);
           $st->bindValue(':db_engine', $dbEngine, PDO::PARAM_STR);
           $st->bindValue(':db_engine_version', $dbEngineVersion, PDO::PARAM_STR);
+          $st->bindValue(':db_engine_version_homolog', $dbEngineVersionHomolog, PDO::PARAM_STR);
           $st->bindValue(':notes', $notes, PDO::PARAM_STR);
           $st->bindValue(':id', $id, PDO::PARAM_INT);
           $st->execute();
@@ -520,23 +587,31 @@ function handleApiRequest(): void {
         }
       } else {
         if ($db instanceof SQLite3) {
-          $st = $db->prepare("INSERT INTO system_databases(system_id,vm_id,db_name,db_engine,db_engine_version,notes) VALUES(:system_id,:vm_id,:db_name,:db_engine,:db_engine_version,:notes)");
+          $st = $db->prepare("INSERT INTO system_databases(system_id,vm_id,vm_homolog_id,db_name,db_user,db_engine,db_engine_version,db_engine_version_homolog,notes) VALUES(:system_id,:vm_id,:vm_homolog_id,:db_name,:db_user,:db_engine,:db_engine_version,:db_engine_version_homolog,:notes)");
           $st->bindValue(':system_id', $systemId, SQLITE3_INTEGER);
           $st->bindValue(':vm_id', $vmId, SQLITE3_INTEGER);
+          if ($vmHomologId > 0) { $st->bindValue(':vm_homolog_id', $vmHomologId, SQLITE3_INTEGER); }
+          else { $st->bindValue(':vm_homolog_id', null, SQLITE3_NULL); }
           $st->bindValue(':db_name', $dbName, SQLITE3_TEXT);
+          $st->bindValue(':db_user', $dbUser, SQLITE3_TEXT);
           $st->bindValue(':db_engine', $dbEngine, SQLITE3_TEXT);
           $st->bindValue(':db_engine_version', $dbEngineVersion, SQLITE3_TEXT);
+          $st->bindValue(':db_engine_version_homolog', $dbEngineVersionHomolog, SQLITE3_TEXT);
           $st->bindValue(':notes', $notes, SQLITE3_TEXT);
           $st->execute();
           $id = (int)$db->lastInsertRowID();
           $row = fetchDatabaseByIdSqlite3($db, $id);
         } else {
-          $st = $db->prepare("INSERT INTO system_databases(system_id,vm_id,db_name,db_engine,db_engine_version,notes) VALUES(:system_id,:vm_id,:db_name,:db_engine,:db_engine_version,:notes)");
+          $st = $db->prepare("INSERT INTO system_databases(system_id,vm_id,vm_homolog_id,db_name,db_user,db_engine,db_engine_version,db_engine_version_homolog,notes) VALUES(:system_id,:vm_id,:vm_homolog_id,:db_name,:db_user,:db_engine,:db_engine_version,:db_engine_version_homolog,:notes)");
           $st->bindValue(':system_id', $systemId, PDO::PARAM_INT);
           $st->bindValue(':vm_id', $vmId, PDO::PARAM_INT);
+          if ($vmHomologId > 0) { $st->bindValue(':vm_homolog_id', $vmHomologId, PDO::PARAM_INT); }
+          else { $st->bindValue(':vm_homolog_id', null, PDO::PARAM_NULL); }
           $st->bindValue(':db_name', $dbName, PDO::PARAM_STR);
+          $st->bindValue(':db_user', $dbUser, PDO::PARAM_STR);
           $st->bindValue(':db_engine', $dbEngine, PDO::PARAM_STR);
           $st->bindValue(':db_engine_version', $dbEngineVersion, PDO::PARAM_STR);
+          $st->bindValue(':db_engine_version_homolog', $dbEngineVersionHomolog, PDO::PARAM_STR);
           $st->bindValue(':notes', $notes, PDO::PARAM_STR);
           $st->execute();
           $id = (int)$db->lastInsertId();
@@ -573,7 +648,7 @@ function handleApiRequest(): void {
       $name = trim((string)($data['name'] ?? ''));
       if ($name === '') { echo json_encode(['ok'=>false,'error'=>'Name is required']); return; }
       $tech = is_array($data['tech'] ?? null) ? implode(',', array_filter(array_map('trim', $data['tech']))) : trim((string)($data['tech'] ?? ''));
-      $fields = ['name','system_name','vm_id','vm_homolog_id','category','status','url','url_homolog','description','owner','criticality','version','notes','archived','archived_at'];
+      $fields = ['name','system_name','vm_id','vm_homolog_id','category','status','url','url_homolog','description','owner','criticality','version','notes','responsible_sector','responsible_coordinator','extension_number','email','support','support_contact','archived','archived_at'];
       if (!empty($data['id'])) {
         $sets = implode(',', array_map(fn($f)=>"$f=:$f", $fields));
         $st = $db->prepare("UPDATE systems SET $sets, tech=:tech, updated_at=datetime('now','localtime') WHERE id=:id");

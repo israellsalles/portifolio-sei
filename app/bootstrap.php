@@ -29,6 +29,12 @@ function ensureSystemColumnsSqlite3(SQLite3 $db): void {
     'vm_homolog_id' => "INTEGER DEFAULT NULL",
     'archived' => "INTEGER DEFAULT 0",
     'archived_at' => "TEXT DEFAULT NULL",
+    'responsible_sector' => "TEXT DEFAULT ''",
+    'responsible_coordinator' => "TEXT DEFAULT ''",
+    'extension_number' => "TEXT DEFAULT ''",
+    'email' => "TEXT DEFAULT ''",
+    'support' => "TEXT DEFAULT ''",
+    'support_contact' => "TEXT DEFAULT ''",
   ];
   $existing = [];
   $res = $db->query('PRAGMA table_info(systems)');
@@ -54,6 +60,12 @@ function ensureSystemColumnsPdo(PDO $db): void {
     'vm_homolog_id' => "INTEGER DEFAULT NULL",
     'archived' => "INTEGER DEFAULT 0",
     'archived_at' => "TEXT DEFAULT NULL",
+    'responsible_sector' => "TEXT DEFAULT ''",
+    'responsible_coordinator' => "TEXT DEFAULT ''",
+    'extension_number' => "TEXT DEFAULT ''",
+    'email' => "TEXT DEFAULT ''",
+    'support' => "TEXT DEFAULT ''",
+    'support_contact' => "TEXT DEFAULT ''",
   ];
   $existing = [];
   $rows = $db->query('PRAGMA table_info(systems)')->fetchAll(PDO::FETCH_ASSOC);
@@ -73,7 +85,13 @@ function ensureVmTableSqlite3(SQLite3 $db): void {
     name TEXT NOT NULL,
     ip TEXT DEFAULT '',
     vm_category TEXT DEFAULT 'Producao',
+    vm_type TEXT DEFAULT 'Sistemas',
     vm_tech TEXT DEFAULT '',
+    os_name TEXT DEFAULT '',
+    os_version TEXT DEFAULT '',
+    vcpus TEXT DEFAULT '',
+    ram TEXT DEFAULT '',
+    disk TEXT DEFAULT '',
     archived INTEGER DEFAULT 0,
     archived_at TEXT DEFAULT NULL,
     created_at TEXT DEFAULT (datetime('now','localtime')),
@@ -83,7 +101,13 @@ function ensureVmTableSqlite3(SQLite3 $db): void {
   $existing = [];
   while ($row = $res->fetchArray(SQLITE3_ASSOC)) { $existing[] = (string)($row['name'] ?? ''); }
   if (!in_array('vm_category', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_category TEXT DEFAULT 'Producao'"); }
+  if (!in_array('vm_type', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_type TEXT DEFAULT 'Sistemas'"); }
   if (!in_array('vm_tech', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_tech TEXT DEFAULT ''"); }
+  if (!in_array('os_name', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN os_name TEXT DEFAULT ''"); }
+  if (!in_array('os_version', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN os_version TEXT DEFAULT ''"); }
+  if (!in_array('vcpus', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vcpus TEXT DEFAULT ''"); }
+  if (!in_array('ram', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN ram TEXT DEFAULT ''"); }
+  if (!in_array('disk', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN disk TEXT DEFAULT ''"); }
   if (!in_array('archived', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN archived INTEGER DEFAULT 0"); }
   if (!in_array('archived_at', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN archived_at TEXT DEFAULT NULL"); }
 }
@@ -94,7 +118,13 @@ function ensureVmTablePdo(PDO $db): void {
     name TEXT NOT NULL,
     ip TEXT DEFAULT '',
     vm_category TEXT DEFAULT 'Producao',
+    vm_type TEXT DEFAULT 'Sistemas',
     vm_tech TEXT DEFAULT '',
+    os_name TEXT DEFAULT '',
+    os_version TEXT DEFAULT '',
+    vcpus TEXT DEFAULT '',
+    ram TEXT DEFAULT '',
+    disk TEXT DEFAULT '',
     archived INTEGER DEFAULT 0,
     archived_at TEXT DEFAULT NULL,
     created_at TEXT DEFAULT (datetime('now','localtime')),
@@ -104,7 +134,13 @@ function ensureVmTablePdo(PDO $db): void {
   $existing = [];
   foreach ($rows as $row) { $existing[] = (string)($row['name'] ?? ''); }
   if (!in_array('vm_category', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_category TEXT DEFAULT 'Producao'"); }
+  if (!in_array('vm_type', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_type TEXT DEFAULT 'Sistemas'"); }
   if (!in_array('vm_tech', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_tech TEXT DEFAULT ''"); }
+  if (!in_array('os_name', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN os_name TEXT DEFAULT ''"); }
+  if (!in_array('os_version', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN os_version TEXT DEFAULT ''"); }
+  if (!in_array('vcpus', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vcpus TEXT DEFAULT ''"); }
+  if (!in_array('ram', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN ram TEXT DEFAULT ''"); }
+  if (!in_array('disk', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN disk TEXT DEFAULT ''"); }
   if (!in_array('archived', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN archived INTEGER DEFAULT 0"); }
   if (!in_array('archived_at', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN archived_at TEXT DEFAULT NULL"); }
 }
@@ -114,9 +150,12 @@ function ensureDatabaseTableSqlite3(SQLite3 $db): void {
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     system_id INTEGER NOT NULL,
     vm_id INTEGER DEFAULT NULL,
+    vm_homolog_id INTEGER DEFAULT NULL,
     db_name TEXT NOT NULL,
+    db_user TEXT DEFAULT '',
     db_engine TEXT NOT NULL,
     db_engine_version TEXT DEFAULT '',
+    db_engine_version_homolog TEXT DEFAULT '',
     notes TEXT DEFAULT '',
     archived INTEGER DEFAULT 0,
     archived_at TEXT DEFAULT NULL,
@@ -128,7 +167,10 @@ function ensureDatabaseTableSqlite3(SQLite3 $db): void {
   $existing = [];
   while ($row = $res->fetchArray(SQLITE3_ASSOC)) { $existing[] = (string)($row['name'] ?? ''); }
 
+  if (!in_array('vm_homolog_id', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN vm_homolog_id INTEGER DEFAULT NULL"); }
+  if (!in_array('db_user', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_user TEXT DEFAULT ''"); }
   if (!in_array('db_engine_version', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_engine_version TEXT DEFAULT ''"); }
+  if (!in_array('db_engine_version_homolog', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_engine_version_homolog TEXT DEFAULT ''"); }
   if (!in_array('notes', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN notes TEXT DEFAULT ''"); }
   if (!in_array('archived', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN archived INTEGER DEFAULT 0"); }
   if (!in_array('archived_at', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN archived_at TEXT DEFAULT NULL"); }
@@ -136,6 +178,7 @@ function ensureDatabaseTableSqlite3(SQLite3 $db): void {
 
   $db->exec("CREATE INDEX IF NOT EXISTS idx_system_databases_system_id ON system_databases(system_id)");
   $db->exec("CREATE INDEX IF NOT EXISTS idx_system_databases_vm_id ON system_databases(vm_id)");
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_system_databases_vm_homolog_id ON system_databases(vm_homolog_id)");
 }
 
 function ensureDatabaseTablePdo(PDO $db): void {
@@ -143,9 +186,12 @@ function ensureDatabaseTablePdo(PDO $db): void {
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     system_id INTEGER NOT NULL,
     vm_id INTEGER DEFAULT NULL,
+    vm_homolog_id INTEGER DEFAULT NULL,
     db_name TEXT NOT NULL,
+    db_user TEXT DEFAULT '',
     db_engine TEXT NOT NULL,
     db_engine_version TEXT DEFAULT '',
+    db_engine_version_homolog TEXT DEFAULT '',
     notes TEXT DEFAULT '',
     archived INTEGER DEFAULT 0,
     archived_at TEXT DEFAULT NULL,
@@ -157,7 +203,10 @@ function ensureDatabaseTablePdo(PDO $db): void {
   $existing = [];
   foreach ($rows as $row) { $existing[] = (string)($row['name'] ?? ''); }
 
+  if (!in_array('vm_homolog_id', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN vm_homolog_id INTEGER DEFAULT NULL"); }
+  if (!in_array('db_user', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_user TEXT DEFAULT ''"); }
   if (!in_array('db_engine_version', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_engine_version TEXT DEFAULT ''"); }
+  if (!in_array('db_engine_version_homolog', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_engine_version_homolog TEXT DEFAULT ''"); }
   if (!in_array('notes', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN notes TEXT DEFAULT ''"); }
   if (!in_array('archived', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN archived INTEGER DEFAULT 0"); }
   if (!in_array('archived_at', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN archived_at TEXT DEFAULT NULL"); }
@@ -165,6 +214,7 @@ function ensureDatabaseTablePdo(PDO $db): void {
 
   $db->exec("CREATE INDEX IF NOT EXISTS idx_system_databases_system_id ON system_databases(system_id)");
   $db->exec("CREATE INDEX IF NOT EXISTS idx_system_databases_vm_id ON system_databases(vm_id)");
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_system_databases_vm_homolog_id ON system_databases(vm_homolog_id)");
 }
 
 function findOrCreateVmIdSqlite3(SQLite3 $db, string $name, string $ip): ?int {
@@ -270,6 +320,12 @@ function db() {
       vm_homolog_id INTEGER DEFAULT NULL,
       archived INTEGER DEFAULT 0,
       archived_at TEXT DEFAULT NULL,
+      responsible_sector TEXT DEFAULT '',
+      responsible_coordinator TEXT DEFAULT '',
+      extension_number TEXT DEFAULT '',
+      email TEXT DEFAULT '',
+      support TEXT DEFAULT '',
+      support_contact TEXT DEFAULT '',
       category TEXT DEFAULT 'Outro',
       status TEXT DEFAULT 'Ativo',
       tech TEXT DEFAULT '',
@@ -312,6 +368,12 @@ function db() {
       vm_homolog_id INTEGER DEFAULT NULL,
       archived INTEGER DEFAULT 0,
       archived_at TEXT DEFAULT NULL,
+      responsible_sector TEXT DEFAULT '',
+      responsible_coordinator TEXT DEFAULT '',
+      extension_number TEXT DEFAULT '',
+      email TEXT DEFAULT '',
+      support TEXT DEFAULT '',
+      support_contact TEXT DEFAULT '',
       category TEXT DEFAULT 'Outro',
       status TEXT DEFAULT 'Ativo',
       tech TEXT DEFAULT '',

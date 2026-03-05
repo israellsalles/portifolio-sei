@@ -1,4 +1,4 @@
-const App = { items: [], vms: [], databases: [], archived: { systems: [], vms: [] }, view: 'dashboard' };
+const App = { items: [], vms: [], databases: [], archived: { systems: [], vms: [] }, view: 'cards', diagramFocusSystemId: 0 };
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 const norm = (s) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
@@ -118,6 +118,12 @@ function vmCategoryLabel(vm){
   return 'Producao';
 }
 
+function vmTypeLabel(vm){
+  const raw = String(vm?.vm_type || '').trim().toLowerCase();
+  if (raw.includes('sgbd') || raw.includes('db') || raw.includes('banco')) return 'SGBD';
+  return 'Sistemas';
+}
+
 function vmCategoryOrder(vm){
   const label = vmCategoryLabel(vm);
   if (label === 'Producao') return 1;
@@ -157,13 +163,13 @@ function syncPrimaryAction(){
 function setView(view){
   const nextView = view === 'grid' ? 'lista' : view;
   App.view = nextView;
-  ['dashboard','lista','bases','maquinas','arquivados'].forEach((v) => {
+  ['dashboard','lista','cards','dns','bases','maquinas','diagrama','arquivados'].forEach((v) => {
     const viewEl = $('view-' + v);
     const tabEl = $('tab-' + v);
     if (viewEl) viewEl.classList.toggle('active', v === nextView);
     if (tabEl) tabEl.classList.toggle('active', v === nextView);
   });
-  $('toolbar').style.display = nextView === 'lista' ? 'flex' : 'none';
+  $('toolbar').style.display = (nextView === 'lista' || nextView === 'cards') ? 'flex' : 'none';
   syncPrimaryAction();
   renderCurrent();
 }
@@ -173,12 +179,24 @@ function populateFilters(){
   const statuses = [...new Set(App.items.map((i) => String(i.status || '').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
   const fill = (id, first, list) => {
     const el = $(id);
+    if (!el) return;
     const prev = el.value;
     el.innerHTML = `<option value="">${first}</option>` + list.map((x)=>`<option>${esc(x)}</option>`).join('');
     if (prev && list.includes(prev)) el.value = prev;
   };
   fill('cat','Todas',categories);
   fill('st','Todos',statuses);
+
+  const vmEl = $('vmf');
+  if (vmEl) {
+    const prev = vmEl.value;
+    const vms = [...App.vms]
+      .filter((vm) => vmTypeLabel(vm) !== 'SGBD')
+      .sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')))
+      .map((vm) => ({ id: String(vm.id), label: vmLabel(vm) }));
+    vmEl.innerHTML = '<option value="">Todas VMs</option>' + vms.map((vm)=>`<option value="${esc(vm.id)}">${esc(vm.label)}</option>`).join('');
+    if (prev && vms.some((vm)=>vm.id === prev)) vmEl.value = prev;
+  }
 }
 
 function populateVmSelects(){
@@ -208,6 +226,21 @@ function populateDbSelects(){
     vmEl.innerHTML = '<option value="">Selecionar...</option>' + App.vms.map((vm)=>`<option value="${vm.id}">${esc(vmLabel(vm))}</option>`).join('');
     if (prev && [...vmEl.options].some((o)=>o.value === prev)) vmEl.value = prev;
   }
+
+  const vmHmlEl = $('fdbvmh');
+  if (vmHmlEl) {
+    const prev = vmHmlEl.value;
+    vmHmlEl.innerHTML = '<option value="">Selecionar...</option>' + App.vms.map((vm)=>`<option value="${vm.id}">${esc(vmLabel(vm))}</option>`).join('');
+    if (prev && [...vmHmlEl.options].some((o)=>o.value === prev)) vmHmlEl.value = prev;
+  }
+}
+
+function syncDbHomologIp(){
+  const vmId = Number($('fdbvmh')?.value || 0);
+  const vm = App.vms.find((x)=>Number(x.id) === vmId);
+  const ip = String(vm?.ip || '').trim();
+  const ipEl = $('fdbvmhip');
+  if (ipEl) ipEl.value = ip || '';
 }
 
 function systemDatabases(systemId){
@@ -247,10 +280,14 @@ function databaseSearchBlob(systemId){
   if (!dbs.length) return '';
   return dbs.map((d) => [
     d.db_name,
+    d.db_user,
     d.db_engine,
     d.db_engine_version,
+    d.db_engine_version_homolog,
     d.vm_name,
-    d.vm_ip
+    d.vm_ip,
+    d.vm_homolog_name,
+    d.vm_homolog_ip
   ].join(' ')).join(' ');
 }
 
@@ -258,15 +295,23 @@ function filteredItems(){
   const q = $('q').value.toLowerCase();
   const cat = $('cat').value;
   const st = $('st').value;
+  const vmf = $('vmf')?.value || '';
   const sort = $('sort').value;
 
   return [...App.items]
     .filter((i)=>!cat || norm(i.category)===norm(cat))
     .filter((i)=>!st || norm(i.status)===norm(st))
+    .filter((i)=>!vmf || Number(i.vm_id || 0) === Number(vmf) || Number(i.vm_homolog_id || 0) === Number(vmf))
     .filter((i)=>!q || [
       i.name,
       i.system_name,
       i.description,
+      i.responsible_sector,
+      i.responsible_coordinator,
+      i.extension_number,
+      i.email,
+      i.support,
+      i.support_contact,
       i.owner,
       i.category,
       i.status,
@@ -283,63 +328,137 @@ function filteredItems(){
 }
 
 function renderDashboard(){
-  const total = App.items.length;
+  const totalSystems = App.items.length;
+  const totalVms = App.vms.length;
+  const totalDatabases = App.databases.length;
   const active = App.items.filter((i)=>statusKind(i.status)==='active').length;
   const maintenance = App.items.filter((i)=>statusKind(i.status)==='maintenance').length;
   const deprecated = App.items.filter((i)=>statusKind(i.status)==='deprecated').length;
-  const categories = new Set(App.items.map((i)=>i.category)).size;
+  const categories = new Set(App.items.map((i)=>String(i.category || '').trim()).filter(Boolean)).size;
+  const dbUsersFilled = App.databases.filter((d)=>String(d.db_user || '').trim() !== '').length;
+  const vmOsFilled = App.vms.filter((vm)=>String(vm.os_name || '').trim() !== '').length;
+  const vmResourcesFilled = App.vms.filter((vm)=>String(vm.vcpus || '').trim() !== '' || String(vm.ram || '').trim() !== '' || String(vm.disk || '').trim() !== '').length;
+  const vmTechTotal = App.vms.reduce((acc, vm) => acc + vmTechList(vm).length, 0);
 
   $('stats').innerHTML = [
-    ['Total de Sistemas', total, '#67a6ff'],
+    ['Sistemas', totalSystems, '#67a6ff'],
+    ['Maquinas Virtuais', totalVms, '#2cc7b0'],
+    ['Bases de Dados', totalDatabases, '#e0a95a'],
     ['Ativos', active, '#4be989'],
     ['Em Manutencao', maintenance, '#ff9d4f'],
     ['Depreciados', deprecated, '#ff7070'],
     ['Categorias', categories, '#b08cff'],
+    ['Tecnologias em VMs', vmTechTotal, '#6e9bff'],
   ].map(([label,val,color]) => `<div class="stat"><div class="stat-v" style="color:${color}">${val}</div><div class="stat-l">${label}</div></div>`).join('');
+
+  const renderBars = (targetId, entries, total, colorFn, iconFn=null) => {
+    const target = $(targetId);
+    if (!target) return;
+    if (!entries.length) {
+      target.innerHTML = '<div class="attention-note">Sem dados.</div>';
+      return;
+    }
+    target.innerHTML = entries.map(([label,count]) => {
+      const pct = total ? Math.round((count / total) * 100) : 0;
+      const color = colorFn(label);
+      const prefix = iconFn ? `${iconFn(label)} ` : '';
+      return `<div class="bar"><div class="bar-label"><span>${prefix}${esc(label)}</span><span>${count} (${pct}%)</span></div><div class="track"><div class="fill" style="width:${pct}%;background:${color}"></div></div></div>`;
+    }).join('');
+  };
 
   const byStatus = {};
   App.items.forEach((i) => {
     const key = String(i.status || 'Sem status');
     byStatus[key] = (byStatus[key] || 0) + 1;
   });
-  $('status-bars').innerHTML = Object.entries(byStatus).map(([label,count]) => {
-    const pct = total ? Math.round((count / total) * 100) : 0;
-    const k = statusKind(label);
-    const color = k==='active' ? '#22c55e' : k==='maintenance' ? '#f97316' : k==='deprecated' ? '#ef4444' : k==='implementation' ? '#4f8dfd' : '#8b5cf6';
-    return `<div class="bar"><div class="bar-label"><span>${esc(label)}</span><span>${count} (${pct}%)</span></div><div class="track"><div class="fill" style="width:${pct}%;background:${color}"></div></div></div>`;
-  }).join('');
+  renderBars(
+    'status-bars',
+    Object.entries(byStatus).sort((a,b)=>b[1]-a[1]),
+    totalSystems,
+    (label) => {
+      const k = statusKind(label);
+      return k==='active' ? '#22c55e' : k==='maintenance' ? '#f97316' : k==='deprecated' ? '#ef4444' : k==='implementation' ? '#4f8dfd' : '#8b5cf6';
+    }
+  );
 
   const byCategory = {};
   App.items.forEach((i) => {
     const key = String(i.category || 'Sem categoria');
     byCategory[key] = (byCategory[key] || 0) + 1;
   });
-  $('category-bars').innerHTML = Object.entries(byCategory).map(([label,count]) => {
-    const pct = total ? Math.round((count / total) * 100) : 0;
-    return `<div class="bar"><div class="bar-label"><span>${categoryIcon(label)} ${esc(label)}</span><span>${count}</span></div><div class="track"><div class="fill" style="width:${pct}%;background:#4f8dfd"></div></div></div>`;
-  }).join('');
+  renderBars(
+    'category-bars',
+    Object.entries(byCategory).sort((a,b)=>b[1]-a[1]),
+    totalSystems,
+    () => '#4f8dfd',
+    (label) => categoryIcon(label)
+  );
+
+  const byVmCategory = {};
+  App.vms.forEach((vm) => {
+    const key = vmCategoryLabel(vm);
+    byVmCategory[key] = (byVmCategory[key] || 0) + 1;
+  });
+  renderBars(
+    'vm-category-bars',
+    Object.entries(byVmCategory).sort((a,b)=>b[1]-a[1]),
+    totalVms,
+    (label) => label === 'Producao' ? '#10b981' : label === 'Homologacao' ? '#8b5cf6' : '#f59e0b'
+  );
+
+  const byDbEngine = {};
+  App.databases.forEach((d) => {
+    const engine = String(d.db_engine || 'SGBD nao informado').trim() || 'SGBD nao informado';
+    const version = String(d.db_engine_version || '').trim();
+    const key = version ? `${engine} ${version}` : engine;
+    byDbEngine[key] = (byDbEngine[key] || 0) + 1;
+  });
+  renderBars(
+    'db-engine-bars',
+    Object.entries(byDbEngine).sort((a,b)=>b[1]-a[1]),
+    totalDatabases,
+    () => '#e1a64d'
+  );
+
+  const quality = $('quality-list');
+  if (quality) {
+    quality.innerHTML = `
+      <div class="quality-item">
+        <div><div class="quality-name">Usuario de banco cadastrado</div><div class="quality-note">${dbUsersFilled}/${totalDatabases || 0} bases</div></div>
+        <div class="quality-pct">${totalDatabases ? Math.round((dbUsersFilled / totalDatabases) * 100) : 0}%</div>
+      </div>
+      <div class="quality-item">
+        <div><div class="quality-name">VM com sistema operacional</div><div class="quality-note">${vmOsFilled}/${totalVms || 0} maquinas</div></div>
+        <div class="quality-pct">${totalVms ? Math.round((vmOsFilled / totalVms) * 100) : 0}%</div>
+      </div>
+      <div class="quality-item">
+        <div><div class="quality-name">VM com recursos informados</div><div class="quality-note">${vmResourcesFilled}/${totalVms || 0} maquinas</div></div>
+        <div class="quality-pct">${totalVms ? Math.round((vmResourcesFilled / totalVms) * 100) : 0}%</div>
+      </div>
+    `;
+  }
 
   const attention = App.items.filter((i)=>statusKind(i.status)!=='active');
   if (!attention.length) {
     $('attention-list').innerHTML = '<div class="attention-note">Tudo em ordem. Sem alertas.</div>';
-    return;
+  } else {
+    $('attention-list').innerHTML = attention.map((i) => `
+      <div class="attention-item" onclick="openDetail(${i.id})">
+        <div><div class="attention-name">${esc(i.name)}</div><div class="attention-note">${badge(i.status)}</div></div>
+        <div class="attention-note">${esc(i.notes || '')}</div>
+      </div>
+    `).join('');
   }
-
-  $('attention-list').innerHTML = attention.map((i) => `
-    <div class="attention-item" onclick="openDetail(${i.id})">
-      <div><div class="attention-name">${esc(i.name)}</div><div class="attention-note">${badge(i.status)}</div></div>
-      <div class="attention-note">${esc(i.notes || '')}</div>
-    </div>
-  `).join('');
 }
 
 function renderList(list){
   $('result-count').textContent = `${list.length} resultado(s)`;
   if (!list.length) {
-    $('list-main-body').innerHTML = '<tr><td colspan="9" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
-    $('list-desc-body').innerHTML = '<tr><td colspan="2" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
-    $('list-infra-body').innerHTML = '<tr><td colspan="8" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
-    $('list-db-body').innerHTML = '<tr><td colspan="7" style="color:var(--muted)">Nenhuma base de dados encontrada.</td></tr>';
+    $('list-main-body').innerHTML = '<tr><td colspan="6" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
+    $('list-desc-body').innerHTML = '<tr><td colspan="5" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
+    $('list-infra-body').innerHTML = '<tr><td colspan="7" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
+    $('list-db-body').innerHTML = '<tr><td colspan="11" style="color:var(--muted)">Nenhuma base de dados encontrada.</td></tr>';
+    $('list-support-body').innerHTML = '<tr><td colspan="8" style="color:var(--muted)">Nenhum contato cadastrado.</td></tr>';
     $('list-cards').innerHTML = '<div class="list-mobile-card"><div class="list-mobile-value" style="color:var(--muted)">Nenhum sistema encontrado.</div></div>';
     return;
   }
@@ -348,32 +467,31 @@ function renderList(list){
     <tr onclick="openDetail(${i.id})">
       <td><div class="list-name">${esc(i.name)}</div></td>
       <td>${esc(i.system_name || '-')}</td>
-      <td>${esc(i.category || '-')}</td>
-      <td>${badge(i.status)}</td>
-      <td class="crit-${critKind(i.criticality)}">${esc(i.criticality || '-')}</td>
-      <td>${esc(i.owner || '-')}</td>
       <td>${esc(i.version || '-')}</td>
+      <td>${esc(i.category || '-')}</td>
+      <td class="crit-${critKind(i.criticality)}">${esc(i.criticality || '-')}</td>
       <td>${esc(i.notes || '-')}</td>
-      <td onclick="event.stopPropagation()"><div class="actions"><button class="act" onclick="openFormById(${i.id})">&#9998;</button><button class="act del" onclick="archiveSystem(${i.id})">&#128230;</button></div></td>
     </tr>
   `).join('');
 
   $('list-desc-body').innerHTML = list.map((i) => `
     <tr onclick="openDetail(${i.id})">
       <td><div class="list-name">${esc(i.name)}</div></td>
+      <td>${linkHtml(i.url)}</td>
       <td>${esc(i.description || '-')}</td>
+      <td>${badge(i.status)}</td>
+      <td onclick="event.stopPropagation()"><div class="actions"><button class="act del" onclick="archiveSystem(${i.id})">&#128230;</button></div></td>
     </tr>
   `).join('');
 
   $('list-infra-body').innerHTML = list.map((i) => `
     <tr onclick="openDetail(${i.id})">
       <td><div class="list-name">${esc(i.name)}</div></td>
+      <td>${linkHtml(i.url_homolog)}</td>
       <td>${esc(vmName(i, false))}</td>
       <td>${esc(vmIp(i, false))}</td>
       <td>${esc(vmName(i, true))}</td>
       <td>${esc(vmIp(i, true))}</td>
-      <td>${linkHtml(i.url)}</td>
-      <td>${linkHtml(i.url_homolog)}</td>
       <td>${(i.tech || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</td>
     </tr>
   `).join('');
@@ -385,7 +503,7 @@ function renderList(list){
     .sort((a,b) => String(a.db_name || '').localeCompare(String(b.db_name || '')));
 
   if (!dbList.length) {
-    $('list-db-body').innerHTML = '<tr><td colspan="7" style="color:var(--muted)">Nenhuma base de dados encontrada para os filtros aplicados.</td></tr>';
+    $('list-db-body').innerHTML = '<tr><td colspan="11" style="color:var(--muted)">Nenhuma base de dados encontrada para os filtros aplicados.</td></tr>';
   } else {
     $('list-db-body').innerHTML = dbList.map((d) => {
       const systemId = Number(d.system_id);
@@ -396,15 +514,32 @@ function renderList(list){
       <tr${clickable ? ` onclick="openDetail(${systemId})"` : ''}>
         <td><div class="list-name">${esc(systemName)}</div></td>
         <td>${esc(d.db_name || '-')}</td>
+        <td>${esc(d.db_user || '-')}</td>
         <td>${esc(d.db_engine || '-')}</td>
         <td>${esc(d.db_engine_version || '-')}</td>
         <td>${esc(d.vm_name || '-')}</td>
         <td>${esc(d.vm_ip || '-')}</td>
+        <td>${esc(d.vm_homolog_name || '-')}</td>
+        <td>${esc(d.vm_homolog_ip || '-')}</td>
+        <td>${esc(d.db_engine_version_homolog || '-')}</td>
         <td>${esc(d.notes || '-')}</td>
       </tr>
     `;
     }).join('');
   }
+
+  $('list-support-body').innerHTML = list.map((i) => `
+    <tr onclick="openDetail(${i.id})">
+      <td><div class="list-name">${esc(i.name)}</div></td>
+      <td>${esc(i.owner || '-')}</td>
+      <td>${esc(i.responsible_sector || '-')}</td>
+      <td>${esc(i.responsible_coordinator || '-')}</td>
+      <td>${esc(i.extension_number || '-')}</td>
+      <td>${esc(i.email || '-')}</td>
+      <td>${esc(i.support || '-')}</td>
+      <td>${esc(i.support_contact || '-')}</td>
+    </tr>
+  `).join('');
 
   $('list-cards').innerHTML = list.map((i) => `
     <div class="list-mobile-card" onclick="openDetail(${i.id})">
@@ -416,7 +551,7 @@ function renderList(list){
         <div class="list-mobile-item"><span class="list-mobile-label">Sistema</span><span class="list-mobile-value">${esc(i.system_name || '-')}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Categoria</span><span class="list-mobile-value">${esc(i.category || '-')}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Criticidade</span><span class="list-mobile-value crit-${critKind(i.criticality)}">${esc(i.criticality || '-')}</span></div>
-        <div class="list-mobile-item"><span class="list-mobile-label">Responsavel</span><span class="list-mobile-value">${esc(i.owner || '-')}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">Responsavel Tecnico</span><span class="list-mobile-value">${esc(i.owner || '-')}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Versao</span><span class="list-mobile-value">${esc(i.version || '-')}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">VM Producao</span><span class="list-mobile-value">${esc(vmName(i, false))} | ${esc(vmIp(i, false))}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">VM Homologacao</span><span class="list-mobile-value">${esc(vmName(i, true))} | ${esc(vmIp(i, true))}</span></div>
@@ -430,11 +565,100 @@ function renderList(list){
       </div>
       <div class="tags">${(i.tech || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>
       <div class="list-mobile-actions" onclick="event.stopPropagation()">
-        <button class="act" onclick="openFormById(${i.id})">&#9998;</button>
         <button class="act del" onclick="archiveSystem(${i.id})">&#128230;</button>
       </div>
     </div>
   `).join('');
+}
+
+function renderSystemsCards(list){
+  $('result-count').textContent = `${list.length} resultado(s)`;
+  const box = $('systems-cards');
+  if (!box) return;
+
+  if (!list.length) {
+    box.innerHTML = '<div class="vm-report-empty">Nenhum sistema encontrado.</div>';
+    return;
+  }
+
+  box.innerHTML = list.map((i) => {
+    const dbs = systemDatabases(i.id)
+      .sort((a,b)=>String(a.db_name || '').localeCompare(String(b.db_name || '')));
+    const techMarkup = (i.tech || []).length
+      ? (i.tech || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')
+      : '<span class="system-info-empty">Sem tecnologias cadastradas.</span>';
+
+    const dbMarkup = dbs.length
+      ? dbs.map((d) => {
+        const engine = `${d.db_engine || '-'}${d.db_engine_version ? ` ${d.db_engine_version}` : ''}`;
+        const engineHml = `${d.db_engine || '-'}${d.db_engine_version_homolog ? ` ${d.db_engine_version_homolog}` : ''}`;
+        return `
+          <div class="system-db-item">
+            <div class="system-db-name">${esc(d.db_name || '-')}</div>
+            <div class="system-db-meta">Usuario: ${esc(d.db_user || '-')} | SGBD Producao: ${esc(engine)}</div>
+            <div class="system-db-meta">VM Producao: ${esc(d.vm_name || '-')} (${esc(d.vm_ip || '-')})</div>
+            <div class="system-db-meta">VM Homologacao: ${esc(d.vm_homolog_name || '-')} (${esc(d.vm_homolog_ip || '-')}) | SGBD Homologacao: ${esc(engineHml)}</div>
+            ${d.notes ? `<div class="system-db-note">Obs: ${esc(d.notes)}</div>` : ''}
+          </div>
+        `;
+      }).join('')
+      : '<div class="system-info-empty">Sem bases de dados vinculadas.</div>';
+
+    return `
+      <article class="system-info-card" onclick="openDetail(${i.id})">
+        <div class="system-info-head">
+          <div>
+            <div class="system-info-name">${esc(i.name || '-')}</div>
+            <div class="system-info-sub">${esc(i.system_name || '-')} | Versao ${esc(i.version || '-')}</div>
+          </div>
+          ${badge(i.status)}
+        </div>
+
+        <section class="system-info-section">
+          <div class="system-info-title">Informacoes Tecnicas</div>
+          <div class="system-info-grid">
+            <div class="system-info-field"><span>Categoria</span><strong>${esc(i.category || '-')}</strong></div>
+            <div class="system-info-field"><span>Criticidade</span><strong class="crit-${critKind(i.criticality)}">${esc(i.criticality || '-')}</strong></div>
+            <div class="system-info-field"><span>Observacoes</span><strong>${esc(i.notes || '-')}</strong></div>
+          </div>
+        </section>
+
+        <section class="system-info-section">
+          <div class="system-info-title">Descricao e Infraestrutura</div>
+          <div class="system-info-grid system-info-grid-wide">
+            <div class="system-info-field system-info-field-full"><span>Descricao</span><strong class="system-info-text">${esc(i.description || '-')}</strong></div>
+            <div class="system-info-field"><span>URL</span><div class="system-info-link">${linkHtml(i.url)}</div></div>
+            <div class="system-info-field"><span>URL Homologacao</span><div class="system-info-link">${linkHtml(i.url_homolog)}</div></div>
+            <div class="system-info-field"><span>VM Producao</span><strong>${esc(vmName(i, false))} (${esc(vmIp(i, false))})</strong></div>
+            <div class="system-info-field"><span>VM Homologacao</span><strong>${esc(vmName(i, true))} (${esc(vmIp(i, true))})</strong></div>
+          </div>
+          <div class="tags">${techMarkup}</div>
+        </section>
+
+        <section class="system-info-section">
+          <div class="system-info-title">Bases de Dados</div>
+          <div class="system-db-list">${dbMarkup}</div>
+        </section>
+
+        <section class="system-info-section">
+          <div class="system-info-title">Contatos e Suporte</div>
+          <div class="system-info-grid">
+            <div class="system-info-field"><span>Responsavel Tecnico</span><strong>${esc(i.owner || '-')}</strong></div>
+            <div class="system-info-field"><span>Setor Responsavel</span><strong>${esc(i.responsible_sector || '-')}</strong></div>
+            <div class="system-info-field"><span>Coordenador Responsavel</span><strong>${esc(i.responsible_coordinator || '-')}</strong></div>
+            <div class="system-info-field"><span>Ramal</span><strong>${esc(i.extension_number || '-')}</strong></div>
+            <div class="system-info-field"><span>Email</span><strong>${esc(i.email || '-')}</strong></div>
+            <div class="system-info-field"><span>Suporte</span><strong>${esc(i.support || '-')}</strong></div>
+            <div class="system-info-field"><span>Contato Suporte</span><strong>${esc(i.support_contact || '-')}</strong></div>
+          </div>
+        </section>
+
+        <div class="system-info-actions" onclick="event.stopPropagation()">
+          <button class="act del" onclick="archiveSystem(${i.id})">&#128230;</button>
+        </div>
+      </article>
+    `;
+  }).join('');
 }
 
 function vmUsage(vmId){
@@ -444,14 +668,25 @@ function vmUsage(vmId){
   return { prod, hml, total: uniq.size };
 }
 
+function dbEngineVersionForVm(db, vmId){
+  const id = Number(vmId);
+  const isHomologVm = Number(db?.vm_homolog_id || 0) === id;
+  const prodVersion = String(db?.db_engine_version || '').trim();
+  const homologVersion = String(db?.db_engine_version_homolog || '').trim();
+  return isHomologVm ? (homologVersion || prodVersion) : prodVersion;
+}
+
 function vmDatabases(vmId){
-  return App.databases.filter((d) => Number(d.vm_id) === Number(vmId));
+  const id = Number(vmId);
+  return App.databases
+    .filter((d) => Number(d.vm_id) === id || Number(d.vm_homolog_id) === id)
+    .map((d) => ({ ...d, vm_version: dbEngineVersionForVm(d, id) }));
 }
 
 function renderDatabases(){
   const list = [...App.databases].sort((a,b)=>String(a.db_name || '').localeCompare(String(b.db_name || '')));
   if (!list.length) {
-    $('db-body').innerHTML = '<tr><td colspan="8" style="color:var(--muted)">Nenhuma base de dados cadastrada.</td></tr>';
+    $('db-body').innerHTML = '<tr><td colspan="12" style="color:var(--muted)">Nenhuma base de dados cadastrada.</td></tr>';
     $('db-cards').innerHTML = '<div class="db-mobile-card"><div class="db-mobile-value" style="color:var(--muted)">Nenhuma base de dados cadastrada.</div></div>';
     return;
   }
@@ -460,10 +695,14 @@ function renderDatabases(){
     <tr>
       <td>${esc(d.system_name || '-')}</td>
       <td>${esc(d.db_name || '-')}</td>
+      <td>${esc(d.db_user || '-')}</td>
       <td>${esc(d.db_engine || '-')}</td>
       <td>${esc(d.db_engine_version || '-')}</td>
       <td>${esc(d.vm_name || '-')}</td>
       <td>${esc(d.vm_ip || '-')}</td>
+      <td>${esc(d.vm_homolog_name || '-')}</td>
+      <td>${esc(d.vm_homolog_ip || '-')}</td>
+      <td>${esc(d.db_engine_version_homolog || '-')}</td>
       <td>${esc(d.notes || '-')}</td>
       <td><div class="actions"><button class="act" onclick="openDbFormById(${d.id})">&#9998;</button><button class="act del" onclick="deleteDb(${d.id})">&#128465;</button></div></td>
     </tr>
@@ -477,14 +716,72 @@ function renderDatabases(){
       </div>
       <div class="db-mobile-grid">
         <div class="db-mobile-item"><span class="db-mobile-label">Sistema</span><span class="db-mobile-value">${esc(d.system_name || '-')}</span></div>
+        <div class="db-mobile-item"><span class="db-mobile-label">Usuario do Banco</span><span class="db-mobile-value">${esc(d.db_user || '-')}</span></div>
         <div class="db-mobile-item"><span class="db-mobile-label">Maquina</span><span class="db-mobile-value">${esc(d.vm_name || '-')}</span></div>
+        <div class="db-mobile-item"><span class="db-mobile-label">VM Homologacao</span><span class="db-mobile-value">${esc(d.vm_homolog_name || '-')}</span></div>
         <div class="db-mobile-item"><span class="db-mobile-label">Versao SGBD</span><span class="db-mobile-value">${esc(d.db_engine_version || '-')}</span></div>
+        <div class="db-mobile-item"><span class="db-mobile-label">Versao SGBD Homologacao</span><span class="db-mobile-value">${esc(d.db_engine_version_homolog || '-')}</span></div>
         <div class="db-mobile-item"><span class="db-mobile-label">IP</span><span class="db-mobile-value">${esc(d.vm_ip || '-')}</span></div>
+        <div class="db-mobile-item"><span class="db-mobile-label">IP Homologacao</span><span class="db-mobile-value">${esc(d.vm_homolog_ip || '-')}</span></div>
         <div class="db-mobile-item"><span class="db-mobile-label">Observacoes</span><span class="db-mobile-value">${esc(d.notes || '-')}</span></div>
       </div>
       <div class="db-mobile-actions">
         <button class="act" onclick="openDbFormById(${d.id})">&#9998;</button>
         <button class="act del" onclick="deleteDb(${d.id})">&#128465;</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderDns(){
+  const body = $('dns-body');
+  const cards = $('dns-cards');
+  if (!body || !cards) return;
+
+  const systems = [...App.items].sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')));
+  if (!systems.length) {
+    body.innerHTML = '<tr><td colspan="2" style="color:var(--muted)">Nenhum sistema cadastrado.</td></tr>';
+    cards.innerHTML = '<div class="db-mobile-card"><div class="db-mobile-value" style="color:var(--muted)">Nenhum sistema cadastrado.</div></div>';
+    return;
+  }
+
+  const rows = systems.flatMap((i) => ([
+    {
+      id: Number(i.id),
+      url: i.url || '',
+      ip: vmIp(i, false)
+    },
+    {
+      id: Number(i.id),
+      url: i.url_homolog || '',
+      ip: vmIp(i, true)
+    }
+  ])).filter((r) => {
+    const url = String(r.url || '').trim();
+    const ip = String(r.ip || '').trim();
+    const hasUrl = url !== '' && url !== '-';
+    const hasIp = ip !== '' && ip !== '-';
+    return hasUrl || hasIp;
+  });
+
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="2" style="color:var(--muted)">Nenhum registro DNS com URL/IP informado.</td></tr>';
+    cards.innerHTML = '<div class="db-mobile-card"><div class="db-mobile-value" style="color:var(--muted)">Nenhum registro DNS com URL/IP informado.</div></div>';
+    return;
+  }
+
+  body.innerHTML = rows.map((r) => `
+    <tr onclick="openDetail(${r.id})">
+      <td>${linkHtml(r.url)}</td>
+      <td>${esc(r.ip || '-')}</td>
+    </tr>
+  `).join('');
+
+  cards.innerHTML = rows.map((r) => `
+    <div class="dns-mobile-card" onclick="openDetail(${r.id})">
+      <div class="db-mobile-grid">
+        <div class="db-mobile-item"><span class="db-mobile-label">URL</span><span class="db-mobile-value">${linkHtml(r.url)}</span></div>
+        <div class="db-mobile-item"><span class="db-mobile-label">IP</span><span class="db-mobile-value">${esc(r.ip || '-')}</span></div>
       </div>
     </div>
   `).join('');
@@ -504,60 +801,89 @@ function renderVmReport(){
 
   box.innerHTML = groups.map((group) => {
     const groupClass = `vm-report-group-${norm(group.category).replace(/[^a-z0-9]+/g, '-')}`;
+    const typeBlocks = ['Sistemas','SGBD'].map((type) => {
+      const typeItems = group.items.filter((vm) => vmTypeLabel(vm) === type);
+      if (!typeItems.length) return '';
+      return `
+      <div class="vm-report-type-group">
+        <div class="vm-report-type-title">${esc(type)}</div>
+        <div class="vm-report-group-grid">
+          ${typeItems.map((vm) => {
+            const use = vmUsage(vm.id);
+            const dbs = vmDatabases(vm.id);
+            const osLabel = String(vm.os_name || '').trim();
+            const specs = [
+              vm.vcpus ? `${vm.vcpus} vCPU` : '',
+              vm.ram ? `RAM ${vm.ram}` : '',
+              vm.disk ? `Disco ${vm.disk}` : ''
+            ].filter(Boolean);
+            const systemsLinked = [...new Set([
+              ...use.prod.map((s) => s.name),
+              ...use.hml.map((s) => s.name)
+            ])];
+            const dbRows = dbs.map((d) => {
+              const version = String(d.vm_version || '').trim();
+              const user = String(d.db_user || '').trim();
+              const engineLabel = `${d.db_engine || '-'}${version ? ` ${version}` : ''}`;
+              return {
+                dbName: d.db_name || '-',
+                engine: engineLabel || '-',
+                user: user || '-',
+                system: d.system_name || '-'
+              };
+            });
+            return `
+            <article class="vm-report-item">
+              <div class="vm-report-top">
+                <div class="vm-report-title">${esc(vm.name)}</div>
+                <div class="vm-report-ip">IP ${esc(vm.ip || '-')}</div>
+              </div>
+              ${osLabel ? `<div class="vm-report-sub">SO: ${esc(osLabel)}</div>` : ''}
+              ${specs.length ? `<div class="tags">${specs.map((s)=>`<span class="tag">${esc(s)}</span>`).join('')}</div>` : ''}
+
+              ${systemsLinked.length ? `
+              <div class="vm-report-block">
+                <div class="vm-report-block-title">Sistemas Vinculados</div>
+                <ul class="vm-report-list">${systemsLinked.map((x)=>`<li>${esc(x)}</li>`).join('')}</ul>
+              </div>
+              ` : ''}
+
+              ${dbRows.length ? `
+              <div class="vm-report-block">
+                <div class="vm-report-block-title">Bases Vinculadas</div>
+                <div class="vm-report-table-wrap">
+                  <table class="vm-report-table vm-report-db-table">
+                    <thead>
+                      <tr><th>Base</th><th>SGBD</th><th>Usuario</th><th>Sistema</th></tr>
+                    </thead>
+                    <tbody>
+                      ${dbRows.map((r) => `
+                        <tr>
+                          <td>${esc(r.dbName)}</td>
+                          <td>${esc(r.engine)}</td>
+                          <td>${esc(r.user)}</td>
+                          <td>${esc(r.system)}</td>
+                        </tr>
+                      `).join('')}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              ` : ''}
+            </article>
+          `;
+          }).join('')}
+        </div>
+      </div>
+      `;
+    }).filter(Boolean).join('');
     return `
     <section class="vm-report-group ${groupClass}">
       <div class="vm-report-group-head">
         <div class="vm-report-group-title">${esc(group.category)}</div>
         <div class="vm-report-group-count">${group.items.length} maquina(s)</div>
       </div>
-      <div class="vm-report-group-grid">
-        ${group.items.map((vm) => {
-          const use = vmUsage(vm.id);
-          const dbs = vmDatabases(vm.id);
-          const tech = vmTechList(vm);
-          const systemsLinked = [];
-          use.prod.forEach((s) => systemsLinked.push(`${s.name} [producao]`));
-          use.hml.forEach((s) => systemsLinked.push(`${s.name} [homologacao]`));
-          const dbLines = dbs.map((d) => `${d.db_name} [${d.db_engine}${d.db_engine_version ? ' ' + d.db_engine_version : ''}] - ${d.system_name || '-'}`);
-          return `
-          <article class="vm-report-item">
-            <div class="vm-report-top">
-              <div class="vm-report-title">${esc(vm.name)}</div>
-              <div class="vm-report-ip">IP ${esc(vm.ip || '-')}</div>
-            </div>
-            <div class="vm-report-stats">
-              <div class="vm-report-stat">
-                <div class="vm-report-stat-label">Sistemas</div>
-                <div class="vm-report-stat-value">${use.total}</div>
-              </div>
-              <div class="vm-report-stat">
-                <div class="vm-report-stat-label">Bases</div>
-                <div class="vm-report-stat-value">${dbs.length}</div>
-              </div>
-              <div class="vm-report-stat">
-                <div class="vm-report-stat-label">Tecnologias</div>
-                <div class="vm-report-stat-value">${tech.length}</div>
-              </div>
-            </div>
-
-            <div class="vm-report-block">
-              <div class="vm-report-block-title">Tecnologias</div>
-              ${tech.length ? `<div class="tags">${tech.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : '<div class="vm-report-empty">Sem tecnologias cadastradas.</div>'}
-            </div>
-
-            <div class="vm-report-block">
-              <div class="vm-report-block-title">Sistemas Vinculados</div>
-              ${systemsLinked.length ? `<ul class="vm-report-list">${systemsLinked.map((x)=>`<li>${esc(x)}</li>`).join('')}</ul>` : '<div class="vm-report-empty">Sem sistemas vinculados.</div>'}
-            </div>
-
-            <div class="vm-report-block">
-              <div class="vm-report-block-title">Bases Vinculadas</div>
-              ${dbLines.length ? `<ul class="vm-report-list vm-report-db">${dbLines.map((x)=>`<li>${esc(x)}</li>`).join('')}</ul>` : '<div class="vm-report-empty">Sem bases vinculadas.</div>'}
-            </div>
-          </article>
-        `;
-        }).join('')}
-      </div>
+      ${typeBlocks}
     </section>
   `;
   }).join('');
@@ -578,58 +904,94 @@ function renderMachines(){
       .sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')));
     if (!vms.length) return '';
 
-    const rows = vms.map((vm) => {
-      const use = vmUsage(vm.id);
-      const dbs = vmDatabases(vm.id);
-      const tech = vmTechList(vm);
-      return `
-        <tr>
-          <td>${esc(vm.name)}</td>
-          <td>${esc(vm.ip || '-')}</td>
-          <td class="vm-tech-col">${tech.length ? `<div class="vm-tech-tags">${tech.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : '-'}</td>
-          <td>${use.prod.length}</td>
-          <td>${use.hml.length}</td>
-          <td>${dbs.length}</td>
-          <td>${use.total}</td>
-          <td><div class="actions"><button class="act" onclick="openVmFormById(${vm.id})">&#9998;</button><button class="act del" onclick="archiveVm(${vm.id})">&#128230;</button></div></td>
-        </tr>
-      `;
-    }).join('');
+    const relationHeader = category === 'Producao'
+      ? 'Sistemas em Producao'
+      : category === 'Homologacao'
+        ? 'Sistemas em Homologacao'
+        : 'Sistemas Vinculados';
+    const relationLabelCard = category === 'Producao'
+      ? 'Producao'
+      : category === 'Homologacao'
+        ? 'Homologacao'
+        : 'Sistemas';
+    const typeBlocks = ['Sistemas','SGBD'].map((type) => {
+      const typeVms = vms.filter((vm) => vmTypeLabel(vm) === type);
+      if (!typeVms.length) return '';
 
-    const cards = vms.map((vm) => {
-      const use = vmUsage(vm.id);
-      const dbs = vmDatabases(vm.id);
-      const tech = vmTechList(vm);
+      const rows = typeVms.map((vm) => {
+        const use = vmUsage(vm.id);
+        const dbs = vmDatabases(vm.id);
+        const tech = vmTechList(vm);
+        const specs = [vm.vcpus ? `${vm.vcpus} vCPU` : '', vm.ram || '', vm.disk || ''].filter(Boolean).join(' | ');
+        const relationCount = category === 'Producao'
+          ? use.prod.length
+          : category === 'Homologacao'
+            ? use.hml.length
+            : use.total;
+        const metricClass = type === 'SGBD' ? 'vm-db-col' : 'vm-rel-col';
+        const metricValue = type === 'SGBD' ? dbs.length : relationCount;
+        return `
+          <tr>
+            <td class="vm-name-col">${esc(vm.name)}</td>
+            <td class="vm-ip-col">${esc(vm.ip || '-')}</td>
+            <td class="vm-os-col">${esc(vm.os_name || '-')}</td>
+            <td class="vm-res-col">${esc(specs || '-')}</td>
+            <td class="vm-tech-col">${tech.length ? `<div class="vm-tech-tags">${tech.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : '-'}</td>
+            <td class="${metricClass}">${metricValue}</td>
+            <td class="vm-actions-col"><div class="actions"><button class="act" onclick="openVmFormById(${vm.id})">&#9998;</button><button class="act del" onclick="archiveVm(${vm.id})">&#128230;</button></div></td>
+          </tr>
+        `;
+      }).join('');
+
+      const cards = typeVms.map((vm) => {
+        const use = vmUsage(vm.id);
+        const dbs = vmDatabases(vm.id);
+        const tech = vmTechList(vm);
+        const specs = [vm.vcpus ? `${vm.vcpus} vCPU` : '', vm.ram || '', vm.disk || ''].filter(Boolean);
+        const relationCount = category === 'Producao'
+          ? use.prod.length
+          : category === 'Homologacao'
+            ? use.hml.length
+            : use.total;
+        return `
+          <div class="vm-mobile-card">
+            <div class="vm-mobile-title">${esc(vm.name)}</div>
+            <div class="vm-mobile-ip">${esc(vm.ip || '-')}</div>
+            ${vm.os_name ? `<div class="vm-mobile-ip">SO: ${esc(vm.os_name)}</div>` : ''}
+            ${specs.length ? `<div class="tags">${specs.map((s)=>`<span class="tag">${esc(s)}</span>`).join('')}</div>` : ''}
+            ${tech.length ? `<div class="tags">${tech.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : ''}
+            <div class="vm-mobile-stats">
+              <div class="vm-mobile-stat"><div class="vm-mobile-stat-label">${relationLabelCard}</div><div class="vm-mobile-stat-value">${relationCount}</div></div>
+              <div class="vm-mobile-stat"><div class="vm-mobile-stat-label">Bases</div><div class="vm-mobile-stat-value">${dbs.length}</div></div>
+              <div class="vm-mobile-stat"><div class="vm-mobile-stat-label">Total</div><div class="vm-mobile-stat-value">${use.total}</div></div>
+            </div>
+            <div class="vm-mobile-actions">
+              <button class="act" onclick="openVmFormById(${vm.id})">&#9998;</button>
+              <button class="act del" onclick="archiveVm(${vm.id})">&#128230;</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+
       return `
-        <div class="vm-mobile-card">
-          <div class="vm-mobile-title">${esc(vm.name)}</div>
-          <div class="vm-mobile-ip">${esc(vm.ip || '-')}</div>
-          ${tech.length ? `<div class="tags">${tech.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : ''}
-          <div class="vm-mobile-stats">
-            <div class="vm-mobile-stat"><div class="vm-mobile-stat-label">Producao</div><div class="vm-mobile-stat-value">${use.prod.length}</div></div>
-            <div class="vm-mobile-stat"><div class="vm-mobile-stat-label">Homologacao</div><div class="vm-mobile-stat-value">${use.hml.length}</div></div>
-            <div class="vm-mobile-stat"><div class="vm-mobile-stat-label">Bases</div><div class="vm-mobile-stat-value">${dbs.length}</div></div>
-            <div class="vm-mobile-stat"><div class="vm-mobile-stat-label">Total</div><div class="vm-mobile-stat-value">${use.total}</div></div>
+        <div class="vm-type-group">
+          <div class="vm-type-title">${esc(type)}</div>
+          <div class="table-wrap vm-desktop-table">
+            <table style="min-width:1240px">
+              <thead><tr><th class="vm-name-col">Nome da Maquina</th><th class="vm-ip-col">IP</th><th class="vm-os-col">Sistema Operacional</th><th class="vm-res-col">Recursos (vCPU | RAM | Disco)</th><th class="vm-tech-col">Tecnologias / Versoes</th><th class="${type === 'SGBD' ? 'vm-db-col' : 'vm-rel-col'}">${type === 'SGBD' ? 'Bases de Dados' : esc(relationHeader)}</th><th class="vm-actions-col">Acoes</th></tr></thead>
+              <tbody>${rows}</tbody>
+            </table>
           </div>
-          <div class="vm-mobile-actions">
-            <button class="act" onclick="openVmFormById(${vm.id})">&#9998;</button>
-            <button class="act del" onclick="archiveVm(${vm.id})">&#128230;</button>
-          </div>
+          <div class="vm-mobile-cards vm-section-cards">${cards}</div>
         </div>
       `;
-    }).join('');
+    }).filter(Boolean).join('');
 
     const categoryClass = `vm-section-${norm(category).replace(/[^a-z0-9]+/g, '-')}`;
     return `
       <div class="vm-section ${categoryClass}">
         <div class="vm-section-title">${esc(category)}</div>
-        <div class="table-wrap vm-desktop-table">
-          <table style="min-width:980px">
-            <thead><tr><th>Nome da Maquina</th><th>IP</th><th class="vm-tech-col">Tecnologias / Versoes</th><th>Sistemas em Producao</th><th>Sistemas em Homologacao</th><th>Bases de Dados</th><th>Total Sistemas</th><th style="width:98px">Acoes</th></tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>
-        <div class="vm-mobile-cards vm-section-cards">${cards}</div>
+        ${typeBlocks}
       </div>
     `;
   }).join('');
@@ -672,6 +1034,290 @@ function renderArchived(){
   }
 }
 
+function shortLabel(value, max=36){
+  const s = String(value || '-').trim() || '-';
+  return s.length > max ? `${s.slice(0, max - 3)}...` : s;
+}
+
+function wrapLabel(value, max=70){
+  const text = String(value || '').trim();
+  if (!text) return ['-'];
+  const tokens = text.split(/\s+/).filter(Boolean);
+  if (!tokens.length) return ['-'];
+
+  const lines = [];
+  let current = '';
+
+  tokens.forEach((token) => {
+    if (token.length > max) {
+      if (current) {
+        lines.push(current);
+        current = '';
+      }
+      let rest = token;
+      while (rest.length > max) {
+        lines.push(rest.slice(0, max));
+        rest = rest.slice(max);
+      }
+      current = rest;
+      return;
+    }
+
+    const candidate = current ? `${current} ${token}` : token;
+    if (candidate.length <= max) {
+      current = candidate;
+    } else {
+      lines.push(current);
+      current = token;
+    }
+  });
+
+  if (current) lines.push(current);
+  return lines;
+}
+
+function estimateTextWidth(value, fontSize=12, mono=false){
+  const text = String(value || '');
+  const factor = mono ? 0.62 : 0.56;
+  return Math.ceil(text.length * fontSize * factor);
+}
+
+function elbowPath(x1, y1, x2, y2, viaX=null){
+  const dir = x2 >= x1 ? 1 : -1;
+  const span = Math.abs(x2 - x1);
+  const autoElbow = x1 + (Math.max(26, Math.min(120, span * 0.44)) * dir);
+  const elbow = Number.isFinite(viaX) ? Number(viaX) : autoElbow;
+  return `M ${x1} ${y1} L ${elbow} ${y1} L ${elbow} ${y2} L ${x2} ${y2}`;
+}
+
+function dbEngineLabel(db, versionOverride=''){
+  const engine = String(db?.db_engine || '').trim() || 'SGBD nao informado';
+  const version = String(versionOverride || db?.vm_version || db?.db_engine_version || '').trim();
+  return version ? `${engine} ${version}` : engine;
+}
+
+function groupVmDatabases(vmId){
+  const vmDbs = vmDatabases(vmId)
+    .sort((a, b) => {
+      const ag = dbEngineLabel(a, a.vm_version);
+      const bg = dbEngineLabel(b, b.vm_version);
+      if (ag !== bg) return ag.localeCompare(bg);
+      return String(a.db_name || '').localeCompare(String(b.db_name || ''));
+    });
+
+  const groups = new Map();
+  vmDbs.forEach((d) => {
+    const key = dbEngineLabel(d, d.vm_version);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(d);
+  });
+
+  return [...groups.entries()].map(([label, items]) => ({ label, items }));
+}
+
+function onDiagramSystemClick(ev, systemId){
+  if (ev) ev.stopPropagation();
+  const sid = Number(systemId || 0);
+  if (!sid) return;
+  App.diagramFocusSystemId = Number(App.diagramFocusSystemId) === sid ? 0 : sid;
+  renderDiagram();
+}
+
+function clearDiagramFocus(){
+  App.diagramFocusSystemId = 0;
+  renderDiagram();
+}
+
+function renderDiagram(){
+  const wrap = $('diagram-wrap');
+  if (!wrap) return;
+  const clearBtn = $('diagram-clear-btn');
+  const focusInfo = $('diagram-focus-info');
+
+  const systems = [...App.items].sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')));
+  const dbs = [...App.databases].sort((a,b)=>String(a.db_name || '').localeCompare(String(b.db_name || '')));
+  const requestedFocusId = Number(App.diagramFocusSystemId || 0);
+  const focusedSystemId = systems.some((s)=>Number(s.id) === requestedFocusId) ? requestedFocusId : 0;
+  if (requestedFocusId && !focusedSystemId) App.diagramFocusSystemId = 0;
+  const focusedSystem = focusedSystemId ? systems.find((s)=>Number(s.id) === focusedSystemId) : null;
+
+  if (!systems.length && !dbs.length) {
+    if (clearBtn) clearBtn.style.display = 'none';
+    if (focusInfo) focusInfo.textContent = '';
+    wrap.innerHTML = '<div class="vm-report-empty">Nenhum dado cadastrado para gerar o diagrama.</div>';
+    return;
+  }
+
+  if (clearBtn) clearBtn.style.display = focusedSystemId ? 'inline-flex' : 'none';
+  if (focusInfo) {
+    focusInfo.textContent = focusedSystem
+      ? `Filtro ativo: ${focusedSystem.name || '-'}`
+      : 'Dica: clique no sistema para mostrar somente as ligacoes dele.';
+  }
+
+  const top = 54;
+  const colSystem = {
+    x: 40,
+    h: 96,
+    gap: 14,
+    minW: 360,
+    maxW: 620,
+    pad: 12
+  };
+  const colDb = {
+    gap: 8,
+    rowHMin: 26,
+    minW: 360,
+    maxW: 700,
+    padX: 10,
+    padY: 8
+  };
+  const colGap = 86;
+
+  const systemRows = systems.map((system, idx) => {
+    const line1 = shortLabel(system.name || '-', 40);
+    const line2 = shortLabel([system.system_name || '-', system.version || '-'].join(' | '), 56);
+    const line3 = shortLabel(`Prod: ${vmName(system, false)} (${vmIp(system, false)})`, 64);
+    const line4 = shortLabel(`Hml: ${vmName(system, true)} (${vmIp(system, true)})`, 64);
+    const textW = Math.max(
+      estimateTextWidth(line1, 15, false),
+      estimateTextWidth(line2, 12, true),
+      estimateTextWidth(line3, 12, true),
+      estimateTextWidth(line4, 12, true)
+    );
+    const w = Math.max(colSystem.minW, Math.min(colSystem.maxW, textW + (colSystem.pad * 2)));
+    return {
+      system,
+      line1,
+      line2,
+      line3,
+      line4,
+      w,
+      y: top + (idx * (colSystem.h + colSystem.gap))
+    };
+  });
+
+  const systemMaxRight = systemRows.length
+    ? Math.max(...systemRows.map((row) => colSystem.x + row.w))
+    : (colSystem.x + colSystem.minW);
+  const dbX = systemMaxRight + colGap;
+
+  const dbRows = dbs
+    .filter((d) => !focusedSystemId || Number(d.system_id) === focusedSystemId)
+    .sort((a,b) => String(a.db_name || '').localeCompare(String(b.db_name || '')))
+    .map((db) => {
+      const user = String(db.db_user || '').trim();
+      const version = String(db.db_engine_version || '').trim();
+      const engine = String(db.db_engine || '-').trim() || '-';
+      const vmProdName = String(db.vm_name || '').trim();
+      const vmProdIp = String(db.vm_ip || '').trim();
+      const vmHmlName = String(db.vm_homolog_name || '').trim();
+      const vmHmlIp = String(db.vm_homolog_ip || '').trim();
+      const prodHost = vmProdName || vmProdIp ? `${vmProdName || '-'} (${vmProdIp || '-'})` : '';
+      const hmlHost = vmHmlName || vmHmlIp ? `${vmHmlName || '-'} (${vmHmlIp || '-'})` : '';
+
+      const parts = [
+        `${db.db_name || '-'}${user ? ` [${user}]` : ''} [${engine}${version ? ` ${version}` : ''}]`,
+        prodHost ? `VM: ${prodHost}` : '',
+        hmlHost ? `Hml: ${hmlHost}` : ''
+      ].filter(Boolean);
+
+      let lines = parts.flatMap((part) => wrapLabel(part, 72));
+      if (lines.length > 5) {
+        lines = lines.slice(0, 5);
+        lines[4] = `${shortLabel(lines[4], 69)}...`;
+      }
+
+      const textW = Math.max(...lines.map((line) => estimateTextWidth(line, 11, true)));
+      const w = Math.max(colDb.minW, Math.min(colDb.maxW, textW + (colDb.padX * 2) + 4));
+      const rowH = Math.max(colDb.rowHMin, (colDb.padY * 2) + (lines.length * 13));
+      return { db, lines, rowH, w };
+    });
+
+  let dbCursorY = top + 6;
+  dbRows.forEach((row) => {
+    row.y = dbCursorY;
+    dbCursorY += row.rowH + colDb.gap;
+  });
+
+  const dbMaxRight = dbRows.length
+    ? Math.max(...dbRows.map((row) => dbX + row.w))
+    : (dbX + colDb.minW);
+  const width = Math.max(1240, dbMaxRight + 30);
+
+  const dbAnchorById = new Map();
+  dbRows.forEach((row) => {
+    dbAnchorById.set(Number(row.db.id), { x: dbX + 10, y: row.y + (row.rowH / 2) });
+  });
+
+  const height = Math.max(
+    top + (systemRows.length * (colSystem.h + colSystem.gap)) + 24,
+    dbCursorY + 24,
+    420
+  );
+
+  const railX = systemMaxRight + 24;
+  const systemAnchorById = new Map();
+  systemRows.forEach((row) => {
+    systemAnchorById.set(Number(row.system.id), {
+      x: colSystem.x + row.w - 8,
+      y: row.y + (colSystem.h / 2)
+    });
+  });
+
+  const edges = dbRows.map((row) => {
+    const sid = Number(row.db.system_id || 0);
+    const src = systemAnchorById.get(sid);
+    const dst = dbAnchorById.get(Number(row.db.id || 0));
+    if (!src || !dst) return '';
+    return `<path class="diagram-edge rel-db" d="${elbowPath(src.x, src.y, dst.x, dst.y, railX)}"></path>`;
+  }).filter(Boolean).join('');
+
+  const systemNodes = systemRows.map((row) => {
+    const s = row.system;
+    const sid = Number(s.id);
+    const stateClass = focusedSystemId
+      ? (sid === focusedSystemId ? ' selected' : ' dimmed')
+      : '';
+    const prodHost = `${vmName(s, false)} (${vmIp(s, false)})`;
+    const hmlHost = `${vmName(s, true)} (${vmIp(s, true)})`;
+    const line1 = row.line1;
+    const line2 = row.line2;
+    const line3 = row.line3;
+    const line4 = row.line4;
+    return `
+      <g class="diagram-node node-system${stateClass}" onclick="onDiagramSystemClick(event, ${sid})" ondblclick="openDetail(${sid})">
+        <rect x="${colSystem.x}" y="${row.y}" width="${row.w}" height="${colSystem.h}" rx="6" ry="6"></rect>
+        <text x="${colSystem.x + 12}" y="${row.y + 24}" class="diagram-node-title">${esc(line1)}</text>
+        <text x="${colSystem.x + 12}" y="${row.y + 44}" class="diagram-node-sub">${esc(line2)}</text>
+        <text x="${colSystem.x + 12}" y="${row.y + 64}" class="diagram-node-sub subtle">${esc(line3)}</text>
+        <text x="${colSystem.x + 12}" y="${row.y + 82}" class="diagram-node-sub subtle">${esc(line4)}</text>
+      </g>
+    `;
+  }).join('');
+
+  const dbNodes = dbRows.map((row) => {
+    const d = row.db;
+    const sid = Number(d.system_id || 0);
+    const rowClass = focusedSystemId && sid !== focusedSystemId ? ' dimmed' : '';
+    const textY = row.y + 16;
+    const tspans = row.lines.map((line, idx) => `<tspan x="${dbX + 10}" dy="${idx === 0 ? 0 : 13}">${esc(line)}</tspan>`).join('');
+    return `
+      <g class="diagram-db-row${rowClass}">
+        <rect x="${dbX}" y="${row.y}" width="${row.w}" height="${row.rowH}" rx="4" ry="4" class="diagram-db-item${rowClass}"></rect>
+        <text x="${dbX + 10}" y="${textY}" class="diagram-db-item-text${rowClass}">${tspans}</text>
+      </g>
+    `;
+  }).join('');
+
+  wrap.innerHTML = `
+    <svg class="diagram-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMinYMin meet">
+      <g class="diagram-links">${edges}</g>
+      <g class="diagram-nodes">${systemNodes}${dbNodes}</g>
+    </svg>
+  `;
+}
+
 function renderCurrent(){
   const active = App.items.filter((i)=>statusKind(i.status)==='active').length;
   $('count').innerHTML = `${App.items.length} sistemas &#8226; ${App.databases.length} bases &#8226; ${active} ativos`;
@@ -694,13 +1340,29 @@ function renderCurrent(){
     return;
   }
 
+  if (App.view === 'dns') {
+    $('result-count').textContent = '';
+    renderDns();
+    return;
+  }
+
   if (App.view === 'arquivados') {
     $('result-count').textContent = '';
     renderArchived();
     return;
   }
 
+  if (App.view === 'diagrama') {
+    $('result-count').textContent = '';
+    renderDiagram();
+    return;
+  }
+
   const list = filteredItems();
+  if (App.view === 'cards') {
+    renderSystemsCards(list);
+    return;
+  }
   if (App.view === 'lista') renderList(list);
 }
 
@@ -723,6 +1385,12 @@ function openForm(item=null){
   $('furl').value = item?.url || '';
   $('furl_homolog').value = item?.url_homolog || '';
   $('fdesc').value = item?.description || '';
+  $('fsector').value = item?.responsible_sector || '';
+  $('fcoordinator').value = item?.responsible_coordinator || '';
+  $('fextension').value = item?.extension_number || '';
+  $('femail').value = item?.email || '';
+  $('fsupport').value = item?.support || '';
+  $('fsupport_contact').value = item?.support_contact || '';
   $('ftech').value = (item?.tech || []).join(', ');
   $('fnotes').value = item?.notes || '';
 
@@ -739,26 +1407,7 @@ function toggleSave(){
 }
 
 function openDetail(id){
-  const i = App.items.find((x)=>Number(x.id)===Number(id));
-  if (!i) return;
-
-  $('dtitle').textContent = i.name;
-  $('dbody').innerHTML = `
-    <div>${badge(i.status)}</div>
-    <p class="card-desc">${esc(i.description || 'Sem descricao')}</p>
-    <div class="tags">${(i.tech || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>
-    <div class="card-foot"><span>Sistema: ${esc(i.system_name || '-')}</span><span>Categoria: ${esc(i.category || '-')}</span></div>
-    <div class="card-foot"><span>VM Producao: ${esc(vmName(i, false))}</span><span>IP: ${esc(vmIp(i, false))}</span></div>
-    <div class="card-foot"><span>VM Homologacao: ${esc(vmName(i, true))}</span><span>IP Homologacao: ${esc(vmIp(i, true))}</span></div>
-    <div class="card-foot"><span>Responsavel: ${esc(i.owner || '-')}</span><span>Versao: ${esc(i.version || '-')}</span></div>
-    <div class="card-foot"><span>Criticidade: <span class="crit-${critKind(i.criticality)}">${esc(i.criticality || '-')}</span></span><span></span></div>
-    <div class="card-foot"><span>URL: ${linkHtml(i.url)}</span><span>URL Homologacao: ${linkHtml(i.url_homolog)}</span></div>
-    ${i.notes ? `<p class="card-desc">Observacoes: ${esc(i.notes)}</p>` : ''}
-  `;
-
-  $('dedit').onclick = () => { closeModal('mdetail'); openForm(i); };
-  $('ddel').onclick = () => archiveSystem(i.id);
-  $('mdetail').classList.remove('hidden');
+  openFormById(id);
 }
 
 async function saveSystem(){
@@ -776,6 +1425,12 @@ async function saveSystem(){
     vm_homolog_id:Number($('fvm_homolog_id').value) || null,
     url_homolog:$('furl_homolog').value.trim(),
     description:$('fdesc').value.trim(),
+    responsible_sector:$('fsector').value.trim(),
+    responsible_coordinator:$('fcoordinator').value.trim(),
+    extension_number:$('fextension').value.trim(),
+    email:$('femail').value.trim(),
+    support:$('fsupport').value.trim(),
+    support_contact:$('fsupport_contact').value.trim(),
     notes:$('fnotes').value.trim(),
     tech:$('ftech').value.split(',').map((x)=>x.trim()).filter(Boolean),
   };
@@ -832,13 +1487,18 @@ function openDbForm(item=null){
   $('dbtitle').textContent = item ? 'Editar Base de Dados' : 'Nova Base de Dados';
   $('fdbid').value = item?.id || '';
   $('fdbname').value = item?.db_name || '';
+  $('fdbuser').value = item?.db_user || '';
   $('fdbengine').value = item?.db_engine || '';
   $('fdbenginever').value = item?.db_engine_version || '';
+  $('fdbengineverh').value = item?.db_engine_version_homolog || '';
+  $('fdbvmhip').value = item?.vm_homolog_ip || '';
   $('fdbnotes').value = item?.notes || '';
 
   populateDbSelects();
   $('fdbsystem').value = item?.system_id ? String(item.system_id) : '';
   $('fdbvm').value = item?.vm_id ? String(item.vm_id) : '';
+  $('fdbvmh').value = item?.vm_homolog_id ? String(item.vm_homolog_id) : '';
+  syncDbHomologIp();
   $('mdb').classList.remove('hidden');
 }
 
@@ -847,9 +1507,12 @@ async function saveDb(){
     id: $('fdbid').value || null,
     system_id: Number($('fdbsystem').value) || null,
     vm_id: Number($('fdbvm').value) || null,
+    vm_homolog_id: Number($('fdbvmh').value) || null,
     db_name: $('fdbname').value.trim(),
+    db_user: $('fdbuser').value.trim(),
     db_engine: $('fdbengine').value.trim(),
     db_engine_version: $('fdbenginever').value.trim(),
+    db_engine_version_homolog: $('fdbengineverh').value.trim(),
     notes: $('fdbnotes').value.trim(),
   };
 
@@ -896,6 +1559,11 @@ function openVmForm(vm=null){
   $('fvmname').value = vm?.name || '';
   $('fvmip').value = vm?.ip || '';
   $('fvmcategory').value = vmCategoryLabel(vm);
+  $('fvmtype').value = vmTypeLabel(vm);
+  $('fvmos').value = vm?.os_name || '';
+  $('fvmvcpus').value = vm?.vcpus || '';
+  $('fvmram').value = vm?.ram || '';
+  $('fvmdisk').value = vm?.disk || '';
   $('fvmtech').value = vmTechList(vm).join(', ');
   $('mvm').classList.remove('hidden');
 }
@@ -906,6 +1574,11 @@ async function saveVm(){
     name: $('fvmname').value.trim(),
     ip: $('fvmip').value.trim(),
     vm_category: $('fvmcategory').value.trim(),
+    vm_type: $('fvmtype').value.trim(),
+    os_name: $('fvmos').value.trim(),
+    vcpus: $('fvmvcpus').value.trim(),
+    ram: $('fvmram').value.trim(),
+    disk: $('fvmdisk').value.trim(),
     vm_tech: $('fvmtech').value.split(',').map((x)=>x.trim()).filter(Boolean),
   };
 
