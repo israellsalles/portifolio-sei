@@ -1,4 +1,4 @@
-const App = { items: [], vms: [], databases: [], archived: { systems: [], vms: [] }, view: 'cards', diagramFocusSystemId: 0 };
+const App = { items: [], vms: [], databases: [], archived: { systems: [], vms: [] }, view: 'cards' };
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 const norm = (s) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
@@ -7,6 +7,36 @@ const linkHtml = (url) => {
   if (!v) return '-';
   const safe = esc(v);
   return `<a href="${safe}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">${safe}</a>`;
+};
+const parseUrlList = (raw) => {
+  const values = Array.isArray(raw)
+    ? raw.map((entry) => String(entry ?? '').trim()).filter(Boolean)
+    : String(raw ?? '')
+      .replace(/\r/g, '\n')
+      .split(/[\n,;]+/)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  const seen = new Set();
+  return values.filter((entry) => {
+    const key = entry.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+const joinUrlList = (raw) => parseUrlList(raw).join('\n');
+const systemUrlList = (item, homolog=false) => {
+  const listKey = homolog ? 'url_homolog_list' : 'url_list';
+  if (Array.isArray(item?.[listKey])) return parseUrlList(item[listKey]);
+  const rawKey = homolog ? 'url_homolog' : 'url';
+  return parseUrlList(item?.[rawKey] || '');
+};
+const linkListHtml = (raw, options={}) => {
+  const urls = parseUrlList(raw);
+  if (!urls.length) return '-';
+  if (urls.length === 1 && !options.forceList) return linkHtml(urls[0]);
+  const classes = options.compact ? 'url-list url-list-compact' : 'url-list';
+  return `<ul class="${classes}">${urls.map((url) => `<li>${linkHtml(url)}</li>`).join('')}</ul>`;
 };
 
 function statusKind(status){
@@ -82,7 +112,7 @@ function closeModal(id){
 }
 
 function closeBg(ev,id){
-  if (ev.target === $(id)) closeModal(id);
+  return;
 }
 
 function vmName(item, homolog=false){
@@ -95,6 +125,23 @@ function vmIp(item, homolog=false){
   const key = homolog ? 'vm_homolog_ip' : 'vm_ip';
   const legacyKey = homolog ? 'ip_homolog' : 'ip';
   return String(item?.[key] || item?.[legacyKey] || '').trim() || '-';
+}
+
+function vmById(id){
+  const vmId = Number(id || 0);
+  if (!vmId) return null;
+  return App.vms.find((vm) => Number(vm.id) === vmId) || null;
+}
+
+function relationVmText(item, kind){
+  const prod = vmById(item?.vm_id);
+  const hml = vmById(item?.vm_homolog_id);
+  const prodText = prod ? (kind === 'access' ? vmAccessLabel(prod) : vmAdministrationLabel(prod)) : '';
+  const hmlText = hml ? (kind === 'access' ? vmAccessLabel(hml) : vmAdministrationLabel(hml)) : '';
+  const unique = [...new Set([prodText, hmlText].filter(Boolean))];
+  if (!unique.length) return '-';
+  if (unique.length === 1) return unique[0];
+  return `Prod: ${prodText || '-'} | Hml: ${hmlText || '-'}`;
 }
 
 function vmLabel(vm){
@@ -111,6 +158,122 @@ function vmTechList(vm){
   return raw ? raw.split(',').map((x)=>x.trim()).filter(Boolean) : [];
 }
 
+function vmSupportsDiagnostics(vm){
+  if (!vm || vmTypeLabel(vm) !== 'Sistemas') return false;
+  const tech = vmTechList(vm).map((t) => norm(t));
+  const hasApache = tech.some((t) => t.includes('apache'));
+  const hasPhp = tech.some((t) => t.includes('php'));
+  return hasApache && hasPhp;
+}
+
+function vmInstances(vm){
+  if (Array.isArray(vm?.vm_instances_list)) {
+    return vm.vm_instances_list
+      .map((inst) => ({
+        name: String(inst?.name || '').trim(),
+        ip: String(inst?.ip || '').trim()
+      }))
+      .filter((inst) => inst.ip !== '');
+  }
+  const raw = String(vm?.vm_instances || '').trim();
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((inst) => ({
+        name: String(inst?.name || '').trim(),
+        ip: String(inst?.ip || '').trim()
+      }))
+      .filter((inst) => inst.ip !== '');
+  } catch {
+    return [];
+  }
+}
+
+function vmInstancesText(vm){
+  return vmInstances(vm).map((inst) => `${inst.name || 'Instancia'} - ${inst.ip}`).join('\n');
+}
+
+function parseVmInstancesInput(text){
+  const lines = String(text || '')
+    .replace(/,\s*/g, '\n')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const out = [];
+  const seen = new Set();
+  lines.forEach((line, idx) => {
+    const m = line.match(/^(.*?)\s*[-:]\s*(.+)$/) || line.match(/^(.*?)\s+([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)$/);
+    const name = String(m?.[1] || `Instancia ${idx + 1}`).trim();
+    const ip = String(m?.[2] || '').trim();
+    if (!ip) return;
+    const key = `${name.toLowerCase()}|${ip.toLowerCase()}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ name, ip });
+  });
+  return out;
+}
+
+function encodeInstanceOption(instance){
+  const name = encodeURIComponent(String(instance?.name || '').trim());
+  const ip = encodeURIComponent(String(instance?.ip || '').trim());
+  return `${name}|||${ip}`;
+}
+
+function decodeInstanceOption(value){
+  const raw = String(value || '');
+  if (!raw.includes('|||')) return { name: '', ip: '' };
+  const [nameEnc, ipEnc] = raw.split('|||');
+  return {
+    name: decodeURIComponent(nameEnc || ''),
+    ip: decodeURIComponent(ipEnc || '')
+  };
+}
+
+function dbInstanceName(db, homolog=false){
+  const key = homolog ? 'db_instance_homolog_name' : 'db_instance_name';
+  const ip = dbInstanceIp(db, homolog);
+  const value = String(db?.[key] || '').trim();
+  if (value) return value;
+  return ip && ip !== '-' ? 'Instancia principal' : '-';
+}
+
+function dbInstanceIp(db, homolog=false){
+  const key = homolog ? 'db_instance_homolog_ip' : 'db_instance_ip';
+  const fallback = homolog ? 'vm_homolog_ip' : 'vm_ip';
+  return String(db?.[key] || db?.[fallback] || '').trim() || '-';
+}
+
+function dbVmInstanceLabel(db, homolog=false){
+  const vmKey = homolog ? 'vm_homolog_name' : 'vm_name';
+  const vm = String(db?.[vmKey] || '').trim();
+  const inst = dbInstanceName(db, homolog);
+  if (!vm && inst === '-') return '-';
+  if (!vm) return inst;
+  if (inst === '-' || inst === 'Instancia principal') return vm;
+  return `${vm} - ${inst}`;
+}
+
+function dbVmInstanceWithIpLabel(db, homolog=false){
+  const label = dbVmInstanceLabel(db, homolog);
+  const ip = dbInstanceIp(db, homolog);
+  if (label === '-' && ip === '-') return '-';
+  if (ip === '-') return label;
+  if (label === '-') return ip;
+  return `${label} (${ip})`;
+}
+
+function dbEngineVersionLabel(db, homolog=false){
+  const engine = String(db?.db_engine || '').trim();
+  const version = String(homolog ? db?.db_engine_version_homolog : db?.db_engine_version || '').trim();
+  const fallback = dbInstanceName(db, homolog);
+  const base = engine || (fallback !== '-' ? fallback : '');
+  if (!base) return '-';
+  return version ? `${base} ${version}` : base;
+}
+
 function vmCategoryLabel(vm){
   const raw = String(vm?.vm_category || '').trim().toLowerCase();
   if (raw.includes('homo')) return 'Homologacao';
@@ -122,6 +285,18 @@ function vmTypeLabel(vm){
   const raw = String(vm?.vm_type || '').trim().toLowerCase();
   if (raw.includes('sgbd') || raw.includes('db') || raw.includes('banco')) return 'SGBD';
   return 'Sistemas';
+}
+
+function vmAccessLabel(vm){
+  const raw = String(vm?.vm_access || '').trim().toLowerCase();
+  if (raw.includes('extern')) return 'Externo';
+  return 'Interno';
+}
+
+function vmAdministrationLabel(vm){
+  const raw = String(vm?.vm_administration || '').trim().toLowerCase();
+  if (raw.includes('prodeb')) return 'PRODEB';
+  return 'SEI';
 }
 
 function vmCategoryOrder(vm){
@@ -160,10 +335,15 @@ function syncPrimaryAction(){
   btn.textContent = '+ Novo Sistema';
 }
 
+function openDiagramExternal(){
+  const url = 'https://prodeboffice365.sharepoint.com/:u:/r/sites/Coinf/_layouts/15/Doc.aspx?sourcedoc=%7BF9A5D9F0-C2B4-41E3-96F7-12EBC1C88D82%7D&file=Diagrama%20dos%20Sistemas.vsdx&action=default&mobileredirect=true&DefaultItemOpen=1&ct=1772734821727&wdOrigin=OFFICECOM-WEB.START.REC&cid=7adfe313-87a7-4a80-bde8-94be444979fd&wdPreviousSessionSrc=HarmonyWeb&wdPreviousSession=1315c3ec-6a4e-4c8c-9723-58107f78e0c7';
+  window.open(url, '_blank', 'noopener,noreferrer');
+}
+
 function setView(view){
   const nextView = view === 'grid' ? 'lista' : view;
   App.view = nextView;
-  ['dashboard','lista','cards','dns','bases','maquinas','diagrama','arquivados'].forEach((v) => {
+  ['dashboard','lista','cards','dns','bases','maquinas','arquivados'].forEach((v) => {
     const viewEl = $('view-' + v);
     const tabEl = $('tab-' + v);
     if (viewEl) viewEl.classList.toggle('active', v === nextView);
@@ -176,7 +356,9 @@ function setView(view){
 
 function populateFilters(){
   const categories = [...new Set(App.items.map((i) => String(i.category || '').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  const groups = [...new Set(App.items.map((i) => String(i.system_group || '').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
   const statuses = [...new Set(App.items.map((i) => String(i.status || '').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  const sectors = [...new Set(App.items.map((i) => String(i.responsible_sector || '').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
   const fill = (id, first, list) => {
     const el = $(id);
     if (!el) return;
@@ -184,8 +366,12 @@ function populateFilters(){
     el.innerHTML = `<option value="">${first}</option>` + list.map((x)=>`<option>${esc(x)}</option>`).join('');
     if (prev && list.includes(prev)) el.value = prev;
   };
-  fill('cat','Todas',categories);
-  fill('st','Todos',statuses);
+  fill('cat','Categoria: Todas',categories);
+  fill('groupf','Grupo: Todos',groups);
+  fill('st','Status: Todos',statuses);
+  fill('accessf','Acesso: Todos',['Interno','Externo']);
+  fill('adminf','Administracao: Todos',['SEI','PRODEB']);
+  fill('sectorf','Setor: Todos',sectors);
 
   const vmEl = $('vmf');
   if (vmEl) {
@@ -194,21 +380,39 @@ function populateFilters(){
       .filter((vm) => vmTypeLabel(vm) !== 'SGBD')
       .sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')))
       .map((vm) => ({ id: String(vm.id), label: vmLabel(vm) }));
-    vmEl.innerHTML = '<option value="">Todas VMs</option>' + vms.map((vm)=>`<option value="${esc(vm.id)}">${esc(vm.label)}</option>`).join('');
+    vmEl.innerHTML = '<option value="">VM: Todas</option>' + vms.map((vm)=>`<option value="${esc(vm.id)}">${esc(vm.label)}</option>`).join('');
     if (prev && vms.some((vm)=>vm.id === prev)) vmEl.value = prev;
   }
 }
 
 function populateVmSelects(){
-  const fillVm = (id, first) => {
+  const fillVm = (id, first, category) => {
     const el = $(id);
     if (!el) return;
     const prev = el.value;
-    el.innerHTML = `<option value="">${first}</option>` + App.vms.map((vm)=>`<option value="${vm.id}">${esc(vmLabel(vm))}</option>`).join('');
-    if (prev && [...el.options].some((o)=>o.value === prev)) el.value = prev;
+    const vms = [...App.vms]
+      .filter((vm) => vmTypeLabel(vm) !== 'SGBD')
+      .filter((vm) => vmCategoryLabel(vm) === category)
+      .sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')));
+    el.innerHTML = `<option value="">${first}</option>` + vms.map((vm)=>`<option value="${vm.id}">${esc(vmLabel(vm))}</option>`).join('');
+    if (prev && vms.some((vm)=>String(vm.id) === String(prev))) el.value = prev;
   };
-  fillVm('fvm_id','Selecionar...');
-  fillVm('fvm_homolog_id','Selecionar...');
+  fillVm('fvm_id','Selecionar...','Producao');
+  fillVm('fvm_homolog_id','Selecionar...','Homologacao');
+}
+
+function populateVmTabFilters(){
+  const fill = (id, first, list) => {
+    const el = $(id);
+    if (!el) return;
+    const prev = el.value;
+    el.innerHTML = `<option value="">${first}</option>` + list.map((x)=>`<option>${esc(x)}</option>`).join('');
+    if (prev && list.includes(prev)) el.value = prev;
+  };
+  fill('vmcatf', 'Categoria: Todas', ['Producao','Homologacao','Desenvolvimento']);
+  fill('vmtypef', 'Tipo: Todos', ['Sistemas','SGBD']);
+  fill('vmaccessf', 'Acesso: Todos', ['Interno','Externo']);
+  fill('vmadminf', 'Administracao: Todos', ['SEI','PRODEB']);
 }
 
 function populateDbSelects(){
@@ -223,24 +427,75 @@ function populateDbSelects(){
   const vmEl = $('fdbvm');
   if (vmEl) {
     const prev = vmEl.value;
-    vmEl.innerHTML = '<option value="">Selecionar...</option>' + App.vms.map((vm)=>`<option value="${vm.id}">${esc(vmLabel(vm))}</option>`).join('');
-    if (prev && [...vmEl.options].some((o)=>o.value === prev)) vmEl.value = prev;
+    const vms = [...App.vms]
+      .filter((vm) => vmTypeLabel(vm) === 'SGBD')
+      .filter((vm) => vmCategoryLabel(vm) === 'Producao')
+      .sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')));
+    vmEl.innerHTML = '<option value="">Selecionar...</option>' + vms.map((vm)=>`<option value="${vm.id}">${esc(vmLabel(vm))}</option>`).join('');
+    if (prev && vms.some((vm)=>String(vm.id) === String(prev))) vmEl.value = prev;
   }
 
   const vmHmlEl = $('fdbvmh');
   if (vmHmlEl) {
     const prev = vmHmlEl.value;
-    vmHmlEl.innerHTML = '<option value="">Selecionar...</option>' + App.vms.map((vm)=>`<option value="${vm.id}">${esc(vmLabel(vm))}</option>`).join('');
-    if (prev && [...vmHmlEl.options].some((o)=>o.value === prev)) vmHmlEl.value = prev;
+    const vms = [...App.vms]
+      .filter((vm) => vmTypeLabel(vm) === 'SGBD')
+      .filter((vm) => vmCategoryLabel(vm) === 'Homologacao')
+      .sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')));
+    vmHmlEl.innerHTML = '<option value="">Selecionar...</option>' + vms.map((vm)=>`<option value="${vm.id}">${esc(vmLabel(vm))}</option>`).join('');
+    if (prev && vms.some((vm)=>String(vm.id) === String(prev))) vmHmlEl.value = prev;
+  }
+
+  syncDbInstanceOptions();
+}
+
+function vmInstanceOptionsByVmId(vmId){
+  const vm = App.vms.find((x)=>Number(x.id) === Number(vmId));
+  if (!vm) return [];
+  const instances = vmInstances(vm);
+  if (instances.length) return instances;
+  const ip = String(vm?.ip || '').trim();
+  if (!ip) return [];
+  return [{ name: 'Instancia principal', ip }];
+}
+
+function fillDbInstanceSelect(selectId, vmId, selectedName='', selectedIp=''){
+  const el = $(selectId);
+  if (!el) return;
+  const options = vmInstanceOptionsByVmId(vmId);
+  const selectedValue = selectedName || selectedIp
+    ? encodeInstanceOption({ name: selectedName || 'Instancia principal', ip: selectedIp })
+    : '';
+
+  el.innerHTML = '<option value="">Selecionar...</option>' + options.map((inst)=>`<option value="${esc(encodeInstanceOption(inst))}">${esc(`${inst.name} (${inst.ip})`)}</option>`).join('');
+  if (selectedValue && [...el.options].some((o)=>o.value === selectedValue)) {
+    el.value = selectedValue;
+  } else if (selectedIp) {
+    const byIp = [...el.options].find((o) => decodeInstanceOption(o.value).ip === selectedIp);
+    if (byIp) el.value = byIp.value;
+  } else if (options.length === 1) {
+    el.value = encodeInstanceOption(options[0]);
   }
 }
 
+function selectedDbInstance(selectId){
+  const raw = String($(selectId)?.value || '').trim();
+  if (!raw) return { name: '', ip: '' };
+  return decodeInstanceOption(raw);
+}
+
+function syncDbInstanceOptions(prodSelected=null, hmlSelected=null){
+  const vmProdId = Number($('fdbvm')?.value || 0);
+  const vmHmlId = Number($('fdbvmh')?.value || 0);
+  const currentProd = prodSelected || selectedDbInstance('fdbinstance');
+  const currentHml = hmlSelected || selectedDbInstance('fdbinstanceh');
+  fillDbInstanceSelect('fdbinstance', vmProdId, currentProd.name, currentProd.ip);
+  fillDbInstanceSelect('fdbinstanceh', vmHmlId, currentHml.name, currentHml.ip);
+  syncDbHomologIp();
+}
+
 function syncDbHomologIp(){
-  const vmId = Number($('fdbvmh')?.value || 0);
-  const vm = App.vms.find((x)=>Number(x.id) === vmId);
-  const ip = String(vm?.ip || '').trim();
-  const ipEl = $('fdbvmhip');
-  if (ipEl) ipEl.value = ip || '';
+  return;
 }
 
 function systemDatabases(systemId){
@@ -257,8 +512,8 @@ function databaseHostsText(systemId){
   const dbs = systemDatabases(systemId);
   if (!dbs.length) return '-';
   const hosts = [...new Set(dbs.map((d) => {
-    const vm = String(d.vm_name || '').trim();
-    const ip = String(d.vm_ip || '').trim();
+    const vm = dbVmInstanceLabel(d, false);
+    const ip = dbInstanceIp(d, false);
     if (vm && ip) return `${vm} (${ip})`;
     return vm || ip || '-';
   }))].filter(Boolean);
@@ -286,22 +541,44 @@ function databaseSearchBlob(systemId){
     d.db_engine_version_homolog,
     d.vm_name,
     d.vm_ip,
+    d.db_instance_name,
+    d.db_instance_ip,
     d.vm_homolog_name,
-    d.vm_homolog_ip
+    d.vm_homolog_ip,
+    d.db_instance_homolog_name,
+    d.db_instance_homolog_ip
   ].join(' ')).join(' ');
 }
 
 function filteredItems(){
   const q = $('q').value.toLowerCase();
   const cat = $('cat').value;
+  const groupf = $('groupf')?.value || '';
   const st = $('st').value;
   const vmf = $('vmf')?.value || '';
+  const accessf = $('accessf')?.value || '';
+  const adminf = $('adminf')?.value || '';
+  const sectorf = $('sectorf')?.value || '';
   const sort = $('sort').value;
 
   return [...App.items]
     .filter((i)=>!cat || norm(i.category)===norm(cat))
+    .filter((i)=>!groupf || String(i.system_group || '').trim() === groupf)
     .filter((i)=>!st || norm(i.status)===norm(st))
     .filter((i)=>!vmf || Number(i.vm_id || 0) === Number(vmf) || Number(i.vm_homolog_id || 0) === Number(vmf))
+    .filter((i)=>{
+      if (!accessf) return true;
+      const prodVm = vmById(i.vm_id);
+      const hmlVm = vmById(i.vm_homolog_id);
+      return [prodVm, hmlVm].filter(Boolean).some((vm)=>vmAccessLabel(vm) === accessf);
+    })
+    .filter((i)=>{
+      if (!adminf) return true;
+      const prodVm = vmById(i.vm_id);
+      const hmlVm = vmById(i.vm_homolog_id);
+      return [prodVm, hmlVm].filter(Boolean).some((vm)=>vmAdministrationLabel(vm) === adminf);
+    })
+    .filter((i)=>!sectorf || String(i.responsible_sector || '').trim() === sectorf)
     .filter((i)=>!q || [
       i.name,
       i.system_name,
@@ -312,11 +589,19 @@ function filteredItems(){
       i.email,
       i.support,
       i.support_contact,
+      i.analytics,
+      i.ssl,
+      i.waf,
+      i.bundle,
+      i.directory,
+      i.size,
+      i.repository,
       i.owner,
       i.category,
+      i.system_group,
       i.status,
-      i.url,
-      i.url_homolog,
+      systemUrlList(i, false).join(' '),
+      systemUrlList(i, true).join(' '),
       vmName(i, false),
       vmName(i, true),
       vmIp(i, false),
@@ -345,7 +630,7 @@ function renderDashboard(){
     ['Maquinas Virtuais', totalVms, '#2cc7b0'],
     ['Bases de Dados', totalDatabases, '#e0a95a'],
     ['Ativos', active, '#4be989'],
-    ['Em Manutencao', maintenance, '#ff9d4f'],
+    ['Em Manutenção', maintenance, '#ff9d4f'],
     ['Depreciados', deprecated, '#ff7070'],
     ['Categorias', categories, '#b08cff'],
     ['Tecnologias em VMs', vmTechTotal, '#6e9bff'],
@@ -454,11 +739,12 @@ function renderDashboard(){
 function renderList(list){
   $('result-count').textContent = `${list.length} resultado(s)`;
   if (!list.length) {
-    $('list-main-body').innerHTML = '<tr><td colspan="6" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
+    $('list-main-body').innerHTML = '<tr><td colspan="7" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
     $('list-desc-body').innerHTML = '<tr><td colspan="5" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
-    $('list-infra-body').innerHTML = '<tr><td colspan="7" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
-    $('list-db-body').innerHTML = '<tr><td colspan="11" style="color:var(--muted)">Nenhuma base de dados encontrada.</td></tr>';
+    $('list-infra-body').innerHTML = '<tr><td colspan="9" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
+    $('list-db-body').innerHTML = '<tr><td colspan="10" style="color:var(--muted)">Nenhuma base de dados encontrada.</td></tr>';
     $('list-support-body').innerHTML = '<tr><td colspan="8" style="color:var(--muted)">Nenhum contato cadastrado.</td></tr>';
+    $('list-ops-body').innerHTML = '<tr><td colspan="8" style="color:var(--muted)">Nenhum dado de deploy cadastrado.</td></tr>';
     $('list-cards').innerHTML = '<div class="list-mobile-card"><div class="list-mobile-value" style="color:var(--muted)">Nenhum sistema encontrado.</div></div>';
     return;
   }
@@ -469,16 +755,17 @@ function renderList(list){
       <td>${esc(i.system_name || '-')}</td>
       <td>${esc(i.version || '-')}</td>
       <td>${esc(i.category || '-')}</td>
+      <td>${esc(i.system_group || '-')}</td>
       <td class="crit-${critKind(i.criticality)}">${esc(i.criticality || '-')}</td>
-      <td>${esc(i.notes || '-')}</td>
+      <td>${(i.tech || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</td>
     </tr>
   `).join('');
 
   $('list-desc-body').innerHTML = list.map((i) => `
     <tr onclick="openDetail(${i.id})">
       <td><div class="list-name">${esc(i.name)}</div></td>
-      <td>${linkHtml(i.url)}</td>
       <td>${esc(i.description || '-')}</td>
+      <td>${esc(i.notes || '-')}</td>
       <td>${badge(i.status)}</td>
       <td onclick="event.stopPropagation()"><div class="actions"><button class="act del" onclick="archiveSystem(${i.id})">&#128230;</button></div></td>
     </tr>
@@ -487,12 +774,14 @@ function renderList(list){
   $('list-infra-body').innerHTML = list.map((i) => `
     <tr onclick="openDetail(${i.id})">
       <td><div class="list-name">${esc(i.name)}</div></td>
-      <td>${linkHtml(i.url_homolog)}</td>
+      <td>${linkListHtml(systemUrlList(i, false), { compact:true })}</td>
+      <td>${linkListHtml(systemUrlList(i, true), { compact:true })}</td>
       <td>${esc(vmName(i, false))}</td>
       <td>${esc(vmIp(i, false))}</td>
       <td>${esc(vmName(i, true))}</td>
       <td>${esc(vmIp(i, true))}</td>
-      <td>${(i.tech || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</td>
+      <td>${esc(relationVmText(i, 'access'))}</td>
+      <td>${esc(relationVmText(i, 'administration'))}</td>
     </tr>
   `).join('');
 
@@ -503,7 +792,7 @@ function renderList(list){
     .sort((a,b) => String(a.db_name || '').localeCompare(String(b.db_name || '')));
 
   if (!dbList.length) {
-    $('list-db-body').innerHTML = '<tr><td colspan="11" style="color:var(--muted)">Nenhuma base de dados encontrada para os filtros aplicados.</td></tr>';
+    $('list-db-body').innerHTML = '<tr><td colspan="10" style="color:var(--muted)">Nenhuma base de dados encontrada para os filtros aplicados.</td></tr>';
   } else {
     $('list-db-body').innerHTML = dbList.map((d) => {
       const systemId = Number(d.system_id);
@@ -515,13 +804,12 @@ function renderList(list){
         <td><div class="list-name">${esc(systemName)}</div></td>
         <td>${esc(d.db_name || '-')}</td>
         <td>${esc(d.db_user || '-')}</td>
-        <td>${esc(d.db_engine || '-')}</td>
-        <td>${esc(d.db_engine_version || '-')}</td>
-        <td>${esc(d.vm_name || '-')}</td>
-        <td>${esc(d.vm_ip || '-')}</td>
-        <td>${esc(d.vm_homolog_name || '-')}</td>
-        <td>${esc(d.vm_homolog_ip || '-')}</td>
-        <td>${esc(d.db_engine_version_homolog || '-')}</td>
+        <td>${esc(String(d.vm_name || '').trim() || '-')}</td>
+        <td>${esc(dbInstanceIp(d, false))}</td>
+        <td>${esc(dbInstanceName(d, false))}</td>
+        <td>${esc(String(d.vm_homolog_name || '').trim() || '-')}</td>
+        <td>${esc(dbInstanceIp(d, true))}</td>
+        <td>${esc(dbInstanceName(d, true))}</td>
         <td>${esc(d.notes || '-')}</td>
       </tr>
     `;
@@ -541,6 +829,19 @@ function renderList(list){
     </tr>
   `).join('');
 
+  $('list-ops-body').innerHTML = list.map((i) => `
+    <tr onclick="openDetail(${i.id})">
+      <td><div class="list-name">${esc(i.name)}</div></td>
+      <td>${esc(i.analytics || '-')}</td>
+      <td>${esc(i.ssl || '-')}</td>
+      <td>${esc(i.waf || '-')}</td>
+      <td>${esc(i.bundle || '-')}</td>
+      <td>${esc(i.directory || '-')}</td>
+      <td>${esc(i.size || '-')}</td>
+      <td>${esc(i.repository || '-')}</td>
+    </tr>
+  `).join('');
+
   $('list-cards').innerHTML = list.map((i) => `
     <div class="list-mobile-card" onclick="openDetail(${i.id})">
       <div class="list-mobile-head">
@@ -550,15 +851,23 @@ function renderList(list){
       <div class="list-mobile-grid">
         <div class="list-mobile-item"><span class="list-mobile-label">Sistema</span><span class="list-mobile-value">${esc(i.system_name || '-')}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Categoria</span><span class="list-mobile-value">${esc(i.category || '-')}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">Grupo</span><span class="list-mobile-value">${esc(i.system_group || '-')}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Criticidade</span><span class="list-mobile-value crit-${critKind(i.criticality)}">${esc(i.criticality || '-')}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Responsavel Tecnico</span><span class="list-mobile-value">${esc(i.owner || '-')}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Versao</span><span class="list-mobile-value">${esc(i.version || '-')}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">VM Producao</span><span class="list-mobile-value">${esc(vmName(i, false))} | ${esc(vmIp(i, false))}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">VM Homologacao</span><span class="list-mobile-value">${esc(vmName(i, true))} | ${esc(vmIp(i, true))}</span></div>
-        <div class="list-mobile-item"><span class="list-mobile-label">URL</span><span class="list-mobile-value">${linkHtml(i.url)}</span></div>
-        <div class="list-mobile-item"><span class="list-mobile-label">URL Homologacao</span><span class="list-mobile-value">${linkHtml(i.url_homolog)}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">URL</span><span class="list-mobile-value">${linkListHtml(systemUrlList(i, false), { compact:true })}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">URL Homologacao</span><span class="list-mobile-value">${linkListHtml(systemUrlList(i, true), { compact:true })}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Descricao</span><span class="list-mobile-value">${esc(i.description || '-')}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Observacoes</span><span class="list-mobile-value">${esc(i.notes || '-')}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">Analytics</span><span class="list-mobile-value">${esc(i.analytics || '-')}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">SSL</span><span class="list-mobile-value">${esc(i.ssl || '-')}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">WAF</span><span class="list-mobile-value">${esc(i.waf || '-')}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">Bundle</span><span class="list-mobile-value">${esc(i.bundle || '-')}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">Diretorio</span><span class="list-mobile-value">${esc(i.directory || '-')}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">Tamanho</span><span class="list-mobile-value">${esc(i.size || '-')}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">Repositorio</span><span class="list-mobile-value">${esc(i.repository || '-')}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Bases de Dados</span><span class="list-mobile-value">${esc(databaseNamesText(i.id))}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Hospedagem das Bases</span><span class="list-mobile-value">${esc(databaseHostsText(i.id))}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">SGBD / Versao</span><span class="list-mobile-value">${esc(databaseEngineText(i.id))}</span></div>
@@ -582,69 +891,84 @@ function renderSystemsCards(list){
   }
 
   box.innerHTML = list.map((i) => {
+    const cardStatusClass = `status-${statusKind(i.status)}`;
     const dbs = systemDatabases(i.id)
       .sort((a,b)=>String(a.db_name || '').localeCompare(String(b.db_name || '')));
     const techMarkup = (i.tech || []).length
       ? (i.tech || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')
       : '<span class="system-info-empty">Sem tecnologias cadastradas.</span>';
 
-    const dbMarkup = dbs.length
-      ? dbs.map((d) => {
-        const engine = `${d.db_engine || '-'}${d.db_engine_version ? ` ${d.db_engine_version}` : ''}`;
-        const engineHml = `${d.db_engine || '-'}${d.db_engine_version_homolog ? ` ${d.db_engine_version_homolog}` : ''}`;
-        return `
-          <div class="system-db-item">
-            <div class="system-db-name">${esc(d.db_name || '-')}</div>
-            <div class="system-db-meta">Usuario: ${esc(d.db_user || '-')} | SGBD Producao: ${esc(engine)}</div>
-            <div class="system-db-meta">VM Producao: ${esc(d.vm_name || '-')} (${esc(d.vm_ip || '-')})</div>
-            <div class="system-db-meta">VM Homologacao: ${esc(d.vm_homolog_name || '-')} (${esc(d.vm_homolog_ip || '-')}) | SGBD Homologacao: ${esc(engineHml)}</div>
-            ${d.notes ? `<div class="system-db-note">Obs: ${esc(d.notes)}</div>` : ''}
+    const dbMarkup = dbs.map((d) => {
+      return `
+        <div class="system-db-item">
+          <div class="system-db-meta-grid">
+            <div class="system-db-meta"><span>Base de Dados</span><strong>${esc(d.db_name || '-')}</strong></div>
+            <div class="system-db-meta"><span>Usuario do Banco</span><strong>${esc(d.db_user || '-')}</strong></div>
+            <div class="system-db-meta"><span>VM Producao</span><strong>${esc(String(d.vm_name || '').trim() || '-')}</strong></div>
+            <div class="system-db-meta"><span>IP da Instancia</span><strong>${esc(dbInstanceIp(d, false))}</strong></div>
+            <div class="system-db-meta"><span>Instancia SGBD</span><strong>${esc(dbInstanceName(d, false))}</strong></div>
+            <div class="system-db-meta"><span>VM Homologacao</span><strong>${esc(String(d.vm_homolog_name || '').trim() || '-')}</strong></div>
+            <div class="system-db-meta"><span>IP da Instancia Homologacao</span><strong>${esc(dbInstanceIp(d, true))}</strong></div>
+            <div class="system-db-meta"><span>Instancia SGBD Homologacao</span><strong>${esc(dbInstanceName(d, true))}</strong></div>
           </div>
-        `;
-      }).join('')
-      : '<div class="system-info-empty">Sem bases de dados vinculadas.</div>';
+        </div>
+      `;
+    }).join('');
 
     return `
-      <article class="system-info-card" onclick="openDetail(${i.id})">
+      <article class="system-info-card ${cardStatusClass}" onclick="openDetail(${i.id})">
         <div class="system-info-head">
           <div>
             <div class="system-info-name">${esc(i.name || '-')}</div>
-            <div class="system-info-sub">${esc(i.system_name || '-')} | Versao ${esc(i.version || '-')}</div>
+            <div class="system-info-sub">${[String(i.system_name || '').trim(), String(i.version || '').trim()].filter(Boolean).map((part) => esc(part)).join(' ') || '-'}</div>
           </div>
-          ${badge(i.status)}
+          <div class="system-info-head-side">
+            ${techMarkup.startsWith('<span class="system-info-empty">')
+              ? techMarkup
+              : `<div class="tags">${techMarkup}</div>`}
+          </div>
+        </div>
+        ${systemUrlList(i, false).length
+          ? `<div class="system-info-url-banner">${linkListHtml(systemUrlList(i, false))}</div>`
+          : ''}
+        <div class="system-info-desc-footer">
+          <strong class="system-info-text">${esc(i.description || '-')}</strong>
         </div>
 
-        <section class="system-info-section">
+        <section class="system-info-section system-info-section-tech">
           <div class="system-info-title">Informacoes Tecnicas</div>
           <div class="system-info-grid">
             <div class="system-info-field"><span>Categoria</span><strong>${esc(i.category || '-')}</strong></div>
+            <div class="system-info-field"><span>Grupo</span><strong>${esc(i.system_group || '-')}</strong></div>
             <div class="system-info-field"><span>Criticidade</span><strong class="crit-${critKind(i.criticality)}">${esc(i.criticality || '-')}</strong></div>
-            <div class="system-info-field"><span>Observacoes</span><strong>${esc(i.notes || '-')}</strong></div>
+            <div class="system-info-field system-info-field-full"><span>Observacoes</span><strong>${esc(i.notes || '-')}</strong></div>
           </div>
         </section>
 
-        <section class="system-info-section">
-          <div class="system-info-title">Descricao e Infraestrutura</div>
-          <div class="system-info-grid system-info-grid-wide">
-            <div class="system-info-field system-info-field-full"><span>Descricao</span><strong class="system-info-text">${esc(i.description || '-')}</strong></div>
-            <div class="system-info-field"><span>URL</span><div class="system-info-link">${linkHtml(i.url)}</div></div>
-            <div class="system-info-field"><span>URL Homologacao</span><div class="system-info-link">${linkHtml(i.url_homolog)}</div></div>
-            <div class="system-info-field"><span>VM Producao</span><strong>${esc(vmName(i, false))} (${esc(vmIp(i, false))})</strong></div>
-            <div class="system-info-field"><span>VM Homologacao</span><strong>${esc(vmName(i, true))} (${esc(vmIp(i, true))})</strong></div>
+        <section class="system-info-section system-info-section-infra">
+          <div class="system-info-title">Infraestrutura</div>
+          <div class="system-info-grid">
+            <div class="system-info-field"><span>URL Homologacao</span><div class="system-info-link">${linkListHtml(systemUrlList(i, true), { compact:true })}</div></div>
+            <div class="system-info-field"><span>VM Producao</span><strong>${esc(vmName(i, false))}</strong></div>
+            <div class="system-info-field"><span>IP Producao</span><strong>${esc(vmIp(i, false))}</strong></div>
+            <div class="system-info-field"><span>VM Homologacao</span><strong>${esc(vmName(i, true))}</strong></div>
+            <div class="system-info-field"><span>IP Homologacao</span><strong>${esc(vmIp(i, true))}</strong></div>
+            <div class="system-info-field"><span>Acesso</span><strong>${esc(relationVmText(i, 'access'))}</strong></div>
+            <div class="system-info-field"><span>Administracao</span><strong>${esc(relationVmText(i, 'administration'))}</strong></div>
           </div>
-          <div class="tags">${techMarkup}</div>
         </section>
 
-        <section class="system-info-section">
-          <div class="system-info-title">Bases de Dados</div>
+        ${dbs.length ? `
+        <section class="system-info-section system-info-section-db">
+          <div class="system-info-title">Base de Dados</div>
           <div class="system-db-list">${dbMarkup}</div>
         </section>
+        ` : ''}
 
-        <section class="system-info-section">
+        <section class="system-info-section system-info-section-support">
           <div class="system-info-title">Contatos e Suporte</div>
           <div class="system-info-grid">
             <div class="system-info-field"><span>Responsavel Tecnico</span><strong>${esc(i.owner || '-')}</strong></div>
-            <div class="system-info-field"><span>Setor Responsavel</span><strong>${esc(i.responsible_sector || '-')}</strong></div>
             <div class="system-info-field"><span>Coordenador Responsavel</span><strong>${esc(i.responsible_coordinator || '-')}</strong></div>
             <div class="system-info-field"><span>Ramal</span><strong>${esc(i.extension_number || '-')}</strong></div>
             <div class="system-info-field"><span>Email</span><strong>${esc(i.email || '-')}</strong></div>
@@ -653,8 +977,31 @@ function renderSystemsCards(list){
           </div>
         </section>
 
-        <div class="system-info-actions" onclick="event.stopPropagation()">
-          <button class="act del" onclick="archiveSystem(${i.id})">&#128230;</button>
+        <section class="system-info-section system-info-section-ops">
+          <div class="system-info-title">Deploy e Empacotamento</div>
+          <div class="system-info-grid">
+            <div class="system-info-field"><span>Analytics</span><strong>${esc(i.analytics || '-')}</strong></div>
+            <div class="system-info-field"><span>SSL</span><strong>${esc(i.ssl || '-')}</strong></div>
+            <div class="system-info-field"><span>WAF</span><strong>${esc(i.waf || '-')}</strong></div>
+            <div class="system-info-field"><span>Bundle</span><strong>${esc(i.bundle || '-')}</strong></div>
+            <div class="system-info-field"><span>Diretorio</span><strong>${esc(i.directory || '-')}</strong></div>
+            <div class="system-info-field"><span>Tamanho</span><strong>${esc(i.size || '-')}</strong></div>
+            <div class="system-info-field"><span>Repositorio</span><strong>${esc(i.repository || '-')}</strong></div>
+          </div>
+        </section>
+
+        <div class="system-info-foot" onclick="event.stopPropagation()">
+          <div class="system-info-foot-bottom">
+            <div class="system-info-foot-main">
+            <div class="system-info-tech-footer">
+            </div>
+            </div>
+            <div class="system-info-actions">
+              <div class="system-info-footer-field">
+                <strong>${esc(i.responsible_sector || '-')}</strong>
+              </div>
+            </div>
+          </div>
         </div>
       </article>
     `;
@@ -686,7 +1033,7 @@ function vmDatabases(vmId){
 function renderDatabases(){
   const list = [...App.databases].sort((a,b)=>String(a.db_name || '').localeCompare(String(b.db_name || '')));
   if (!list.length) {
-    $('db-body').innerHTML = '<tr><td colspan="12" style="color:var(--muted)">Nenhuma base de dados cadastrada.</td></tr>';
+    $('db-body').innerHTML = '<tr><td colspan="11" style="color:var(--muted)">Nenhuma base de dados cadastrada.</td></tr>';
     $('db-cards').innerHTML = '<div class="db-mobile-card"><div class="db-mobile-value" style="color:var(--muted)">Nenhuma base de dados cadastrada.</div></div>';
     return;
   }
@@ -696,13 +1043,12 @@ function renderDatabases(){
       <td>${esc(d.system_name || '-')}</td>
       <td>${esc(d.db_name || '-')}</td>
       <td>${esc(d.db_user || '-')}</td>
-      <td>${esc(d.db_engine || '-')}</td>
-      <td>${esc(d.db_engine_version || '-')}</td>
-      <td>${esc(d.vm_name || '-')}</td>
-      <td>${esc(d.vm_ip || '-')}</td>
-      <td>${esc(d.vm_homolog_name || '-')}</td>
-      <td>${esc(d.vm_homolog_ip || '-')}</td>
-      <td>${esc(d.db_engine_version_homolog || '-')}</td>
+      <td>${esc(String(d.vm_name || '').trim() || '-')}</td>
+      <td>${esc(dbInstanceIp(d, false))}</td>
+      <td>${esc(dbInstanceName(d, false))}</td>
+      <td>${esc(String(d.vm_homolog_name || '').trim() || '-')}</td>
+      <td>${esc(dbInstanceIp(d, true))}</td>
+      <td>${esc(dbInstanceName(d, true))}</td>
       <td>${esc(d.notes || '-')}</td>
       <td><div class="actions"><button class="act" onclick="openDbFormById(${d.id})">&#9998;</button><button class="act del" onclick="deleteDb(${d.id})">&#128465;</button></div></td>
     </tr>
@@ -712,17 +1058,19 @@ function renderDatabases(){
     <div class="db-mobile-card">
       <div class="db-mobile-head">
         <div class="db-mobile-title">${esc(d.db_name || '-')}</div>
-        <div class="db-mobile-engine">${esc((`${String(d.db_engine || '-').trim()} ${String(d.db_engine_version || '').trim()}`).trim())}</div>
+        <div class="db-mobile-engine">${esc(dbEngineVersionLabel(d, false))}</div>
       </div>
       <div class="db-mobile-grid">
         <div class="db-mobile-item"><span class="db-mobile-label">Sistema</span><span class="db-mobile-value">${esc(d.system_name || '-')}</span></div>
         <div class="db-mobile-item"><span class="db-mobile-label">Usuario do Banco</span><span class="db-mobile-value">${esc(d.db_user || '-')}</span></div>
-        <div class="db-mobile-item"><span class="db-mobile-label">Maquina</span><span class="db-mobile-value">${esc(d.vm_name || '-')}</span></div>
-        <div class="db-mobile-item"><span class="db-mobile-label">VM Homologacao</span><span class="db-mobile-value">${esc(d.vm_homolog_name || '-')}</span></div>
-        <div class="db-mobile-item"><span class="db-mobile-label">Versao SGBD</span><span class="db-mobile-value">${esc(d.db_engine_version || '-')}</span></div>
-        <div class="db-mobile-item"><span class="db-mobile-label">Versao SGBD Homologacao</span><span class="db-mobile-value">${esc(d.db_engine_version_homolog || '-')}</span></div>
-        <div class="db-mobile-item"><span class="db-mobile-label">IP</span><span class="db-mobile-value">${esc(d.vm_ip || '-')}</span></div>
-        <div class="db-mobile-item"><span class="db-mobile-label">IP Homologacao</span><span class="db-mobile-value">${esc(d.vm_homolog_ip || '-')}</span></div>
+        <div class="db-mobile-item"><span class="db-mobile-label">SGBD Producao</span><span class="db-mobile-value">${esc(dbEngineVersionLabel(d, false))}</span></div>
+        <div class="db-mobile-item"><span class="db-mobile-label">SGBD Homologacao</span><span class="db-mobile-value">${esc(dbEngineVersionLabel(d, true))}</span></div>
+        <div class="db-mobile-item"><span class="db-mobile-label">Maquina</span><span class="db-mobile-value">${esc(String(d.vm_name || '').trim() || '-')}</span></div>
+        <div class="db-mobile-item"><span class="db-mobile-label">Instancia SGBD</span><span class="db-mobile-value">${esc(dbInstanceName(d, false))}</span></div>
+        <div class="db-mobile-item"><span class="db-mobile-label">VM Homologacao</span><span class="db-mobile-value">${esc(String(d.vm_homolog_name || '').trim() || '-')}</span></div>
+        <div class="db-mobile-item"><span class="db-mobile-label">IP da Instancia</span><span class="db-mobile-value">${esc(dbInstanceIp(d, false))}</span></div>
+        <div class="db-mobile-item"><span class="db-mobile-label">IP Instancia Homologacao</span><span class="db-mobile-value">${esc(dbInstanceIp(d, true))}</span></div>
+        <div class="db-mobile-item"><span class="db-mobile-label">Instancia SGBD Homologacao</span><span class="db-mobile-value">${esc(dbInstanceName(d, true))}</span></div>
         <div class="db-mobile-item"><span class="db-mobile-label">Observacoes</span><span class="db-mobile-value">${esc(d.notes || '-')}</span></div>
       </div>
       <div class="db-mobile-actions">
@@ -745,18 +1093,21 @@ function renderDns(){
     return;
   }
 
-  const rows = systems.flatMap((i) => ([
-    {
-      id: Number(i.id),
-      url: i.url || '',
-      ip: vmIp(i, false)
-    },
-    {
-      id: Number(i.id),
-      url: i.url_homolog || '',
-      ip: vmIp(i, true)
+  const rows = systems.flatMap((i) => {
+    const prodIp = vmIp(i, false);
+    const hmlIp = vmIp(i, true);
+    const prodRows = systemUrlList(i, false).map((url) => ({ id: Number(i.id), url, ip: prodIp }));
+    const hmlRows = systemUrlList(i, true).map((url) => ({ id: Number(i.id), url, ip: hmlIp }));
+
+    if (!prodRows.length && String(prodIp).trim() !== '' && String(prodIp).trim() !== '-') {
+      prodRows.push({ id: Number(i.id), url: '', ip: prodIp });
     }
-  ])).filter((r) => {
+    if (!hmlRows.length && String(hmlIp).trim() !== '' && String(hmlIp).trim() !== '-') {
+      hmlRows.push({ id: Number(i.id), url: '', ip: hmlIp });
+    }
+
+    return [...prodRows, ...hmlRows];
+  }).filter((r) => {
     const url = String(r.url || '').trim();
     const ip = String(r.ip || '').trim();
     const hasUrl = url !== '' && url !== '-';
@@ -787,16 +1138,17 @@ function renderDns(){
   `).join('');
 }
 
-function renderVmReport(){
+function renderVmReport(sourceVms = null){
   const box = $('vm-report');
-  if (!App.vms.length) {
-    box.innerHTML = '<div class="vm-report-empty">Nenhuma maquina cadastrada.</div>';
+  const list = Array.isArray(sourceVms) ? sourceVms : App.vms;
+  if (!list.length) {
+    box.innerHTML = `<div class="vm-report-empty">${App.vms.length ? 'Nenhuma maquina encontrada para os filtros.' : 'Nenhuma maquina cadastrada.'}</div>`;
     return;
   }
 
   const groups = ['Producao','Homologacao','Desenvolvimento'].map((category) => ({
     category,
-    items: App.vms.filter((vm) => vmCategoryLabel(vm) === category).sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')))
+    items: list.filter((vm) => vmCategoryLabel(vm) === category).sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')))
   })).filter((g)=>g.items.length > 0);
 
   box.innerHTML = groups.map((group) => {
@@ -812,6 +1164,9 @@ function renderVmReport(){
             const use = vmUsage(vm.id);
             const dbs = vmDatabases(vm.id);
             const osLabel = String(vm.os_name || '').trim();
+            const tech = vmTechList(vm);
+            const instances = vmInstances(vm);
+            const instanceTags = instances.map((inst) => `${inst.name || 'Instancia'}`);
             const specs = [
               vm.vcpus ? `${vm.vcpus} vCPU` : '',
               vm.ram ? `RAM ${vm.ram}` : '',
@@ -825,11 +1180,14 @@ function renderVmReport(){
               const version = String(d.vm_version || '').trim();
               const user = String(d.db_user || '').trim();
               const engineLabel = `${d.db_engine || '-'}${version ? ` ${version}` : ''}`;
+              const isHomologVm = Number(d?.vm_homolog_id || 0) === Number(vm.id);
               return {
                 dbName: d.db_name || '-',
                 engine: engineLabel || '-',
                 user: user || '-',
-                system: d.system_name || '-'
+                system: d.system_name || '-',
+                instance: dbInstanceName(d, isHomologVm),
+                instanceIp: dbInstanceIp(d, isHomologVm)
               };
             });
             return `
@@ -840,6 +1198,8 @@ function renderVmReport(){
               </div>
               ${osLabel ? `<div class="vm-report-sub">SO: ${esc(osLabel)}</div>` : ''}
               ${specs.length ? `<div class="tags">${specs.map((s)=>`<span class="tag">${esc(s)}</span>`).join('')}</div>` : ''}
+              ${tech.length ? `<div class="tags">${tech.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : ''}
+              ${instanceTags.length ? `<div class="tags">${instanceTags.map((tag)=>`<span class="tag">${esc(tag)}</span>`).join('')}</div>` : ''}
 
               ${systemsLinked.length ? `
               <div class="vm-report-block">
@@ -854,14 +1214,15 @@ function renderVmReport(){
                 <div class="vm-report-table-wrap">
                   <table class="vm-report-table vm-report-db-table">
                     <thead>
-                      <tr><th>Base</th><th>SGBD</th><th>Usuario</th><th>Sistema</th></tr>
+                      <tr><th>Base</th><th>Usuario</th><th>Instancia</th><th>IP da Instancia</th><th>Sistema</th></tr>
                     </thead>
                     <tbody>
                       ${dbRows.map((r) => `
                         <tr>
                           <td>${esc(r.dbName)}</td>
-                          <td>${esc(r.engine)}</td>
                           <td>${esc(r.user)}</td>
+                          <td>${esc(r.instance)}</td>
+                          <td>${esc(r.instanceIp)}</td>
                           <td>${esc(r.system)}</td>
                         </tr>
                       `).join('')}
@@ -891,15 +1252,56 @@ function renderVmReport(){
 
 function renderMachines(){
   const container = $('vm-sections');
+  const vmCountEl = $('vm-result-count');
   if (!App.vms.length) {
+    if (vmCountEl) vmCountEl.textContent = '0 resultado(s)';
     container.innerHTML = '<div class="vm-section-empty">Nenhuma maquina cadastrada.</div>';
-    renderVmReport();
+    renderVmReport([]);
+    return;
+  }
+
+  const vmq = String($('vmq')?.value || '').toLowerCase();
+  const vmcatf = String($('vmcatf')?.value || '').trim();
+  const vmtypef = String($('vmtypef')?.value || '').trim();
+  const vmaccessf = String($('vmaccessf')?.value || '').trim();
+  const vmadminf = String($('vmadminf')?.value || '').trim();
+
+  const filteredVms = App.vms.filter((vm) => {
+    if (vmcatf && vmCategoryLabel(vm) !== vmcatf) return false;
+    if (vmtypef && vmTypeLabel(vm) !== vmtypef) return false;
+    if (vmaccessf && vmAccessLabel(vm) !== vmaccessf) return false;
+    if (vmadminf && vmAdministrationLabel(vm) !== vmadminf) return false;
+    if (!vmq) return true;
+    const use = vmUsage(vm.id);
+    const linkedSystems = [...new Set([...use.prod.map((s)=>s.name), ...use.hml.map((s)=>s.name)])].join(' ');
+    const instancesText = vmInstances(vm).map((inst) => `${inst.name || ''} ${inst.ip || ''}`).join(' ');
+    return [
+      vm.name,
+      vm.ip,
+      vm.os_name,
+      vm.vcpus,
+      vm.ram,
+      vm.disk,
+      vmCategoryLabel(vm),
+      vmTypeLabel(vm),
+      vmAccessLabel(vm),
+      vmAdministrationLabel(vm),
+      vmTechList(vm).join(' '),
+      instancesText,
+      linkedSystems
+    ].join(' ').toLowerCase().includes(vmq);
+  });
+  if (vmCountEl) vmCountEl.textContent = `${filteredVms.length} resultado(s)`;
+
+  if (!filteredVms.length) {
+    container.innerHTML = '<div class="vm-section-empty">Nenhuma maquina encontrada para os filtros.</div>';
+    renderVmReport([]);
     return;
   }
 
   const categories = ['Producao','Homologacao','Desenvolvimento'];
   container.innerHTML = categories.map((category) => {
-    const vms = App.vms
+    const vms = filteredVms
       .filter((vm) => vmCategoryLabel(vm) === category)
       .sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')));
     if (!vms.length) return '';
@@ -922,6 +1324,8 @@ function renderMachines(){
         const use = vmUsage(vm.id);
         const dbs = vmDatabases(vm.id);
         const tech = vmTechList(vm);
+        const instances = vmInstances(vm);
+        const techTags = [...tech, ...instances.map((inst) => `${inst.name || 'Instancia'}`)];
         const specs = [vm.vcpus ? `${vm.vcpus} vCPU` : '', vm.ram || '', vm.disk || ''].filter(Boolean).join(' | ');
         const relationCount = category === 'Producao'
           ? use.prod.length
@@ -930,15 +1334,22 @@ function renderMachines(){
             : use.total;
         const metricClass = type === 'SGBD' ? 'vm-db-col' : 'vm-rel-col';
         const metricValue = type === 'SGBD' ? dbs.length : relationCount;
+        const diagBtn = vmSupportsDiagnostics(vm)
+          ? `<button class="act diag" onclick="openVmDiagnosticPageById(${vm.id})" title="Diagnostico JSON">&#128202;</button>`
+          : '';
         return `
           <tr>
             <td class="vm-name-col">${esc(vm.name)}</td>
             <td class="vm-ip-col">${esc(vm.ip || '-')}</td>
+            <td>${esc(vmCategoryLabel(vm))}</td>
+            <td>${esc(vmTypeLabel(vm))}</td>
+            <td>${esc(vmAccessLabel(vm))}</td>
+            <td>${esc(vmAdministrationLabel(vm))}</td>
             <td class="vm-os-col">${esc(vm.os_name || '-')}</td>
             <td class="vm-res-col">${esc(specs || '-')}</td>
-            <td class="vm-tech-col">${tech.length ? `<div class="vm-tech-tags">${tech.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : '-'}</td>
+            <td class="vm-tech-col">${techTags.length ? `<div class="vm-tech-tags">${techTags.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : '-'}</td>
             <td class="${metricClass}">${metricValue}</td>
-            <td class="vm-actions-col"><div class="actions"><button class="act" onclick="openVmFormById(${vm.id})">&#9998;</button><button class="act del" onclick="archiveVm(${vm.id})">&#128230;</button></div></td>
+            <td class="vm-actions-col"><div class="actions">${diagBtn}<button class="act" onclick="openVmFormById(${vm.id})">&#9998;</button><button class="act del" onclick="archiveVm(${vm.id})">&#128230;</button></div></td>
           </tr>
         `;
       }).join('');
@@ -947,25 +1358,33 @@ function renderMachines(){
         const use = vmUsage(vm.id);
         const dbs = vmDatabases(vm.id);
         const tech = vmTechList(vm);
+        const instances = vmInstances(vm);
         const specs = [vm.vcpus ? `${vm.vcpus} vCPU` : '', vm.ram || '', vm.disk || ''].filter(Boolean);
         const relationCount = category === 'Producao'
           ? use.prod.length
           : category === 'Homologacao'
             ? use.hml.length
             : use.total;
+        const diagBtn = vmSupportsDiagnostics(vm)
+          ? `<button class="act diag" onclick="openVmDiagnosticPageById(${vm.id})" title="Diagnostico JSON">&#128202;</button>`
+          : '';
         return `
           <div class="vm-mobile-card">
             <div class="vm-mobile-title">${esc(vm.name)}</div>
             <div class="vm-mobile-ip">${esc(vm.ip || '-')}</div>
+            <div class="vm-mobile-ip">Categoria: ${esc(vmCategoryLabel(vm))} | Tipo: ${esc(vmTypeLabel(vm))}</div>
+            <div class="vm-mobile-ip">Acesso: ${esc(vmAccessLabel(vm))} | Administracao: ${esc(vmAdministrationLabel(vm))}</div>
             ${vm.os_name ? `<div class="vm-mobile-ip">SO: ${esc(vm.os_name)}</div>` : ''}
             ${specs.length ? `<div class="tags">${specs.map((s)=>`<span class="tag">${esc(s)}</span>`).join('')}</div>` : ''}
             ${tech.length ? `<div class="tags">${tech.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : ''}
+            ${instances.length ? `<div class="tags">${instances.map((inst)=>`<span class="tag">${esc(`${inst.name || 'Instancia'}`)}</span>`).join('')}</div>` : ''}
             <div class="vm-mobile-stats">
               <div class="vm-mobile-stat"><div class="vm-mobile-stat-label">${relationLabelCard}</div><div class="vm-mobile-stat-value">${relationCount}</div></div>
               <div class="vm-mobile-stat"><div class="vm-mobile-stat-label">Bases</div><div class="vm-mobile-stat-value">${dbs.length}</div></div>
               <div class="vm-mobile-stat"><div class="vm-mobile-stat-label">Total</div><div class="vm-mobile-stat-value">${use.total}</div></div>
             </div>
             <div class="vm-mobile-actions">
+              ${diagBtn}
               <button class="act" onclick="openVmFormById(${vm.id})">&#9998;</button>
               <button class="act del" onclick="archiveVm(${vm.id})">&#128230;</button>
             </div>
@@ -975,10 +1394,10 @@ function renderMachines(){
 
       return `
         <div class="vm-type-group">
-          <div class="vm-type-title">${esc(type)}</div>
-          <div class="table-wrap vm-desktop-table">
-            <table style="min-width:1240px">
-              <thead><tr><th class="vm-name-col">Nome da Maquina</th><th class="vm-ip-col">IP</th><th class="vm-os-col">Sistema Operacional</th><th class="vm-res-col">Recursos (vCPU | RAM | Disco)</th><th class="vm-tech-col">Tecnologias / Versoes</th><th class="${type === 'SGBD' ? 'vm-db-col' : 'vm-rel-col'}">${type === 'SGBD' ? 'Bases de Dados' : esc(relationHeader)}</th><th class="vm-actions-col">Acoes</th></tr></thead>
+        <div class="vm-type-title">${esc(type)}</div>
+        <div class="table-wrap vm-desktop-table">
+            <table class="vm-compact-table">
+              <thead><tr><th class="vm-name-col">Nome da Maquina</th><th class="vm-ip-col">IP</th><th>Categoria</th><th>Tipo</th><th>Acesso</th><th>Administracao</th><th class="vm-os-col">Sistema Operacional</th><th class="vm-res-col">Recursos (vCPU | RAM | Disco)</th><th class="vm-tech-col">Tecnologias / Versoes</th><th class="${type === 'SGBD' ? 'vm-db-col' : 'vm-rel-col'}">${type === 'SGBD' ? 'Bases de Dados' : esc(relationHeader)}</th><th class="vm-actions-col">Acoes</th></tr></thead>
               <tbody>${rows}</tbody>
             </table>
           </div>
@@ -996,7 +1415,7 @@ function renderMachines(){
     `;
   }).join('');
 
-  renderVmReport();
+  renderVmReport(filteredVms);
 }
 
 function renderArchived(){
@@ -1034,290 +1453,6 @@ function renderArchived(){
   }
 }
 
-function shortLabel(value, max=36){
-  const s = String(value || '-').trim() || '-';
-  return s.length > max ? `${s.slice(0, max - 3)}...` : s;
-}
-
-function wrapLabel(value, max=70){
-  const text = String(value || '').trim();
-  if (!text) return ['-'];
-  const tokens = text.split(/\s+/).filter(Boolean);
-  if (!tokens.length) return ['-'];
-
-  const lines = [];
-  let current = '';
-
-  tokens.forEach((token) => {
-    if (token.length > max) {
-      if (current) {
-        lines.push(current);
-        current = '';
-      }
-      let rest = token;
-      while (rest.length > max) {
-        lines.push(rest.slice(0, max));
-        rest = rest.slice(max);
-      }
-      current = rest;
-      return;
-    }
-
-    const candidate = current ? `${current} ${token}` : token;
-    if (candidate.length <= max) {
-      current = candidate;
-    } else {
-      lines.push(current);
-      current = token;
-    }
-  });
-
-  if (current) lines.push(current);
-  return lines;
-}
-
-function estimateTextWidth(value, fontSize=12, mono=false){
-  const text = String(value || '');
-  const factor = mono ? 0.62 : 0.56;
-  return Math.ceil(text.length * fontSize * factor);
-}
-
-function elbowPath(x1, y1, x2, y2, viaX=null){
-  const dir = x2 >= x1 ? 1 : -1;
-  const span = Math.abs(x2 - x1);
-  const autoElbow = x1 + (Math.max(26, Math.min(120, span * 0.44)) * dir);
-  const elbow = Number.isFinite(viaX) ? Number(viaX) : autoElbow;
-  return `M ${x1} ${y1} L ${elbow} ${y1} L ${elbow} ${y2} L ${x2} ${y2}`;
-}
-
-function dbEngineLabel(db, versionOverride=''){
-  const engine = String(db?.db_engine || '').trim() || 'SGBD nao informado';
-  const version = String(versionOverride || db?.vm_version || db?.db_engine_version || '').trim();
-  return version ? `${engine} ${version}` : engine;
-}
-
-function groupVmDatabases(vmId){
-  const vmDbs = vmDatabases(vmId)
-    .sort((a, b) => {
-      const ag = dbEngineLabel(a, a.vm_version);
-      const bg = dbEngineLabel(b, b.vm_version);
-      if (ag !== bg) return ag.localeCompare(bg);
-      return String(a.db_name || '').localeCompare(String(b.db_name || ''));
-    });
-
-  const groups = new Map();
-  vmDbs.forEach((d) => {
-    const key = dbEngineLabel(d, d.vm_version);
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(d);
-  });
-
-  return [...groups.entries()].map(([label, items]) => ({ label, items }));
-}
-
-function onDiagramSystemClick(ev, systemId){
-  if (ev) ev.stopPropagation();
-  const sid = Number(systemId || 0);
-  if (!sid) return;
-  App.diagramFocusSystemId = Number(App.diagramFocusSystemId) === sid ? 0 : sid;
-  renderDiagram();
-}
-
-function clearDiagramFocus(){
-  App.diagramFocusSystemId = 0;
-  renderDiagram();
-}
-
-function renderDiagram(){
-  const wrap = $('diagram-wrap');
-  if (!wrap) return;
-  const clearBtn = $('diagram-clear-btn');
-  const focusInfo = $('diagram-focus-info');
-
-  const systems = [...App.items].sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')));
-  const dbs = [...App.databases].sort((a,b)=>String(a.db_name || '').localeCompare(String(b.db_name || '')));
-  const requestedFocusId = Number(App.diagramFocusSystemId || 0);
-  const focusedSystemId = systems.some((s)=>Number(s.id) === requestedFocusId) ? requestedFocusId : 0;
-  if (requestedFocusId && !focusedSystemId) App.diagramFocusSystemId = 0;
-  const focusedSystem = focusedSystemId ? systems.find((s)=>Number(s.id) === focusedSystemId) : null;
-
-  if (!systems.length && !dbs.length) {
-    if (clearBtn) clearBtn.style.display = 'none';
-    if (focusInfo) focusInfo.textContent = '';
-    wrap.innerHTML = '<div class="vm-report-empty">Nenhum dado cadastrado para gerar o diagrama.</div>';
-    return;
-  }
-
-  if (clearBtn) clearBtn.style.display = focusedSystemId ? 'inline-flex' : 'none';
-  if (focusInfo) {
-    focusInfo.textContent = focusedSystem
-      ? `Filtro ativo: ${focusedSystem.name || '-'}`
-      : 'Dica: clique no sistema para mostrar somente as ligacoes dele.';
-  }
-
-  const top = 54;
-  const colSystem = {
-    x: 40,
-    h: 96,
-    gap: 14,
-    minW: 360,
-    maxW: 620,
-    pad: 12
-  };
-  const colDb = {
-    gap: 8,
-    rowHMin: 26,
-    minW: 360,
-    maxW: 700,
-    padX: 10,
-    padY: 8
-  };
-  const colGap = 86;
-
-  const systemRows = systems.map((system, idx) => {
-    const line1 = shortLabel(system.name || '-', 40);
-    const line2 = shortLabel([system.system_name || '-', system.version || '-'].join(' | '), 56);
-    const line3 = shortLabel(`Prod: ${vmName(system, false)} (${vmIp(system, false)})`, 64);
-    const line4 = shortLabel(`Hml: ${vmName(system, true)} (${vmIp(system, true)})`, 64);
-    const textW = Math.max(
-      estimateTextWidth(line1, 15, false),
-      estimateTextWidth(line2, 12, true),
-      estimateTextWidth(line3, 12, true),
-      estimateTextWidth(line4, 12, true)
-    );
-    const w = Math.max(colSystem.minW, Math.min(colSystem.maxW, textW + (colSystem.pad * 2)));
-    return {
-      system,
-      line1,
-      line2,
-      line3,
-      line4,
-      w,
-      y: top + (idx * (colSystem.h + colSystem.gap))
-    };
-  });
-
-  const systemMaxRight = systemRows.length
-    ? Math.max(...systemRows.map((row) => colSystem.x + row.w))
-    : (colSystem.x + colSystem.minW);
-  const dbX = systemMaxRight + colGap;
-
-  const dbRows = dbs
-    .filter((d) => !focusedSystemId || Number(d.system_id) === focusedSystemId)
-    .sort((a,b) => String(a.db_name || '').localeCompare(String(b.db_name || '')))
-    .map((db) => {
-      const user = String(db.db_user || '').trim();
-      const version = String(db.db_engine_version || '').trim();
-      const engine = String(db.db_engine || '-').trim() || '-';
-      const vmProdName = String(db.vm_name || '').trim();
-      const vmProdIp = String(db.vm_ip || '').trim();
-      const vmHmlName = String(db.vm_homolog_name || '').trim();
-      const vmHmlIp = String(db.vm_homolog_ip || '').trim();
-      const prodHost = vmProdName || vmProdIp ? `${vmProdName || '-'} (${vmProdIp || '-'})` : '';
-      const hmlHost = vmHmlName || vmHmlIp ? `${vmHmlName || '-'} (${vmHmlIp || '-'})` : '';
-
-      const parts = [
-        `${db.db_name || '-'}${user ? ` [${user}]` : ''} [${engine}${version ? ` ${version}` : ''}]`,
-        prodHost ? `VM: ${prodHost}` : '',
-        hmlHost ? `Hml: ${hmlHost}` : ''
-      ].filter(Boolean);
-
-      let lines = parts.flatMap((part) => wrapLabel(part, 72));
-      if (lines.length > 5) {
-        lines = lines.slice(0, 5);
-        lines[4] = `${shortLabel(lines[4], 69)}...`;
-      }
-
-      const textW = Math.max(...lines.map((line) => estimateTextWidth(line, 11, true)));
-      const w = Math.max(colDb.minW, Math.min(colDb.maxW, textW + (colDb.padX * 2) + 4));
-      const rowH = Math.max(colDb.rowHMin, (colDb.padY * 2) + (lines.length * 13));
-      return { db, lines, rowH, w };
-    });
-
-  let dbCursorY = top + 6;
-  dbRows.forEach((row) => {
-    row.y = dbCursorY;
-    dbCursorY += row.rowH + colDb.gap;
-  });
-
-  const dbMaxRight = dbRows.length
-    ? Math.max(...dbRows.map((row) => dbX + row.w))
-    : (dbX + colDb.minW);
-  const width = Math.max(1240, dbMaxRight + 30);
-
-  const dbAnchorById = new Map();
-  dbRows.forEach((row) => {
-    dbAnchorById.set(Number(row.db.id), { x: dbX + 10, y: row.y + (row.rowH / 2) });
-  });
-
-  const height = Math.max(
-    top + (systemRows.length * (colSystem.h + colSystem.gap)) + 24,
-    dbCursorY + 24,
-    420
-  );
-
-  const railX = systemMaxRight + 24;
-  const systemAnchorById = new Map();
-  systemRows.forEach((row) => {
-    systemAnchorById.set(Number(row.system.id), {
-      x: colSystem.x + row.w - 8,
-      y: row.y + (colSystem.h / 2)
-    });
-  });
-
-  const edges = dbRows.map((row) => {
-    const sid = Number(row.db.system_id || 0);
-    const src = systemAnchorById.get(sid);
-    const dst = dbAnchorById.get(Number(row.db.id || 0));
-    if (!src || !dst) return '';
-    return `<path class="diagram-edge rel-db" d="${elbowPath(src.x, src.y, dst.x, dst.y, railX)}"></path>`;
-  }).filter(Boolean).join('');
-
-  const systemNodes = systemRows.map((row) => {
-    const s = row.system;
-    const sid = Number(s.id);
-    const stateClass = focusedSystemId
-      ? (sid === focusedSystemId ? ' selected' : ' dimmed')
-      : '';
-    const prodHost = `${vmName(s, false)} (${vmIp(s, false)})`;
-    const hmlHost = `${vmName(s, true)} (${vmIp(s, true)})`;
-    const line1 = row.line1;
-    const line2 = row.line2;
-    const line3 = row.line3;
-    const line4 = row.line4;
-    return `
-      <g class="diagram-node node-system${stateClass}" onclick="onDiagramSystemClick(event, ${sid})" ondblclick="openDetail(${sid})">
-        <rect x="${colSystem.x}" y="${row.y}" width="${row.w}" height="${colSystem.h}" rx="6" ry="6"></rect>
-        <text x="${colSystem.x + 12}" y="${row.y + 24}" class="diagram-node-title">${esc(line1)}</text>
-        <text x="${colSystem.x + 12}" y="${row.y + 44}" class="diagram-node-sub">${esc(line2)}</text>
-        <text x="${colSystem.x + 12}" y="${row.y + 64}" class="diagram-node-sub subtle">${esc(line3)}</text>
-        <text x="${colSystem.x + 12}" y="${row.y + 82}" class="diagram-node-sub subtle">${esc(line4)}</text>
-      </g>
-    `;
-  }).join('');
-
-  const dbNodes = dbRows.map((row) => {
-    const d = row.db;
-    const sid = Number(d.system_id || 0);
-    const rowClass = focusedSystemId && sid !== focusedSystemId ? ' dimmed' : '';
-    const textY = row.y + 16;
-    const tspans = row.lines.map((line, idx) => `<tspan x="${dbX + 10}" dy="${idx === 0 ? 0 : 13}">${esc(line)}</tspan>`).join('');
-    return `
-      <g class="diagram-db-row${rowClass}">
-        <rect x="${dbX}" y="${row.y}" width="${row.w}" height="${row.rowH}" rx="4" ry="4" class="diagram-db-item${rowClass}"></rect>
-        <text x="${dbX + 10}" y="${textY}" class="diagram-db-item-text${rowClass}">${tspans}</text>
-      </g>
-    `;
-  }).join('');
-
-  wrap.innerHTML = `
-    <svg class="diagram-svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="xMinYMin meet">
-      <g class="diagram-links">${edges}</g>
-      <g class="diagram-nodes">${systemNodes}${dbNodes}</g>
-    </svg>
-  `;
-}
-
 function renderCurrent(){
   const active = App.items.filter((i)=>statusKind(i.status)==='active').length;
   $('count').innerHTML = `${App.items.length} sistemas &#8226; ${App.databases.length} bases &#8226; ${active} ativos`;
@@ -1352,12 +1487,6 @@ function renderCurrent(){
     return;
   }
 
-  if (App.view === 'diagrama') {
-    $('result-count').textContent = '';
-    renderDiagram();
-    return;
-  }
-
   const list = filteredItems();
   if (App.view === 'cards') {
     renderSystemsCards(list);
@@ -1379,11 +1508,12 @@ function openForm(item=null){
   $('fsystem').value = item?.system_name || '';
   $('fver').value = item?.version || '';
   $('fcat').value = item?.category || 'Outro';
+  $('fgroup').value = item?.system_group || '';
   $('fst').value = item?.status || 'Ativo';
   $('fcrit').value = item?.criticality || 'Media';
   $('fowner').value = item?.owner || '';
-  $('furl').value = item?.url || '';
-  $('furl_homolog').value = item?.url_homolog || '';
+  $('furl').value = joinUrlList(systemUrlList(item, false));
+  $('furl_homolog').value = joinUrlList(systemUrlList(item, true));
   $('fdesc').value = item?.description || '';
   $('fsector').value = item?.responsible_sector || '';
   $('fcoordinator').value = item?.responsible_coordinator || '';
@@ -1391,6 +1521,13 @@ function openForm(item=null){
   $('femail').value = item?.email || '';
   $('fsupport').value = item?.support || '';
   $('fsupport_contact').value = item?.support_contact || '';
+  $('fanalytics').value = item?.analytics || '';
+  $('fssl').value = item?.ssl || '';
+  $('fwaf').value = item?.waf || '';
+  $('fbundle').value = item?.bundle || '';
+  $('fdirectory').value = item?.directory || '';
+  $('fsize').value = item?.size || '';
+  $('frepository').value = item?.repository || '';
   $('ftech').value = (item?.tech || []).join(', ');
   $('fnotes').value = item?.notes || '';
 
@@ -1417,13 +1554,14 @@ async function saveSystem(){
     system_name:$('fsystem').value.trim(),
     version:$('fver').value.trim(),
     category:$('fcat').value.trim() || 'Outro',
+    system_group:$('fgroup').value.trim(),
     status:$('fst').value.trim() || 'Ativo',
     criticality:$('fcrit').value.trim() || 'Media',
     owner:$('fowner').value.trim(),
-    url:$('furl').value.trim(),
+    url:joinUrlList($('furl').value),
     vm_id:Number($('fvm_id').value) || null,
     vm_homolog_id:Number($('fvm_homolog_id').value) || null,
-    url_homolog:$('furl_homolog').value.trim(),
+    url_homolog:joinUrlList($('furl_homolog').value),
     description:$('fdesc').value.trim(),
     responsible_sector:$('fsector').value.trim(),
     responsible_coordinator:$('fcoordinator').value.trim(),
@@ -1431,6 +1569,13 @@ async function saveSystem(){
     email:$('femail').value.trim(),
     support:$('fsupport').value.trim(),
     support_contact:$('fsupport_contact').value.trim(),
+    analytics:$('fanalytics').value.trim(),
+    ssl:$('fssl').value.trim(),
+    waf:$('fwaf').value.trim(),
+    bundle:$('fbundle').value.trim(),
+    directory:$('fdirectory').value.trim(),
+    size:$('fsize').value.trim(),
+    repository:$('frepository').value.trim(),
     notes:$('fnotes').value.trim(),
     tech:$('ftech').value.split(',').map((x)=>x.trim()).filter(Boolean),
   };
@@ -1488,21 +1633,29 @@ function openDbForm(item=null){
   $('fdbid').value = item?.id || '';
   $('fdbname').value = item?.db_name || '';
   $('fdbuser').value = item?.db_user || '';
-  $('fdbengine').value = item?.db_engine || '';
-  $('fdbenginever').value = item?.db_engine_version || '';
-  $('fdbengineverh').value = item?.db_engine_version_homolog || '';
-  $('fdbvmhip').value = item?.vm_homolog_ip || '';
   $('fdbnotes').value = item?.notes || '';
 
   populateDbSelects();
   $('fdbsystem').value = item?.system_id ? String(item.system_id) : '';
   $('fdbvm').value = item?.vm_id ? String(item.vm_id) : '';
   $('fdbvmh').value = item?.vm_homolog_id ? String(item.vm_homolog_id) : '';
+  syncDbInstanceOptions(
+    {
+      name: String(item?.db_instance_name || '').trim(),
+      ip: String(item?.db_instance_ip || '').trim()
+    },
+    {
+      name: String(item?.db_instance_homolog_name || '').trim(),
+      ip: String(item?.db_instance_homolog_ip || '').trim()
+    }
+  );
   syncDbHomologIp();
   $('mdb').classList.remove('hidden');
 }
 
 async function saveDb(){
+  const selectedInstance = selectedDbInstance('fdbinstance');
+  const selectedHomologInstance = selectedDbInstance('fdbinstanceh');
   const data = {
     id: $('fdbid').value || null,
     system_id: Number($('fdbsystem').value) || null,
@@ -1510,14 +1663,22 @@ async function saveDb(){
     vm_homolog_id: Number($('fdbvmh').value) || null,
     db_name: $('fdbname').value.trim(),
     db_user: $('fdbuser').value.trim(),
-    db_engine: $('fdbengine').value.trim(),
-    db_engine_version: $('fdbenginever').value.trim(),
-    db_engine_version_homolog: $('fdbengineverh').value.trim(),
+    db_engine: '',
+    db_engine_version: '',
+    db_engine_version_homolog: '',
+    db_instance_name: selectedInstance.name,
+    db_instance_ip: selectedInstance.ip,
+    db_instance_homolog_name: selectedHomologInstance.name,
+    db_instance_homolog_ip: selectedHomologInstance.ip,
     notes: $('fdbnotes').value.trim(),
   };
 
-  if (!data.system_id || !data.vm_id || !data.db_name || !data.db_engine) {
-    toast('Informe sistema, maquina, nome da base e SGBD.', true);
+  if (!data.system_id || !data.vm_id || !data.db_name || !data.db_instance_ip) {
+    toast('Informe sistema, maquina, instancia SGBD e nome da base.', true);
+    return;
+  }
+  if (data.vm_homolog_id && !data.db_instance_homolog_ip) {
+    toast('Selecione a instancia SGBD de homologacao.', true);
     return;
   }
 
@@ -1560,30 +1721,41 @@ function openVmForm(vm=null){
   $('fvmip').value = vm?.ip || '';
   $('fvmcategory').value = vmCategoryLabel(vm);
   $('fvmtype').value = vmTypeLabel(vm);
+  $('fvmaccess').value = vmAccessLabel(vm);
+  $('fvmadministration').value = vmAdministrationLabel(vm);
   $('fvmos').value = vm?.os_name || '';
   $('fvmvcpus').value = vm?.vcpus || '';
   $('fvmram').value = vm?.ram || '';
   $('fvmdisk').value = vm?.disk || '';
   $('fvmtech').value = vmTechList(vm).join(', ');
+  $('fvminstances').value = vmInstancesText(vm);
   $('mvm').classList.remove('hidden');
 }
 
 async function saveVm(){
+  const instances = parseVmInstancesInput($('fvminstances').value);
   const data = {
     id: $('fvmid').value || null,
     name: $('fvmname').value.trim(),
     ip: $('fvmip').value.trim(),
     vm_category: $('fvmcategory').value.trim(),
     vm_type: $('fvmtype').value.trim(),
+    vm_access: $('fvmaccess').value.trim(),
+    vm_administration: $('fvmadministration').value.trim(),
     os_name: $('fvmos').value.trim(),
     vcpus: $('fvmvcpus').value.trim(),
     ram: $('fvmram').value.trim(),
     disk: $('fvmdisk').value.trim(),
+    vm_instances: instances,
     vm_tech: $('fvmtech').value.split(',').map((x)=>x.trim()).filter(Boolean),
   };
 
   if (!data.name || !data.ip) {
     toast('Informe nome e IP da maquina.', true);
+    return;
+  }
+  if (data.vm_type === 'SGBD' && !data.vm_instances.length) {
+    toast('Para VM do tipo SGBD informe ao menos uma instancia com IP.', true);
     return;
   }
 
@@ -1596,6 +1768,23 @@ async function saveVm(){
   } catch (e) {
     toast('Erro ao salvar maquina: ' + (e.message || '?'), true);
   }
+}
+
+function openVmDiagnosticPageById(id){
+  const vm = App.vms.find((x)=>Number(x.id)===Number(id));
+  if (!vm) {
+    toast('Maquina nao encontrada.', true);
+    return;
+  }
+  if (!vmSupportsDiagnostics(vm)) {
+    toast('Diagnostico JSON habilitado apenas para VMs de sistema com Apache e PHP.', true);
+    return;
+  }
+  window.location.href = `vm_diagnostic.php?id=${encodeURIComponent(String(id))}`;
+}
+
+async function openVmDiagnosticById(id){
+  openVmDiagnosticPageById(id);
 }
 
 async function archiveVm(id){
@@ -1651,10 +1840,45 @@ async function refreshAll(){
   App.archived = archivedRes.data || { systems: [], vms: [] };
   App.vms.sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')));
   populateFilters();
+  populateVmTabFilters();
   populateVmSelects();
   populateDbSelects();
   renderCurrent();
 }
+
+function activeModalId(){
+  const ids = ['mdb','mvm','mform','mdetail'];
+  for (const id of ids) {
+    const el = $(id);
+    if (el && !el.classList.contains('hidden')) return id;
+  }
+  return '';
+}
+
+function handleModalKeyboardShortcuts(ev){
+  const modalId = activeModalId();
+  if (!modalId) return;
+
+  if (ev.key === 'Escape') {
+    ev.preventDefault();
+    closeModal(modalId);
+    return;
+  }
+
+  if (ev.key !== 'Enter') return;
+  if (ev.isComposing || ev.shiftKey || ev.ctrlKey || ev.altKey || ev.metaKey) return;
+
+  const tag = String(ev.target?.tagName || '').toUpperCase();
+  if (tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON') return;
+  if (modalId === 'mdetail') return;
+
+  ev.preventDefault();
+  if (modalId === 'mform') { saveSystem(); return; }
+  if (modalId === 'mvm') { saveVm(); return; }
+  if (modalId === 'mdb') { saveDb(); return; }
+}
+
+document.addEventListener('keydown', handleModalKeyboardShortcuts);
 
 async function boot(){
   try{

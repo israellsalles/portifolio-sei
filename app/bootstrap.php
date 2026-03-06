@@ -20,6 +20,7 @@ define('DB_PATH', $targetDb);
 function ensureSystemColumnsSqlite3(SQLite3 $db): void {
   $required = [
     'system_name' => "TEXT DEFAULT ''",
+    'system_group' => "TEXT DEFAULT ''",
     'ip' => "TEXT DEFAULT ''",
     'ip_homolog' => "TEXT DEFAULT ''",
     'vm' => "TEXT DEFAULT ''",
@@ -35,6 +36,13 @@ function ensureSystemColumnsSqlite3(SQLite3 $db): void {
     'email' => "TEXT DEFAULT ''",
     'support' => "TEXT DEFAULT ''",
     'support_contact' => "TEXT DEFAULT ''",
+    'analytics' => "TEXT DEFAULT ''",
+    'ssl' => "TEXT DEFAULT ''",
+    'waf' => "TEXT DEFAULT ''",
+    'bundle' => "TEXT DEFAULT ''",
+    'directory' => "TEXT DEFAULT ''",
+    'size' => "TEXT DEFAULT ''",
+    'repository' => "TEXT DEFAULT ''",
   ];
   $existing = [];
   $res = $db->query('PRAGMA table_info(systems)');
@@ -51,6 +59,7 @@ function ensureSystemColumnsSqlite3(SQLite3 $db): void {
 function ensureSystemColumnsPdo(PDO $db): void {
   $required = [
     'system_name' => "TEXT DEFAULT ''",
+    'system_group' => "TEXT DEFAULT ''",
     'ip' => "TEXT DEFAULT ''",
     'ip_homolog' => "TEXT DEFAULT ''",
     'vm' => "TEXT DEFAULT ''",
@@ -66,6 +75,13 @@ function ensureSystemColumnsPdo(PDO $db): void {
     'email' => "TEXT DEFAULT ''",
     'support' => "TEXT DEFAULT ''",
     'support_contact' => "TEXT DEFAULT ''",
+    'analytics' => "TEXT DEFAULT ''",
+    'ssl' => "TEXT DEFAULT ''",
+    'waf' => "TEXT DEFAULT ''",
+    'bundle' => "TEXT DEFAULT ''",
+    'directory' => "TEXT DEFAULT ''",
+    'size' => "TEXT DEFAULT ''",
+    'repository' => "TEXT DEFAULT ''",
   ];
   $existing = [];
   $rows = $db->query('PRAGMA table_info(systems)')->fetchAll(PDO::FETCH_ASSOC);
@@ -79,6 +95,16 @@ function ensureSystemColumnsPdo(PDO $db): void {
   }
 }
 
+function normalizeLegacyStatusValuesSqlite3(SQLite3 $db): void {
+  $db->exec("UPDATE systems SET status='Manutenção' WHERE status='ManutenÃ§Ã£o'");
+  $db->exec("UPDATE systems SET status='Implantação' WHERE status='ImplantaÃ§Ã£o'");
+}
+
+function normalizeLegacyStatusValuesPdo(PDO $db): void {
+  $db->exec("UPDATE systems SET status='Manutenção' WHERE status='ManutenÃ§Ã£o'");
+  $db->exec("UPDATE systems SET status='Implantação' WHERE status='ImplantaÃ§Ã£o'");
+}
+
 function ensureVmTableSqlite3(SQLite3 $db): void {
   $db->exec("CREATE TABLE IF NOT EXISTS virtual_machines (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -86,7 +112,12 @@ function ensureVmTableSqlite3(SQLite3 $db): void {
     ip TEXT DEFAULT '',
     vm_category TEXT DEFAULT 'Producao',
     vm_type TEXT DEFAULT 'Sistemas',
+    vm_access TEXT DEFAULT 'Interno',
+    vm_administration TEXT DEFAULT 'SEI',
+    vm_instances TEXT DEFAULT '',
     vm_tech TEXT DEFAULT '',
+    diagnostic_json_ref TEXT DEFAULT '',
+    diagnostic_json_updated_at TEXT DEFAULT NULL,
     os_name TEXT DEFAULT '',
     os_version TEXT DEFAULT '',
     vcpus TEXT DEFAULT '',
@@ -102,7 +133,12 @@ function ensureVmTableSqlite3(SQLite3 $db): void {
   while ($row = $res->fetchArray(SQLITE3_ASSOC)) { $existing[] = (string)($row['name'] ?? ''); }
   if (!in_array('vm_category', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_category TEXT DEFAULT 'Producao'"); }
   if (!in_array('vm_type', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_type TEXT DEFAULT 'Sistemas'"); }
+  if (!in_array('vm_access', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_access TEXT DEFAULT 'Interno'"); }
+  if (!in_array('vm_administration', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_administration TEXT DEFAULT 'SEI'"); }
+  if (!in_array('vm_instances', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_instances TEXT DEFAULT ''"); }
   if (!in_array('vm_tech', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_tech TEXT DEFAULT ''"); }
+  if (!in_array('diagnostic_json_ref', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN diagnostic_json_ref TEXT DEFAULT ''"); }
+  if (!in_array('diagnostic_json_updated_at', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN diagnostic_json_updated_at TEXT DEFAULT NULL"); }
   if (!in_array('os_name', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN os_name TEXT DEFAULT ''"); }
   if (!in_array('os_version', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN os_version TEXT DEFAULT ''"); }
   if (!in_array('vcpus', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vcpus TEXT DEFAULT ''"); }
@@ -119,7 +155,12 @@ function ensureVmTablePdo(PDO $db): void {
     ip TEXT DEFAULT '',
     vm_category TEXT DEFAULT 'Producao',
     vm_type TEXT DEFAULT 'Sistemas',
+    vm_access TEXT DEFAULT 'Interno',
+    vm_administration TEXT DEFAULT 'SEI',
+    vm_instances TEXT DEFAULT '',
     vm_tech TEXT DEFAULT '',
+    diagnostic_json_ref TEXT DEFAULT '',
+    diagnostic_json_updated_at TEXT DEFAULT NULL,
     os_name TEXT DEFAULT '',
     os_version TEXT DEFAULT '',
     vcpus TEXT DEFAULT '',
@@ -135,7 +176,12 @@ function ensureVmTablePdo(PDO $db): void {
   foreach ($rows as $row) { $existing[] = (string)($row['name'] ?? ''); }
   if (!in_array('vm_category', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_category TEXT DEFAULT 'Producao'"); }
   if (!in_array('vm_type', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_type TEXT DEFAULT 'Sistemas'"); }
+  if (!in_array('vm_access', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_access TEXT DEFAULT 'Interno'"); }
+  if (!in_array('vm_administration', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_administration TEXT DEFAULT 'SEI'"); }
+  if (!in_array('vm_instances', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_instances TEXT DEFAULT ''"); }
   if (!in_array('vm_tech', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_tech TEXT DEFAULT ''"); }
+  if (!in_array('diagnostic_json_ref', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN diagnostic_json_ref TEXT DEFAULT ''"); }
+  if (!in_array('diagnostic_json_updated_at', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN diagnostic_json_updated_at TEXT DEFAULT NULL"); }
   if (!in_array('os_name', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN os_name TEXT DEFAULT ''"); }
   if (!in_array('os_version', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN os_version TEXT DEFAULT ''"); }
   if (!in_array('vcpus', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vcpus TEXT DEFAULT ''"); }
@@ -156,6 +202,10 @@ function ensureDatabaseTableSqlite3(SQLite3 $db): void {
     db_engine TEXT NOT NULL,
     db_engine_version TEXT DEFAULT '',
     db_engine_version_homolog TEXT DEFAULT '',
+    db_instance_name TEXT DEFAULT '',
+    db_instance_ip TEXT DEFAULT '',
+    db_instance_homolog_name TEXT DEFAULT '',
+    db_instance_homolog_ip TEXT DEFAULT '',
     notes TEXT DEFAULT '',
     archived INTEGER DEFAULT 0,
     archived_at TEXT DEFAULT NULL,
@@ -171,6 +221,10 @@ function ensureDatabaseTableSqlite3(SQLite3 $db): void {
   if (!in_array('db_user', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_user TEXT DEFAULT ''"); }
   if (!in_array('db_engine_version', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_engine_version TEXT DEFAULT ''"); }
   if (!in_array('db_engine_version_homolog', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_engine_version_homolog TEXT DEFAULT ''"); }
+  if (!in_array('db_instance_name', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_instance_name TEXT DEFAULT ''"); }
+  if (!in_array('db_instance_ip', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_instance_ip TEXT DEFAULT ''"); }
+  if (!in_array('db_instance_homolog_name', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_instance_homolog_name TEXT DEFAULT ''"); }
+  if (!in_array('db_instance_homolog_ip', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_instance_homolog_ip TEXT DEFAULT ''"); }
   if (!in_array('notes', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN notes TEXT DEFAULT ''"); }
   if (!in_array('archived', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN archived INTEGER DEFAULT 0"); }
   if (!in_array('archived_at', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN archived_at TEXT DEFAULT NULL"); }
@@ -192,6 +246,10 @@ function ensureDatabaseTablePdo(PDO $db): void {
     db_engine TEXT NOT NULL,
     db_engine_version TEXT DEFAULT '',
     db_engine_version_homolog TEXT DEFAULT '',
+    db_instance_name TEXT DEFAULT '',
+    db_instance_ip TEXT DEFAULT '',
+    db_instance_homolog_name TEXT DEFAULT '',
+    db_instance_homolog_ip TEXT DEFAULT '',
     notes TEXT DEFAULT '',
     archived INTEGER DEFAULT 0,
     archived_at TEXT DEFAULT NULL,
@@ -207,6 +265,10 @@ function ensureDatabaseTablePdo(PDO $db): void {
   if (!in_array('db_user', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_user TEXT DEFAULT ''"); }
   if (!in_array('db_engine_version', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_engine_version TEXT DEFAULT ''"); }
   if (!in_array('db_engine_version_homolog', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_engine_version_homolog TEXT DEFAULT ''"); }
+  if (!in_array('db_instance_name', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_instance_name TEXT DEFAULT ''"); }
+  if (!in_array('db_instance_ip', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_instance_ip TEXT DEFAULT ''"); }
+  if (!in_array('db_instance_homolog_name', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_instance_homolog_name TEXT DEFAULT ''"); }
+  if (!in_array('db_instance_homolog_ip', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_instance_homolog_ip TEXT DEFAULT ''"); }
   if (!in_array('notes', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN notes TEXT DEFAULT ''"); }
   if (!in_array('archived', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN archived INTEGER DEFAULT 0"); }
   if (!in_array('archived_at', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN archived_at TEXT DEFAULT NULL"); }
@@ -311,6 +373,7 @@ function db() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       system_name TEXT DEFAULT '',
+      system_group TEXT DEFAULT '',
       ip TEXT DEFAULT '',
       ip_homolog TEXT DEFAULT '',
       vm TEXT DEFAULT '',
@@ -328,6 +391,7 @@ function db() {
       support_contact TEXT DEFAULT '',
       category TEXT DEFAULT 'Outro',
       status TEXT DEFAULT 'Ativo',
+      waf TEXT DEFAULT '',
       tech TEXT DEFAULT '',
       url TEXT DEFAULT '',
       description TEXT DEFAULT '',
@@ -339,6 +403,7 @@ function db() {
       updated_at TEXT DEFAULT (datetime('now','localtime'))
     )");
     ensureSystemColumnsSqlite3($db);
+    normalizeLegacyStatusValuesSqlite3($db);
     ensureVmTableSqlite3($db);
     ensureDatabaseTableSqlite3($db);
     migrateLegacyVmLinksSqlite3($db);
@@ -359,6 +424,7 @@ function db() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       system_name TEXT DEFAULT '',
+      system_group TEXT DEFAULT '',
       ip TEXT DEFAULT '',
       ip_homolog TEXT DEFAULT '',
       vm TEXT DEFAULT '',
@@ -376,6 +442,7 @@ function db() {
       support_contact TEXT DEFAULT '',
       category TEXT DEFAULT 'Outro',
       status TEXT DEFAULT 'Ativo',
+      waf TEXT DEFAULT '',
       tech TEXT DEFAULT '',
       url TEXT DEFAULT '',
       description TEXT DEFAULT '',
@@ -387,6 +454,7 @@ function db() {
       updated_at TEXT DEFAULT (datetime('now','localtime'))
     )");
     ensureSystemColumnsPdo($db);
+    normalizeLegacyStatusValuesPdo($db);
     ensureVmTablePdo($db);
     ensureDatabaseTablePdo($db);
     migrateLegacyVmLinksPdo($db);
