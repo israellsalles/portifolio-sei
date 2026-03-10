@@ -1,7 +1,23 @@
-const App = { items: [], vms: [], databases: [], archived: { systems: [], vms: [] }, view: 'cards' };
+const App = {
+  items: [],
+  vms: [],
+  databases: [],
+  archived: { systems: [], vms: [] },
+  view: 'cards',
+  auth: {
+    authenticated: false,
+    user: null
+  }
+};
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 const norm = (s) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+const roleRank = (role) => {
+  const map = { leitura: 1, edicao: 2, admin: 3 };
+  return map[String(role || '').trim().toLowerCase()] || 0;
+};
+const canEdit = () => roleRank(App.auth?.user?.role) >= roleRank('edicao');
+const isAdmin = () => roleRank(App.auth?.user?.role) >= roleRank('admin');
 const linkHtml = (url) => {
   const v = String(url ?? '').trim();
   if (!v) return '-';
@@ -86,10 +102,14 @@ async function api(action, body=null){
     opt.method='POST';
     opt.body=JSON.stringify(body);
   }
+  const actionText = String(action || '').trim();
+  const apiQuery = actionText.includes('&')
+    ? `api=${encodeURIComponent(actionText.split('&')[0])}&${actionText.split('&').slice(1).join('&')}`
+    : `api=${encodeURIComponent(actionText)}`;
 
   let response;
   try {
-    response = await fetch(`?api=${encodeURIComponent(action)}`, opt);
+    response = await fetch(`?${apiQuery}`, opt);
   } catch {
     throw new Error('Falha de conexao com API. Rode php -S localhost:8000');
   }
@@ -104,26 +124,278 @@ async function api(action, body=null){
 
   if (!response.ok) throw new Error(json?.error || `HTTP ${response.status}`);
   if (!json || typeof json !== 'object') throw new Error('Resposta vazia da API');
+  if (json.ok === false && /autenticacao/i.test(String(json.error || ''))) {
+    setAuthState({ authenticated: false, user: null });
+    applyAuthState();
+  }
   return json;
 }
 
+function setAuthState(payload){
+  App.auth.authenticated = Boolean(payload?.authenticated);
+  App.auth.user = payload?.user || null;
+}
+
+function applyAuthState(){
+  const authBox = $('auth-box');
+  const authLabel = $('auth-label');
+  const loginOpenBtn = $('auth-open-login');
+  const loginModal = $('mauth');
+  const topAction = $('top-action');
+  const changePasswordBtn = $('auth-change-password');
+  const exportBtn = $('btn-export');
+  const backupBtn = $('btn-backup');
+  const backupExportJsonBtn = $('backup-export-json');
+  const backupImportBtn = $('backup-import-btn');
+  const authenticated = App.auth.authenticated && App.auth.user;
+
+  if (authenticated) {
+    if (authLabel) {
+      const role = String(App.auth.user.role || 'leitura');
+      const roleLabel = role === 'admin' ? 'Admin' : role === 'edicao' ? 'Edicao' : 'Leitura';
+      const name = String(App.auth.user.full_name || App.auth.user.username || '').trim() || 'Usuario';
+      authLabel.textContent = `${name} (${roleLabel})`;
+    }
+    authBox?.classList.remove('hidden');
+    loginOpenBtn?.classList.add('hidden');
+    loginModal?.classList.add('hidden');
+  } else {
+    authBox?.classList.add('hidden');
+    loginOpenBtn?.classList.remove('hidden');
+    $('mpassword')?.classList.add('hidden');
+  }
+
+  const canEditNow = canEdit();
+  const adminNow = isAdmin();
+  if (topAction) {
+    topAction.disabled = !canEditNow;
+    topAction.classList.toggle('hidden', !canEditNow);
+  }
+  if (changePasswordBtn) changePasswordBtn.disabled = !authenticated;
+  if (exportBtn) exportBtn.disabled = !authenticated;
+  if (backupBtn) {
+    backupBtn.disabled = !adminNow;
+    backupBtn.classList.toggle('hidden', !adminNow);
+  }
+  if (backupExportJsonBtn) backupExportJsonBtn.classList.toggle('hidden', !adminNow);
+  if (backupImportBtn) backupImportBtn.classList.toggle('hidden', !adminNow);
+}
+
+function ensureCanEdit(message='Perfil sem permissao de edicao.'){
+  if (canEdit()) return true;
+  toast(message, true);
+  return false;
+}
+
+function ensureAdmin(message='Acao permitida apenas para admin.'){
+  if (isAdmin()) return true;
+  toast(message, true);
+  return false;
+}
+
+async function fetchAuthStatus(){
+  const result = await api('auth-status');
+  if (!result.ok) throw new Error(result.error || 'Falha ao obter autenticacao');
+  setAuthState(result.data || { authenticated: false, user: null });
+  applyAuthState();
+}
+
+function openLoginModal(){
+  if (App.auth.authenticated) return;
+  if ($('auth-password')) $('auth-password').value = '';
+  $('mauth')?.classList.remove('hidden');
+  $('auth-username')?.focus();
+}
+
+async function login(){
+  const username = String($('auth-username')?.value || '').trim();
+  const password = String($('auth-password')?.value || '');
+  if (!username || !password) {
+    toast('Informe usuario e senha.', true);
+    return;
+  }
+  try {
+    const result = await api('login', { username, password });
+    if (!result.ok) throw new Error(result.error || 'Falha no login');
+    setAuthState(result.data || { authenticated: false, user: null });
+    applyAuthState();
+    $('auth-password').value = '';
+    await refreshAll();
+    $('loading').style.display = 'none';
+    setView(App.view);
+  } catch (error) {
+    toast('Erro no login: ' + (error.message || '?'), true);
+  }
+}
+
+async function logout(){
+  try {
+    await api('logout', {});
+  } catch {}
+  setAuthState({ authenticated: false, user: null });
+  resetPasswordForm();
+  applyAuthState();
+  try {
+    await refreshAll();
+    setView(App.view);
+  } catch (error) {
+    toast('Erro ao atualizar dados apos logout: ' + (error.message || '?'), true);
+  }
+}
+
+function resetPasswordForm(){
+  if ($('pwd-current')) $('pwd-current').value = '';
+  if ($('pwd-new')) $('pwd-new').value = '';
+  if ($('pwd-confirm')) $('pwd-confirm').value = '';
+}
+
+function openPasswordModal(){
+  if (!App.auth.authenticated) {
+    toast('Faca login para alterar a senha.', true);
+    return;
+  }
+  resetPasswordForm();
+  $('mpassword')?.classList.remove('hidden');
+  $('pwd-current')?.focus();
+}
+
+async function changePassword(){
+  if (!App.auth.authenticated) {
+    toast('Faca login para alterar a senha.', true);
+    return;
+  }
+  const currentPassword = String($('pwd-current')?.value || '');
+  const newPassword = String($('pwd-new')?.value || '');
+  const confirmPassword = String($('pwd-confirm')?.value || '');
+
+  if (!currentPassword || !newPassword || !confirmPassword) {
+    toast('Preencha todos os campos de senha.', true);
+    return;
+  }
+  if (newPassword.length < 8) {
+    toast('A nova senha deve ter ao menos 8 caracteres.', true);
+    return;
+  }
+  if (newPassword !== confirmPassword) {
+    toast('A confirmacao da nova senha nao confere.', true);
+    return;
+  }
+
+  try {
+    const result = await api('change-password', {
+      current_password: currentPassword,
+      new_password: newPassword
+    });
+    if (!result.ok) throw new Error(result.error || 'Falha ao alterar senha');
+    closeModal('mpassword');
+    toast('Senha atualizada com sucesso.');
+  } catch (error) {
+    toast('Erro ao atualizar senha: ' + (error.message || '?'), true);
+  }
+}
+
+function downloadTextFile(filename, content, mime='text/plain;charset=utf-8'){
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function openBackupModal(){
+  if (!App.auth.authenticated) {
+    toast('Faca login para exportar.', true);
+    return;
+  }
+  $('mbackup')?.classList.remove('hidden');
+}
+
+async function exportCsv(scope){
+  try {
+    const result = await api(`export-csv&scope=${encodeURIComponent(scope)}`);
+    if (!result.ok) throw new Error(result.error || 'Falha ao exportar CSV');
+    const filename = String(result.data?.filename || `export_${scope}.csv`);
+    const content = String(result.data?.content || '');
+    const mime = String(result.data?.mime || 'text/csv;charset=utf-8');
+    downloadTextFile(filename, content, mime);
+    toast('CSV exportado com sucesso.');
+  } catch (error) {
+    toast('Erro ao exportar CSV: ' + (error.message || '?'), true);
+  }
+}
+
+async function exportBackup(){
+  if (!ensureAdmin('Apenas admin pode gerar backup completo.')) return;
+  try {
+    const result = await api('backup-export');
+    if (!result.ok) throw new Error(result.error || 'Falha ao exportar backup');
+    const filename = `sei_portfolio_backup_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.json`;
+    const content = JSON.stringify(result.data || {}, null, 2);
+    downloadTextFile(filename, content, 'application/json;charset=utf-8');
+    toast('Backup JSON exportado.');
+  } catch (error) {
+    toast('Erro ao exportar backup: ' + (error.message || '?'), true);
+  }
+}
+
+function triggerBackupImport(){
+  if (!ensureAdmin('Apenas admin pode restaurar backup.')) return;
+  $('backup-file')?.click();
+}
+
+async function onBackupFileChange(ev){
+  if (!ensureAdmin('Apenas admin pode restaurar backup.')) return;
+  const file = ev?.target?.files?.[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    let parsed = null;
+    try { parsed = JSON.parse(text); }
+    catch { throw new Error('Arquivo JSON invalido.'); }
+    if (!confirm('Restaurar backup substituindo os dados atuais?')) return;
+    const result = await api('backup-restore', { backup: parsed });
+    if (!result.ok) throw new Error(result.error || 'Falha ao restaurar backup');
+    await refreshAll();
+    toast('Backup restaurado com sucesso.');
+    closeModal('mbackup');
+  } catch (error) {
+    toast('Erro ao restaurar backup: ' + (error.message || '?'), true);
+  } finally {
+    if (ev?.target) ev.target.value = '';
+  }
+}
+
 function closeModal(id){
-  $(id).classList.add('hidden');
+  const el = $(id);
+  if (!el) return;
+  el.classList.add('hidden');
+  if (id === 'mauth' && $('auth-password')) $('auth-password').value = '';
+  if (id === 'mpassword') resetPasswordForm();
 }
 
 function closeBg(ev,id){
   return;
 }
 
-function vmName(item, homolog=false){
-  const key = homolog ? 'vm_homolog_name' : 'vm_name';
-  const legacyKey = homolog ? 'vm_homolog' : 'vm';
+function vmName(item, role=false){
+  const mode = role === true ? 'homolog' : String(role ?? '').trim().toLowerCase();
+  const isDev = mode === 'dev' || mode.includes('desenv');
+  const isHomolog = !isDev && (role === true || mode.includes('homo'));
+  const key = isDev ? 'vm_dev_name' : (isHomolog ? 'vm_homolog_name' : 'vm_name');
+  const legacyKey = isDev ? 'vm_dev' : (isHomolog ? 'vm_homolog' : 'vm');
   return String(item?.[key] || item?.[legacyKey] || '').trim() || '-';
 }
 
-function vmIp(item, homolog=false){
-  const key = homolog ? 'vm_homolog_ip' : 'vm_ip';
-  const legacyKey = homolog ? 'ip_homolog' : 'ip';
+function vmIp(item, role=false){
+  const mode = role === true ? 'homolog' : String(role ?? '').trim().toLowerCase();
+  const isDev = mode === 'dev' || mode.includes('desenv');
+  const isHomolog = !isDev && (role === true || mode.includes('homo'));
+  const key = isDev ? 'vm_dev_ip' : (isHomolog ? 'vm_homolog_ip' : 'vm_ip');
+  const legacyKey = isDev ? 'ip_dev' : (isHomolog ? 'ip_homolog' : 'ip');
   return String(item?.[key] || item?.[legacyKey] || '').trim() || '-';
 }
 
@@ -136,12 +408,14 @@ function vmById(id){
 function relationVmText(item, kind){
   const prod = vmById(item?.vm_id);
   const hml = vmById(item?.vm_homolog_id);
+  const dev = vmById(item?.vm_dev_id);
   const prodText = prod ? (kind === 'access' ? vmAccessLabel(prod) : vmAdministrationLabel(prod)) : '';
   const hmlText = hml ? (kind === 'access' ? vmAccessLabel(hml) : vmAdministrationLabel(hml)) : '';
-  const unique = [...new Set([prodText, hmlText].filter(Boolean))];
+  const devText = dev ? (kind === 'access' ? vmAccessLabel(dev) : vmAdministrationLabel(dev)) : '';
+  const unique = [...new Set([prodText, hmlText, devText].filter(Boolean))];
   if (!unique.length) return '-';
   if (unique.length === 1) return unique[0];
-  return `Prod: ${prodText || '-'} | Hml: ${hmlText || '-'}`;
+  return `Prod: ${prodText || '-'} | Hml: ${hmlText || '-'} | Dev: ${devText || '-'}`;
 }
 
 function vmLabel(vm){
@@ -158,12 +432,73 @@ function vmTechList(vm){
   return raw ? raw.split(',').map((x)=>x.trim()).filter(Boolean) : [];
 }
 
+function vmLanguageList(vm){
+  if (Array.isArray(vm?.vm_language_list)) return vm.vm_language_list;
+  const raw = String(vm?.vm_language || '').trim();
+  if (raw) return raw.split(',').map((x)=>x.trim()).filter(Boolean);
+
+  // Compatibilidade: linguagens antigas salvas em vm_tech.
+  const out = [];
+  const seen = new Set();
+  vmTechList(vm).forEach((item) => {
+    const value = String(item || '').trim();
+    if (!value) return;
+    const lower = value.toLowerCase();
+    if (lower.includes('php') && !seen.has('php')) {
+      seen.add('php');
+      out.push('PHP');
+      return;
+    }
+    if ((lower === 'r' || /^r(?:[\s\-\/_.]|\d)/.test(lower)) && !seen.has('r')) {
+      seen.add('r');
+      out.push('R');
+    }
+  });
+  return out;
+}
+
+function vmLanguageVersions(vm){
+  if (!vm || typeof vm !== 'object') return { php: '', r: '' };
+  const map = vm.vm_language_versions;
+  return (map && typeof map === 'object')
+    ? { php: String(map.php || ''), r: String(map.r || '') }
+    : { php: '', r: '' };
+}
+
+function vmLanguageTagText(vm, language){
+  const label = String(language || '').trim();
+  if (!label) return '';
+  const lower = label.toLowerCase();
+  const versions = vmLanguageVersions(vm);
+  const version = lower.includes('php')
+    ? String(versions.php || '').trim()
+    : ((lower === 'r' || /^r(?:[\s\-\/_.]|\d)/.test(lower)) ? String(versions.r || '').trim() : '');
+  return version ? `${label} (${version})` : label;
+}
+
+function vmHasPhpTech(vm){
+  return vmLanguageList(vm).some((item) => String(item || '').toLowerCase().includes('php'));
+}
+
+function vmHasRTech(vm){
+  return vmLanguageList(vm).some((item) => {
+    const value = String(item || '').trim().toLowerCase();
+    if (!value || value === 'php') return false;
+    if (value === 'r') return true;
+    return /^r(?:[\s\-\/_.]|\d)/.test(value);
+  });
+}
+
+function vmDiagnosticTechs(vm){
+  const techs = [];
+  if (vmHasPhpTech(vm)) techs.push('PHP');
+  if (vmHasRTech(vm)) techs.push('R');
+  return techs;
+}
+
 function vmSupportsDiagnostics(vm){
   if (!vm || vmTypeLabel(vm) !== 'Sistemas') return false;
-  const tech = vmTechList(vm).map((t) => norm(t));
-  const hasApache = tech.some((t) => t.includes('apache'));
-  const hasPhp = tech.some((t) => t.includes('php'));
-  return hasApache && hasPhp;
+  return vmHasPhpTech(vm) || vmHasRTech(vm);
 }
 
 function vmInstances(vm){
@@ -307,11 +642,12 @@ function vmCategoryOrder(vm){
 }
 
 function runPrimaryAction(){
+  if (!ensureCanEdit()) return;
   if (App.view === 'bases') {
     openDbForm();
     return;
   }
-  if (App.view === 'maquinas') {
+  if (App.view === 'maquinas' || App.view === 'vm-relatorio') {
     openVmForm();
     return;
   }
@@ -321,13 +657,14 @@ function runPrimaryAction(){
 function syncPrimaryAction(){
   const btn = $('top-action');
   if (!btn) return;
+  btn.disabled = !canEdit();
 
   if (App.view === 'bases') {
     btn.textContent = '+ Nova Base';
     return;
   }
 
-  if (App.view === 'maquinas') {
+  if (App.view === 'maquinas' || App.view === 'vm-relatorio') {
     btn.textContent = '+ Nova Maquina';
     return;
   }
@@ -343,7 +680,7 @@ function openDiagramExternal(){
 function setView(view){
   const nextView = view === 'grid' ? 'lista' : view;
   App.view = nextView;
-  ['dashboard','lista','cards','dns','bases','maquinas','arquivados'].forEach((v) => {
+  ['dashboard','lista','cards','dns','bases','maquinas','vm-relatorio','arquivados'].forEach((v) => {
     const viewEl = $('view-' + v);
     const tabEl = $('tab-' + v);
     if (viewEl) viewEl.classList.toggle('active', v === nextView);
@@ -399,6 +736,7 @@ function populateVmSelects(){
   };
   fillVm('fvm_id','Selecionar...','Producao');
   fillVm('fvm_homolog_id','Selecionar...','Homologacao');
+  fillVm('fvm_dev_id','Selecionar...','Desenvolvimento');
 }
 
 function populateVmTabFilters(){
@@ -413,6 +751,10 @@ function populateVmTabFilters(){
   fill('vmtypef', 'Tipo: Todos', ['Sistemas','SGBD']);
   fill('vmaccessf', 'Acesso: Todos', ['Interno','Externo']);
   fill('vmadminf', 'Administracao: Todos', ['SEI','PRODEB']);
+  fill('vmrcatf', 'Categoria: Todas', ['Producao','Homologacao','Desenvolvimento']);
+  fill('vmrtypef', 'Tipo: Todos', ['Sistemas','SGBD']);
+  fill('vmraccessf', 'Acesso: Todos', ['Interno','Externo']);
+  fill('vmradminf', 'Administracao: Todos', ['SEI','PRODEB']);
 }
 
 function populateDbSelects(){
@@ -565,18 +907,20 @@ function filteredItems(){
     .filter((i)=>!cat || norm(i.category)===norm(cat))
     .filter((i)=>!groupf || String(i.system_group || '').trim() === groupf)
     .filter((i)=>!st || norm(i.status)===norm(st))
-    .filter((i)=>!vmf || Number(i.vm_id || 0) === Number(vmf) || Number(i.vm_homolog_id || 0) === Number(vmf))
+    .filter((i)=>!vmf || Number(i.vm_id || 0) === Number(vmf) || Number(i.vm_homolog_id || 0) === Number(vmf) || Number(i.vm_dev_id || 0) === Number(vmf))
     .filter((i)=>{
       if (!accessf) return true;
       const prodVm = vmById(i.vm_id);
       const hmlVm = vmById(i.vm_homolog_id);
-      return [prodVm, hmlVm].filter(Boolean).some((vm)=>vmAccessLabel(vm) === accessf);
+      const devVm = vmById(i.vm_dev_id);
+      return [prodVm, hmlVm, devVm].filter(Boolean).some((vm)=>vmAccessLabel(vm) === accessf);
     })
     .filter((i)=>{
       if (!adminf) return true;
       const prodVm = vmById(i.vm_id);
       const hmlVm = vmById(i.vm_homolog_id);
-      return [prodVm, hmlVm].filter(Boolean).some((vm)=>vmAdministrationLabel(vm) === adminf);
+      const devVm = vmById(i.vm_dev_id);
+      return [prodVm, hmlVm, devVm].filter(Boolean).some((vm)=>vmAdministrationLabel(vm) === adminf);
     })
     .filter((i)=>!sectorf || String(i.responsible_sector || '').trim() === sectorf)
     .filter((i)=>!q || [
@@ -604,8 +948,10 @@ function filteredItems(){
       systemUrlList(i, true).join(' '),
       vmName(i, false),
       vmName(i, true),
+      vmName(i, 'dev'),
       vmIp(i, false),
       vmIp(i, true),
+      vmIp(i, 'dev'),
       databaseSearchBlob(i.id),
       (i.tech||[]).join(' ')
     ].join(' ').toLowerCase().includes(q))
@@ -621,8 +967,11 @@ function renderDashboard(){
   const deprecated = App.items.filter((i)=>statusKind(i.status)==='deprecated').length;
   const categories = new Set(App.items.map((i)=>String(i.category || '').trim()).filter(Boolean)).size;
   const dbUsersFilled = App.databases.filter((d)=>String(d.db_user || '').trim() !== '').length;
+  const systemsWithUrl = App.items.filter((i) => systemUrlList(i, false).length > 0).length;
+  const systemsWithVm = App.items.filter((i) => Number(i.vm_id || 0) > 0).length;
   const vmOsFilled = App.vms.filter((vm)=>String(vm.os_name || '').trim() !== '').length;
   const vmResourcesFilled = App.vms.filter((vm)=>String(vm.vcpus || '').trim() !== '' || String(vm.ram || '').trim() !== '' || String(vm.disk || '').trim() !== '').length;
+  const dbHomologFilled = App.databases.filter((d) => Number(d.vm_homolog_id || 0) > 0 && String(d.db_instance_homolog_ip || '').trim() !== '').length;
   const vmTechTotal = App.vms.reduce((acc, vm) => acc + vmTechList(vm).length, 0);
 
   $('stats').innerHTML = [
@@ -709,8 +1058,20 @@ function renderDashboard(){
   if (quality) {
     quality.innerHTML = `
       <div class="quality-item">
+        <div><div class="quality-name">Sistema com URL de producao</div><div class="quality-note">${systemsWithUrl}/${totalSystems || 0} sistemas</div></div>
+        <div class="quality-pct">${totalSystems ? Math.round((systemsWithUrl / totalSystems) * 100) : 0}%</div>
+      </div>
+      <div class="quality-item">
+        <div><div class="quality-name">Sistema com VM de producao</div><div class="quality-note">${systemsWithVm}/${totalSystems || 0} sistemas</div></div>
+        <div class="quality-pct">${totalSystems ? Math.round((systemsWithVm / totalSystems) * 100) : 0}%</div>
+      </div>
+      <div class="quality-item">
         <div><div class="quality-name">Usuario de banco cadastrado</div><div class="quality-note">${dbUsersFilled}/${totalDatabases || 0} bases</div></div>
         <div class="quality-pct">${totalDatabases ? Math.round((dbUsersFilled / totalDatabases) * 100) : 0}%</div>
+      </div>
+      <div class="quality-item">
+        <div><div class="quality-name">Base com homologacao completa</div><div class="quality-note">${dbHomologFilled}/${totalDatabases || 0} bases</div></div>
+        <div class="quality-pct">${totalDatabases ? Math.round((dbHomologFilled / totalDatabases) * 100) : 0}%</div>
       </div>
       <div class="quality-item">
         <div><div class="quality-name">VM com sistema operacional</div><div class="quality-note">${vmOsFilled}/${totalVms || 0} maquinas</div></div>
@@ -723,14 +1084,65 @@ function renderDashboard(){
     `;
   }
 
-  const attention = App.items.filter((i)=>statusKind(i.status)!=='active');
+  const attention = [];
+  App.items
+    .filter((i) => statusKind(i.status) !== 'active')
+    .forEach((i) => {
+      attention.push({
+        name: String(i.name || '-'),
+        note: `Status: ${String(i.status || '-')}`,
+        action: `openDetail(${Number(i.id)})`
+      });
+    });
+
+  App.items
+    .filter((i) => systemUrlList(i, false).length === 0)
+    .forEach((i) => {
+      attention.push({
+        name: String(i.name || '-'),
+        note: 'Sistema sem URL de producao',
+        action: `openDetail(${Number(i.id)})`
+      });
+    });
+
+  App.vms
+    .filter((vm) => String(vm.os_name || '').trim() === '')
+    .forEach((vm) => {
+      const vmId = Number(vm.id || 0);
+      attention.push({
+        name: String(vm.name || '-'),
+        note: 'VM sem sistema operacional informado',
+        action: canEdit() ? `openVmFormById(${vmId})` : `openVmReadOnlyById(${vmId})`
+      });
+    });
+
+  App.databases
+    .filter((d) => Number(d.vm_homolog_id || 0) > 0 && String(d.db_instance_homolog_ip || '').trim() === '')
+    .forEach((d) => {
+      const dbId = Number(d.id || 0);
+      attention.push({
+        name: String(d.db_name || '-'),
+        note: 'Base sem instancia de homologacao',
+        action: canEdit() ? `openDbFormById(${dbId})` : `openDbReadOnlyById(${dbId})`
+      });
+    });
+
   if (!attention.length) {
     $('attention-list').innerHTML = '<div class="attention-note">Tudo em ordem. Sem alertas.</div>';
   } else {
-    $('attention-list').innerHTML = attention.map((i) => `
-      <div class="attention-item" onclick="openDetail(${i.id})">
-        <div><div class="attention-name">${esc(i.name)}</div><div class="attention-note">${badge(i.status)}</div></div>
-        <div class="attention-note">${esc(i.notes || '')}</div>
+    const unique = [];
+    const seen = new Set();
+    attention.forEach((item) => {
+      const key = `${norm(item.name)}|${norm(item.note)}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      unique.push(item);
+    });
+
+    $('attention-list').innerHTML = unique.slice(0, 20).map((item) => `
+      <div class="attention-item" onclick="${item.action}">
+        <div><div class="attention-name">${esc(item.name)}</div></div>
+        <div class="attention-note">${esc(item.note)}</div>
       </div>
     `).join('');
   }
@@ -740,8 +1152,8 @@ function renderList(list){
   $('result-count').textContent = `${list.length} resultado(s)`;
   if (!list.length) {
     $('list-main-body').innerHTML = '<tr><td colspan="7" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
-    $('list-desc-body').innerHTML = '<tr><td colspan="5" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
-    $('list-infra-body').innerHTML = '<tr><td colspan="9" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
+    $('list-desc-body').innerHTML = '<tr><td colspan="4" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
+    $('list-infra-body').innerHTML = '<tr><td colspan="11" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
     $('list-db-body').innerHTML = '<tr><td colspan="10" style="color:var(--muted)">Nenhuma base de dados encontrada.</td></tr>';
     $('list-support-body').innerHTML = '<tr><td colspan="8" style="color:var(--muted)">Nenhum contato cadastrado.</td></tr>';
     $('list-ops-body').innerHTML = '<tr><td colspan="8" style="color:var(--muted)">Nenhum dado de deploy cadastrado.</td></tr>';
@@ -767,7 +1179,6 @@ function renderList(list){
       <td>${esc(i.description || '-')}</td>
       <td>${esc(i.notes || '-')}</td>
       <td>${badge(i.status)}</td>
-      <td onclick="event.stopPropagation()"><div class="actions"><button class="act del" onclick="archiveSystem(${i.id})">&#128230;</button></div></td>
     </tr>
   `).join('');
 
@@ -780,6 +1191,8 @@ function renderList(list){
       <td>${esc(vmIp(i, false))}</td>
       <td>${esc(vmName(i, true))}</td>
       <td>${esc(vmIp(i, true))}</td>
+      <td>${esc(vmName(i, 'dev'))}</td>
+      <td>${esc(vmIp(i, 'dev'))}</td>
       <td>${esc(relationVmText(i, 'access'))}</td>
       <td>${esc(relationVmText(i, 'administration'))}</td>
     </tr>
@@ -857,6 +1270,7 @@ function renderList(list){
         <div class="list-mobile-item"><span class="list-mobile-label">Versao</span><span class="list-mobile-value">${esc(i.version || '-')}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">VM Producao</span><span class="list-mobile-value">${esc(vmName(i, false))} | ${esc(vmIp(i, false))}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">VM Homologacao</span><span class="list-mobile-value">${esc(vmName(i, true))} | ${esc(vmIp(i, true))}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">VM Desenvolvimento</span><span class="list-mobile-value">${esc(vmName(i, 'dev'))} | ${esc(vmIp(i, 'dev'))}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">URL</span><span class="list-mobile-value">${linkListHtml(systemUrlList(i, false), { compact:true })}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">URL Homologacao</span><span class="list-mobile-value">${linkListHtml(systemUrlList(i, true), { compact:true })}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Descricao</span><span class="list-mobile-value">${esc(i.description || '-')}</span></div>
@@ -873,9 +1287,6 @@ function renderList(list){
         <div class="list-mobile-item"><span class="list-mobile-label">SGBD / Versao</span><span class="list-mobile-value">${esc(databaseEngineText(i.id))}</span></div>
       </div>
       <div class="tags">${(i.tech || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>
-      <div class="list-mobile-actions" onclick="event.stopPropagation()">
-        <button class="act del" onclick="archiveSystem(${i.id})">&#128230;</button>
-      </div>
     </div>
   `).join('');
 }
@@ -953,6 +1364,8 @@ function renderSystemsCards(list){
             <div class="system-info-field"><span>IP Producao</span><strong>${esc(vmIp(i, false))}</strong></div>
             <div class="system-info-field"><span>VM Homologacao</span><strong>${esc(vmName(i, true))}</strong></div>
             <div class="system-info-field"><span>IP Homologacao</span><strong>${esc(vmIp(i, true))}</strong></div>
+            <div class="system-info-field"><span>VM Desenvolvimento</span><strong>${esc(vmName(i, 'dev'))}</strong></div>
+            <div class="system-info-field"><span>IP Desenvolvimento</span><strong>${esc(vmIp(i, 'dev'))}</strong></div>
             <div class="system-info-field"><span>Acesso</span><strong>${esc(relationVmText(i, 'access'))}</strong></div>
             <div class="system-info-field"><span>Administracao</span><strong>${esc(relationVmText(i, 'administration'))}</strong></div>
           </div>
@@ -1011,8 +1424,9 @@ function renderSystemsCards(list){
 function vmUsage(vmId){
   const prod = App.items.filter((s) => Number(s.vm_id) === Number(vmId));
   const hml = App.items.filter((s) => Number(s.vm_homolog_id) === Number(vmId));
-  const uniq = new Set([...prod.map((s)=>Number(s.id)), ...hml.map((s)=>Number(s.id))]);
-  return { prod, hml, total: uniq.size };
+  const dev = App.items.filter((s) => Number(s.vm_dev_id) === Number(vmId));
+  const uniq = new Set([...prod.map((s)=>Number(s.id)), ...hml.map((s)=>Number(s.id)), ...dev.map((s)=>Number(s.id))]);
+  return { prod, hml, dev, total: uniq.size };
 }
 
 function dbEngineVersionForVm(db, vmId){
@@ -1031,6 +1445,9 @@ function vmDatabases(vmId){
 }
 
 function renderDatabases(){
+  const editable = canEdit();
+  const table = document.querySelector('#view-bases .bases-table');
+  table?.classList.toggle('readonly', !editable);
   const list = [...App.databases].sort((a,b)=>String(a.db_name || '').localeCompare(String(b.db_name || '')));
   if (!list.length) {
     $('db-body').innerHTML = '<tr><td colspan="11" style="color:var(--muted)">Nenhuma base de dados cadastrada.</td></tr>';
@@ -1050,7 +1467,7 @@ function renderDatabases(){
       <td>${esc(dbInstanceIp(d, true))}</td>
       <td>${esc(dbInstanceName(d, true))}</td>
       <td>${esc(d.notes || '-')}</td>
-      <td><div class="actions"><button class="act" onclick="openDbFormById(${d.id})">&#9998;</button><button class="act del" onclick="deleteDb(${d.id})">&#128465;</button></div></td>
+      <td>${editable ? `<div class="actions"><button class="act" onclick="openDbFormById(${d.id})">&#9998;</button><button class="act del" onclick="deleteDb(${d.id})">&#128465;</button></div>` : '-'}</td>
     </tr>
   `).join('');
 
@@ -1073,10 +1490,10 @@ function renderDatabases(){
         <div class="db-mobile-item"><span class="db-mobile-label">Instancia SGBD Homologacao</span><span class="db-mobile-value">${esc(dbInstanceName(d, true))}</span></div>
         <div class="db-mobile-item"><span class="db-mobile-label">Observacoes</span><span class="db-mobile-value">${esc(d.notes || '-')}</span></div>
       </div>
-      <div class="db-mobile-actions">
+      ${editable ? `<div class="db-mobile-actions">
         <button class="act" onclick="openDbFormById(${d.id})">&#9998;</button>
         <button class="act del" onclick="deleteDb(${d.id})">&#128465;</button>
-      </div>
+      </div>` : ''}
     </div>
   `).join('');
 }
@@ -1164,9 +1581,12 @@ function renderVmReport(sourceVms = null){
             const use = vmUsage(vm.id);
             const dbs = vmDatabases(vm.id);
             const osLabel = String(vm.os_name || '').trim();
+            const languages = vmLanguageList(vm);
+            const languageTags = languages.map((item) => vmLanguageTagText(vm, item)).filter(Boolean);
             const tech = vmTechList(vm);
             const instances = vmInstances(vm);
             const instanceTags = instances.map((inst) => `${inst.name || 'Instancia'}`);
+            const stackTags = [...languageTags, ...tech];
             const specs = [
               vm.vcpus ? `${vm.vcpus} vCPU` : '',
               vm.ram ? `RAM ${vm.ram}` : '',
@@ -1174,7 +1594,8 @@ function renderVmReport(sourceVms = null){
             ].filter(Boolean);
             const systemsLinked = [...new Set([
               ...use.prod.map((s) => s.name),
-              ...use.hml.map((s) => s.name)
+              ...use.hml.map((s) => s.name),
+              ...use.dev.map((s) => s.name)
             ])];
             const dbRows = dbs.map((d) => {
               const version = String(d.vm_version || '').trim();
@@ -1198,7 +1619,7 @@ function renderVmReport(sourceVms = null){
               </div>
               ${osLabel ? `<div class="vm-report-sub">SO: ${esc(osLabel)}</div>` : ''}
               ${specs.length ? `<div class="tags">${specs.map((s)=>`<span class="tag">${esc(s)}</span>`).join('')}</div>` : ''}
-              ${tech.length ? `<div class="tags">${tech.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : ''}
+              ${stackTags.length ? `<div class="tags">${stackTags.map((tag)=>`<span class="tag">${esc(tag)}</span>`).join('')}</div>` : ''}
               ${instanceTags.length ? `<div class="tags">${instanceTags.map((tag)=>`<span class="tag">${esc(tag)}</span>`).join('')}</div>` : ''}
 
               ${systemsLinked.length ? `
@@ -1250,31 +1671,24 @@ function renderVmReport(sourceVms = null){
   }).join('');
 }
 
-function renderMachines(){
-  const container = $('vm-sections');
-  const vmCountEl = $('vm-result-count');
-  if (!App.vms.length) {
-    if (vmCountEl) vmCountEl.textContent = '0 resultado(s)';
-    container.innerHTML = '<div class="vm-section-empty">Nenhuma maquina cadastrada.</div>';
-    renderVmReport([]);
-    return;
-  }
+function filterVmsByCriteria(vms, criteria={}){
+  const vmq = String(criteria.q || '').toLowerCase();
+  const vmcatf = String(criteria.category || '').trim();
+  const vmtypef = String(criteria.type || '').trim();
+  const vmaccessf = String(criteria.access || '').trim();
+  const vmadminf = String(criteria.administration || '').trim();
 
-  const vmq = String($('vmq')?.value || '').toLowerCase();
-  const vmcatf = String($('vmcatf')?.value || '').trim();
-  const vmtypef = String($('vmtypef')?.value || '').trim();
-  const vmaccessf = String($('vmaccessf')?.value || '').trim();
-  const vmadminf = String($('vmadminf')?.value || '').trim();
-
-  const filteredVms = App.vms.filter((vm) => {
+  return vms.filter((vm) => {
     if (vmcatf && vmCategoryLabel(vm) !== vmcatf) return false;
     if (vmtypef && vmTypeLabel(vm) !== vmtypef) return false;
     if (vmaccessf && vmAccessLabel(vm) !== vmaccessf) return false;
     if (vmadminf && vmAdministrationLabel(vm) !== vmadminf) return false;
     if (!vmq) return true;
     const use = vmUsage(vm.id);
-    const linkedSystems = [...new Set([...use.prod.map((s)=>s.name), ...use.hml.map((s)=>s.name)])].join(' ');
+    const linkedSystems = [...new Set([...use.prod.map((s)=>s.name), ...use.hml.map((s)=>s.name), ...use.dev.map((s)=>s.name)])].join(' ');
     const instancesText = vmInstances(vm).map((inst) => `${inst.name || ''} ${inst.ip || ''}`).join(' ');
+    const languageText = vmLanguageList(vm).join(' ');
+    const languageVersionText = Object.values(vmLanguageVersions(vm)).map((v) => String(v || '').trim()).filter(Boolean).join(' ');
     return [
       vm.name,
       vm.ip,
@@ -1286,16 +1700,36 @@ function renderMachines(){
       vmTypeLabel(vm),
       vmAccessLabel(vm),
       vmAdministrationLabel(vm),
+      languageText,
+      languageVersionText,
       vmTechList(vm).join(' '),
       instancesText,
       linkedSystems
     ].join(' ').toLowerCase().includes(vmq);
   });
+}
+
+function renderMachines(){
+  const container = $('vm-sections');
+  const vmCountEl = $('vm-result-count');
+  const editable = canEdit();
+  if (!App.vms.length) {
+    if (vmCountEl) vmCountEl.textContent = '0 resultado(s)';
+    container.innerHTML = '<div class="vm-section-empty">Nenhuma maquina cadastrada.</div>';
+    return;
+  }
+
+  const filteredVms = filterVmsByCriteria(App.vms, {
+    q: $('vmq')?.value || '',
+    category: $('vmcatf')?.value || '',
+    type: $('vmtypef')?.value || '',
+    access: $('vmaccessf')?.value || '',
+    administration: $('vmadminf')?.value || ''
+  });
   if (vmCountEl) vmCountEl.textContent = `${filteredVms.length} resultado(s)`;
 
   if (!filteredVms.length) {
     container.innerHTML = '<div class="vm-section-empty">Nenhuma maquina encontrada para os filtros.</div>';
-    renderVmReport([]);
     return;
   }
 
@@ -1310,12 +1744,12 @@ function renderMachines(){
       ? 'Sistemas em Producao'
       : category === 'Homologacao'
         ? 'Sistemas em Homologacao'
-        : 'Sistemas Vinculados';
+        : 'Sistemas em Desenvolvimento';
     const relationLabelCard = category === 'Producao'
       ? 'Producao'
       : category === 'Homologacao'
         ? 'Homologacao'
-        : 'Sistemas';
+        : 'Desenvolvimento';
     const typeBlocks = ['Sistemas','SGBD'].map((type) => {
       const typeVms = vms.filter((vm) => vmTypeLabel(vm) === type);
       if (!typeVms.length) return '';
@@ -1323,19 +1757,20 @@ function renderMachines(){
       const rows = typeVms.map((vm) => {
         const use = vmUsage(vm.id);
         const dbs = vmDatabases(vm.id);
+        const languages = vmLanguageList(vm);
         const tech = vmTechList(vm);
-        const instances = vmInstances(vm);
-        const techTags = [...tech, ...instances.map((inst) => `${inst.name || 'Instancia'}`)];
+        const languageTags = languages.map((item) => vmLanguageTagText(vm, item)).filter(Boolean);
+        const techTags = [...tech];
         const specs = [vm.vcpus ? `${vm.vcpus} vCPU` : '', vm.ram || '', vm.disk || ''].filter(Boolean).join(' | ');
         const relationCount = category === 'Producao'
           ? use.prod.length
           : category === 'Homologacao'
             ? use.hml.length
-            : use.total;
+            : use.dev.length;
         const metricClass = type === 'SGBD' ? 'vm-db-col' : 'vm-rel-col';
         const metricValue = type === 'SGBD' ? dbs.length : relationCount;
         const diagBtn = vmSupportsDiagnostics(vm)
-          ? `<button class="act diag" onclick="openVmDiagnosticPageById(${vm.id})" title="Diagnostico JSON">&#128202;</button>`
+          ? `<button class="act diag" onclick="openVmDiagnosticPageById(${vm.id})" title="Diagnostico JSON (${esc(vmDiagnosticTechs(vm).join('/') || 'VM')})">&#128202;</button>`
           : '';
         return `
           <tr>
@@ -1347,9 +1782,10 @@ function renderMachines(){
             <td>${esc(vmAdministrationLabel(vm))}</td>
             <td class="vm-os-col">${esc(vm.os_name || '-')}</td>
             <td class="vm-res-col">${esc(specs || '-')}</td>
+            <td class="vm-lang-col">${languageTags.length ? `<div class="vm-tech-tags">${languageTags.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : '-'}</td>
             <td class="vm-tech-col">${techTags.length ? `<div class="vm-tech-tags">${techTags.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : '-'}</td>
             <td class="${metricClass}">${metricValue}</td>
-            <td class="vm-actions-col"><div class="actions">${diagBtn}<button class="act" onclick="openVmFormById(${vm.id})">&#9998;</button><button class="act del" onclick="archiveVm(${vm.id})">&#128230;</button></div></td>
+            <td class="vm-actions-col">${editable ? `<div class="actions">${diagBtn}<button class="act" onclick="openVmFormById(${vm.id})">&#9998;</button><button class="act del" onclick="archiveVm(${vm.id})">&#128230;</button></div>` : (diagBtn ? `<div class="actions">${diagBtn}</div>` : '-')}</td>
           </tr>
         `;
       }).join('');
@@ -1357,16 +1793,18 @@ function renderMachines(){
       const cards = typeVms.map((vm) => {
         const use = vmUsage(vm.id);
         const dbs = vmDatabases(vm.id);
+        const languages = vmLanguageList(vm);
         const tech = vmTechList(vm);
         const instances = vmInstances(vm);
+        const languageTags = languages.map((item) => vmLanguageTagText(vm, item)).filter(Boolean);
         const specs = [vm.vcpus ? `${vm.vcpus} vCPU` : '', vm.ram || '', vm.disk || ''].filter(Boolean);
         const relationCount = category === 'Producao'
           ? use.prod.length
           : category === 'Homologacao'
             ? use.hml.length
-            : use.total;
+            : use.dev.length;
         const diagBtn = vmSupportsDiagnostics(vm)
-          ? `<button class="act diag" onclick="openVmDiagnosticPageById(${vm.id})" title="Diagnostico JSON">&#128202;</button>`
+          ? `<button class="act diag" onclick="openVmDiagnosticPageById(${vm.id})" title="Diagnostico JSON (${esc(vmDiagnosticTechs(vm).join('/') || 'VM')})">&#128202;</button>`
           : '';
         return `
           <div class="vm-mobile-card">
@@ -1376,6 +1814,7 @@ function renderMachines(){
             <div class="vm-mobile-ip">Acesso: ${esc(vmAccessLabel(vm))} | Administracao: ${esc(vmAdministrationLabel(vm))}</div>
             ${vm.os_name ? `<div class="vm-mobile-ip">SO: ${esc(vm.os_name)}</div>` : ''}
             ${specs.length ? `<div class="tags">${specs.map((s)=>`<span class="tag">${esc(s)}</span>`).join('')}</div>` : ''}
+            ${languageTags.length ? `<div class="tags">${languageTags.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : ''}
             ${tech.length ? `<div class="tags">${tech.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : ''}
             ${instances.length ? `<div class="tags">${instances.map((inst)=>`<span class="tag">${esc(`${inst.name || 'Instancia'}`)}</span>`).join('')}</div>` : ''}
             <div class="vm-mobile-stats">
@@ -1383,11 +1822,10 @@ function renderMachines(){
               <div class="vm-mobile-stat"><div class="vm-mobile-stat-label">Bases</div><div class="vm-mobile-stat-value">${dbs.length}</div></div>
               <div class="vm-mobile-stat"><div class="vm-mobile-stat-label">Total</div><div class="vm-mobile-stat-value">${use.total}</div></div>
             </div>
-            <div class="vm-mobile-actions">
+            ${(editable || diagBtn) ? `<div class="vm-mobile-actions">
               ${diagBtn}
-              <button class="act" onclick="openVmFormById(${vm.id})">&#9998;</button>
-              <button class="act del" onclick="archiveVm(${vm.id})">&#128230;</button>
-            </div>
+              ${editable ? `<button class="act" onclick="openVmFormById(${vm.id})">&#9998;</button><button class="act del" onclick="archiveVm(${vm.id})">&#128230;</button>` : ''}
+            </div>` : ''}
           </div>
         `;
       }).join('');
@@ -1397,7 +1835,7 @@ function renderMachines(){
         <div class="vm-type-title">${esc(type)}</div>
         <div class="table-wrap vm-desktop-table">
             <table class="vm-compact-table">
-              <thead><tr><th class="vm-name-col">Nome da Maquina</th><th class="vm-ip-col">IP</th><th>Categoria</th><th>Tipo</th><th>Acesso</th><th>Administracao</th><th class="vm-os-col">Sistema Operacional</th><th class="vm-res-col">Recursos (vCPU | RAM | Disco)</th><th class="vm-tech-col">Tecnologias / Versoes</th><th class="${type === 'SGBD' ? 'vm-db-col' : 'vm-rel-col'}">${type === 'SGBD' ? 'Bases de Dados' : esc(relationHeader)}</th><th class="vm-actions-col">Acoes</th></tr></thead>
+              <thead><tr><th class="vm-name-col">Nome da Maquina</th><th class="vm-ip-col">IP</th><th>Categoria</th><th>Tipo</th><th>Acesso</th><th>Administracao</th><th class="vm-os-col">Sistema Operacional</th><th class="vm-res-col">Recursos (vCPU | RAM | Disco)</th><th class="vm-lang-col">Linguagem</th><th class="vm-tech-col">Tecnologias</th><th class="${type === 'SGBD' ? 'vm-db-col' : 'vm-rel-col'}">${type === 'SGBD' ? 'Bases de Dados' : esc(relationHeader)}</th><th class="vm-actions-col">${editable ? 'Acoes' : 'Diagnostico'}</th></tr></thead>
               <tbody>${rows}</tbody>
             </table>
           </div>
@@ -1414,13 +1852,30 @@ function renderMachines(){
       </div>
     `;
   }).join('');
+}
 
+function renderVmReportTab(){
+  const resultEl = $('vmr-result-count');
+  const filteredVms = filterVmsByCriteria(App.vms, {
+    q: $('vmrq')?.value || '',
+    category: $('vmrcatf')?.value || '',
+    type: $('vmrtypef')?.value || '',
+    access: $('vmraccessf')?.value || '',
+    administration: $('vmradminf')?.value || ''
+  });
+  if (resultEl) resultEl.textContent = `${filteredVms.length} resultado(s)`;
   renderVmReport(filteredVms);
 }
 
 function renderArchived(){
   const systems = App.archived.systems || [];
   const vms = App.archived.vms || [];
+  const editable = canEdit();
+  const admin = isAdmin();
+  const archivedSystemsTable = document.querySelector('#view-arquivados .archived-systems-table');
+  const archivedVmsTable = document.querySelector('#view-arquivados .archived-vms-table');
+  archivedSystemsTable?.classList.toggle('readonly', !editable);
+  archivedVmsTable?.classList.toggle('readonly', !editable);
 
   if (!systems.length) {
     $('archived-systems-body').innerHTML = '<tr><td colspan="7" style="color:var(--muted)">Nenhum sistema arquivado.</td></tr>';
@@ -1433,7 +1888,7 @@ function renderArchived(){
         <td>${esc(vmName(i, false))}</td>
         <td>${esc(vmName(i, true))}</td>
         <td>${esc(i.archived_at || '-')}</td>
-        <td><div class="actions"><button class="act" onclick="restoreSystem(${i.id})">&#8634;</button><button class="act del" onclick="deleteSystemPermanent(${i.id})">&#128465;</button></div></td>
+        <td>${editable ? `<div class="actions"><button class="act" onclick="restoreSystem(${i.id})">&#8634;</button>${admin ? `<button class="act del" onclick="deleteSystemPermanent(${i.id})">&#128465;</button>` : ''}</div>` : '-'}</td>
       </tr>
     `).join('');
   }
@@ -1447,7 +1902,7 @@ function renderArchived(){
         <td>${esc(vm.ip || '-')}</td>
         <td>${Number(vm.system_count || 0)}</td>
         <td>${esc(vm.archived_at || '-')}</td>
-        <td><div class="actions"><button class="act" onclick="restoreVm(${vm.id})">&#8634;</button><button class="act del" onclick="deleteVmPermanent(${vm.id})">&#128465;</button></div></td>
+        <td>${editable ? `<div class="actions"><button class="act" onclick="restoreVm(${vm.id})">&#8634;</button>${admin ? `<button class="act del" onclick="deleteVmPermanent(${vm.id})">&#128465;</button>` : ''}</div>` : '-'}</td>
       </tr>
     `).join('');
   }
@@ -1455,7 +1910,10 @@ function renderArchived(){
 
 function renderCurrent(){
   const active = App.items.filter((i)=>statusKind(i.status)==='active').length;
-  $('count').innerHTML = `${App.items.length} sistemas &#8226; ${App.databases.length} bases &#8226; ${active} ativos`;
+  const countEl = $('count');
+  if (countEl) {
+    countEl.innerHTML = `${App.items.length} sistemas &#8226; ${App.databases.length} bases &#8226; ${active} ativos`;
+  }
 
   if (App.view === 'dashboard') {
     $('result-count').textContent = '';
@@ -1466,6 +1924,12 @@ function renderCurrent(){
   if (App.view === 'maquinas') {
     $('result-count').textContent = '';
     renderMachines();
+    return;
+  }
+
+  if (App.view === 'vm-relatorio') {
+    $('result-count').textContent = '';
+    renderVmReportTab();
     return;
   }
 
@@ -1501,8 +1965,11 @@ function openFormById(id){
 }
 
 function openForm(item=null){
-  $('ftitle').textContent = item ? 'Editar Sistema' : 'Novo Sistema';
+  const editable = canEdit();
+  const isEdit = Boolean(item?.id);
+  $('ftitle').textContent = item ? (editable ? 'Editar Sistema' : 'Visualizar Sistema') : 'Novo Sistema';
   $('bsave').textContent = item ? 'Salvar Alteracoes' : 'Salvar';
+  $('barchive-system').classList.toggle('hidden', !isEdit || !editable);
   $('fid').value = item?.id || '';
   $('fname').value = item?.name || '';
   $('fsystem').value = item?.system_name || '';
@@ -1534,12 +2001,29 @@ function openForm(item=null){
   populateVmSelects();
   $('fvm_id').value = item?.vm_id ? String(item.vm_id) : '';
   $('fvm_homolog_id').value = item?.vm_homolog_id ? String(item.vm_homolog_id) : '';
+  $('fvm_dev_id').value = item?.vm_dev_id ? String(item.vm_dev_id) : '';
+  if ($('btn-manage-vms')) {
+    $('btn-manage-vms').disabled = !editable;
+    $('btn-manage-vms').classList.toggle('hidden', !editable);
+  }
+
+  const fields = document.querySelectorAll('#mform input, #mform select, #mform textarea');
+  fields.forEach((el) => {
+    if (el.id === 'fid') return;
+    el.disabled = !editable;
+  });
+  $('bsave').classList.toggle('hidden', !editable);
+  $('bsave').disabled = !editable || $('fname').value.trim() === '';
 
   toggleSave();
   $('mform').classList.remove('hidden');
 }
 
 function toggleSave(){
+  if (!canEdit()) {
+    $('bsave').disabled = true;
+    return;
+  }
   $('bsave').disabled = $('fname').value.trim() === '';
 }
 
@@ -1547,7 +2031,32 @@ function openDetail(id){
   openFormById(id);
 }
 
+function openVmReadOnlyById(id){
+  const vmId = Number(id || 0);
+  if (!vmId) return;
+  const vm = App.vms.find((x)=>Number(x.id)===vmId);
+  setView('maquinas');
+  const vmSearch = $('vmq');
+  if (vmSearch) {
+    vmSearch.value = vm ? `${vm.name} ${vm.ip || ''}`.trim() : String(vmId);
+    renderMachines();
+  }
+}
+
+function openDbReadOnlyById(id){
+  const dbId = Number(id || 0);
+  if (!dbId) return;
+  const db = App.databases.find((x)=>Number(x.id)===dbId);
+  const systemId = Number(db?.system_id || 0);
+  if (systemId > 0) {
+    openDetail(systemId);
+    return;
+  }
+  setView('bases');
+}
+
 async function saveSystem(){
+  if (!ensureCanEdit()) return;
   const data = {
     id:$('fid').value || null,
     name:$('fname').value.trim(),
@@ -1561,6 +2070,7 @@ async function saveSystem(){
     url:joinUrlList($('furl').value),
     vm_id:Number($('fvm_id').value) || null,
     vm_homolog_id:Number($('fvm_homolog_id').value) || null,
+    vm_dev_id:Number($('fvm_dev_id').value) || null,
     url_homolog:joinUrlList($('furl_homolog').value),
     description:$('fdesc').value.trim(),
     responsible_sector:$('fsector').value.trim(),
@@ -1592,18 +2102,27 @@ async function saveSystem(){
 }
 
 async function archiveSystem(id){
+  if (!ensureCanEdit()) return;
   const item = App.items.find((x)=>Number(x.id)===Number(id));
   if(!confirm(`Arquivar ${item?.name || 'sistema'}?`)) return;
   try{
     const r = await api('archive', {id});
     if(!r.ok) throw new Error(r.error || 'Erro ao arquivar');
     await refreshAll();
+    closeModal('mform');
     closeModal('mdetail');
     toast('Sistema arquivado');
   }catch(e){ toast('Erro ao arquivar: ' + (e.message || '?'), true); }
 }
 
+function archiveCurrentSystem(){
+  const id = Number($('fid').value || 0);
+  if (!id) return;
+  archiveSystem(id);
+}
+
 async function restoreSystem(id){
+  if (!ensureCanEdit()) return;
   if(!confirm('Restaurar sistema arquivado?')) return;
   try{
     const r = await api('restore', {id});
@@ -1614,6 +2133,7 @@ async function restoreSystem(id){
 }
 
 async function deleteSystemPermanent(id){
+  if (!ensureAdmin()) return;
   if(!confirm('Excluir sistema definitivamente? Esta acao nao pode ser desfeita.')) return;
   try{
     const r = await api('delete', {id});
@@ -1624,11 +2144,13 @@ async function deleteSystemPermanent(id){
 }
 
 function openDbFormById(id){
+  if (!ensureCanEdit()) return;
   const item = App.databases.find((x)=>Number(x.id)===Number(id));
   if (item) openDbForm(item);
 }
 
 function openDbForm(item=null){
+  if (!ensureCanEdit()) return;
   $('dbtitle').textContent = item ? 'Editar Base de Dados' : 'Nova Base de Dados';
   $('fdbid').value = item?.id || '';
   $('fdbname').value = item?.db_name || '';
@@ -1654,6 +2176,7 @@ function openDbForm(item=null){
 }
 
 async function saveDb(){
+  if (!ensureCanEdit()) return;
   const selectedInstance = selectedDbInstance('fdbinstance');
   const selectedHomologInstance = selectedDbInstance('fdbinstanceh');
   const data = {
@@ -1698,6 +2221,7 @@ async function saveDb(){
 }
 
 async function deleteDb(id){
+  if (!ensureCanEdit()) return;
   const item = App.databases.find((x)=>Number(x.id)===Number(id));
   if(!confirm(`Excluir base ${item?.db_name || ''} definitivamente?`)) return;
   try{
@@ -1710,11 +2234,13 @@ async function deleteDb(id){
 }
 
 function openVmFormById(id){
+  if (!ensureCanEdit()) return;
   const vm = App.vms.find((x)=>Number(x.id)===Number(id));
   if (vm) openVmForm(vm);
 }
 
 function openVmForm(vm=null){
+  if (!ensureCanEdit()) return;
   $('vmtitle').textContent = vm ? 'Editar Maquina' : 'Nova Maquina';
   $('fvmid').value = vm?.id || '';
   $('fvmname').value = vm?.name || '';
@@ -1727,12 +2253,14 @@ function openVmForm(vm=null){
   $('fvmvcpus').value = vm?.vcpus || '';
   $('fvmram').value = vm?.ram || '';
   $('fvmdisk').value = vm?.disk || '';
+  $('fvmlanguage').value = vmLanguageList(vm).join(', ');
   $('fvmtech').value = vmTechList(vm).join(', ');
   $('fvminstances').value = vmInstancesText(vm);
   $('mvm').classList.remove('hidden');
 }
 
 async function saveVm(){
+  if (!ensureCanEdit()) return;
   const instances = parseVmInstancesInput($('fvminstances').value);
   const data = {
     id: $('fvmid').value || null,
@@ -1747,6 +2275,7 @@ async function saveVm(){
     ram: $('fvmram').value.trim(),
     disk: $('fvmdisk').value.trim(),
     vm_instances: instances,
+    vm_language: $('fvmlanguage').value.split(',').map((x)=>x.trim()).filter(Boolean),
     vm_tech: $('fvmtech').value.split(',').map((x)=>x.trim()).filter(Boolean),
   };
 
@@ -1771,13 +2300,17 @@ async function saveVm(){
 }
 
 function openVmDiagnosticPageById(id){
+  if (!App.auth.authenticated) {
+    toast('Faca login para acessar diagnosticos.', true);
+    return;
+  }
   const vm = App.vms.find((x)=>Number(x.id)===Number(id));
   if (!vm) {
     toast('Maquina nao encontrada.', true);
     return;
   }
   if (!vmSupportsDiagnostics(vm)) {
-    toast('Diagnostico JSON habilitado apenas para VMs de sistema com Apache e PHP.', true);
+    toast('Diagnostico JSON habilitado para VMs de sistema com tecnologia PHP e/ou R.', true);
     return;
   }
   window.location.href = `vm_diagnostic.php?id=${encodeURIComponent(String(id))}`;
@@ -1788,6 +2321,7 @@ async function openVmDiagnosticById(id){
 }
 
 async function archiveVm(id){
+  if (!ensureCanEdit()) return;
   const vm = App.vms.find((x)=>Number(x.id)===Number(id));
   if(!confirm(`Arquivar maquina ${vm?.name || ''}?`)) return;
 
@@ -1802,6 +2336,7 @@ async function archiveVm(id){
 }
 
 async function restoreVm(id){
+  if (!ensureCanEdit()) return;
   if(!confirm('Restaurar maquina arquivada?')) return;
   try{
     const r = await api('vm-restore', {id});
@@ -1812,6 +2347,7 @@ async function restoreVm(id){
 }
 
 async function deleteVmPermanent(id){
+  if (!ensureAdmin()) return;
   if(!confirm('Excluir maquina definitivamente? Esta acao nao pode ser desfeita.')) return;
   try{
     const r = await api('vm-delete', {id});
@@ -1847,7 +2383,7 @@ async function refreshAll(){
 }
 
 function activeModalId(){
-  const ids = ['mdb','mvm','mform','mdetail'];
+  const ids = ['mauth','mpassword','mbackup','mdb','mvm','mform','mdetail'];
   for (const id of ids) {
     const el = $(id);
     if (el && !el.classList.contains('hidden')) return id;
@@ -1871,8 +2407,11 @@ function handleModalKeyboardShortcuts(ev){
   const tag = String(ev.target?.tagName || '').toUpperCase();
   if (tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON') return;
   if (modalId === 'mdetail') return;
+  if (modalId === 'mbackup') return;
 
   ev.preventDefault();
+  if (modalId === 'mauth') { login(); return; }
+  if (modalId === 'mpassword') { changePassword(); return; }
   if (modalId === 'mform') { saveSystem(); return; }
   if (modalId === 'mvm') { saveVm(); return; }
   if (modalId === 'mdb') { saveDb(); return; }
@@ -1882,6 +2421,7 @@ document.addEventListener('keydown', handleModalKeyboardShortcuts);
 
 async function boot(){
   try{
+    await fetchAuthStatus();
     await refreshAll();
     $('loading').style.display = 'none';
     setView(App.view);
@@ -1890,5 +2430,19 @@ async function boot(){
     toast('Erro ao carregar: ' + (e.message || '?'), true);
   }
 }
+
+$('auth-login')?.addEventListener('click', () => login());
+$('auth-open-login')?.addEventListener('click', () => openLoginModal());
+$('auth-logout')?.addEventListener('click', () => logout());
+$('auth-change-password')?.addEventListener('click', () => openPasswordModal());
+$('pwd-save')?.addEventListener('click', () => changePassword());
+$('btn-export')?.addEventListener('click', () => openBackupModal());
+$('btn-backup')?.addEventListener('click', () => triggerBackupImport());
+$('backup-file')?.addEventListener('change', (ev) => onBackupFileChange(ev));
+$('backup-export-systems')?.addEventListener('click', () => exportCsv('systems'));
+$('backup-export-vms')?.addEventListener('click', () => exportCsv('vms'));
+$('backup-export-dbs')?.addEventListener('click', () => exportCsv('databases'));
+$('backup-export-json')?.addEventListener('click', () => exportBackup());
+$('backup-import-btn')?.addEventListener('click', () => triggerBackupImport());
 
 boot();

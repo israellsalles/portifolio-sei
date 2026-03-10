@@ -23,21 +23,28 @@ if (isset($_GET['api'])) {
   <a href="index.php" class="logo">
     <div class="logo-icon">&#9889;</div>
     <div class="logo-name">SEI Portifólio</div>
-    <div class="logo-ver">v1.0</div>
   </a>
   <div class="tabs">
     <button id="tab-cards" class="tab active" onclick="setView('cards')">&#128451; Sistemas</button>
     <button id="tab-lista" class="tab" onclick="setView('lista')">&#9776; Lista</button>
     <button id="tab-dns" class="tab" onclick="setView('dns')">&#127760; DNS</button>
-    <button id="tab-bases" class="tab" onclick="setView('bases')">&#128187; Bases</button>
     <button id="tab-maquinas" class="tab" onclick="setView('maquinas')">&#128187; Maquinas</button>
-    <button id="tab-diagrama" class="tab" onclick="openDiagramExternal()">&#128279; Diagrama</button>
+    <button id="tab-bases" class="tab" onclick="setView('bases')">&#128187; Bases</button>
+    <button id="tab-vm-relatorio" class="tab" onclick="setView('vm-relatorio')">&#128202; Relatório VM</button>
     <button id="tab-arquivados" class="tab" onclick="setView('arquivados')">&#128230; Arquivados</button>
     <button id="tab-dashboard" class="tab" onclick="setView('dashboard')">&#128202; Dashboard</button>
+    <button id="tab-diagrama" class="tab" onclick="openDiagramExternal()">&#128279; Diagrama</button>
   </div>
   <div class="sp"></div>
-  <div id="count" class="top-count"></div>
-  <button id="top-action" class="btn-primary" onclick="runPrimaryAction()">+ Novo Sistema</button>
+  <div id="auth-box" class="auth-box hidden">
+    <span id="auth-label" class="auth-label"></span>
+    <button id="auth-change-password" class="btn btn-header" type="button">Senha</button>
+    <button id="auth-logout" class="btn btn-header" type="button">Sair</button>
+  </div>
+  <button id="auth-open-login" class="btn btn-header" type="button">Login</button>
+  <button id="btn-export" class="btn btn-header" type="button">Exportar</button>
+  <button id="btn-backup" class="btn btn-header" type="button">Restaurar</button>
+  <button id="top-action" class="btn-primary hidden" onclick="runPrimaryAction()">+ Novo Sistema</button>
 </header>
 <main>
   <div id="toolbar" class="toolbar">
@@ -64,9 +71,9 @@ if (isset($_GET['api'])) {
       <div class="panel"><h3>Por Status</h3><div id="status-bars"></div></div>
       <div class="panel"><h3>Por Categoria</h3><div id="category-bars"></div></div>
       <div class="panel"><h3>VMs por Ambiente</h3><div id="vm-category-bars"></div></div>
-      <div class="panel"><h3>SGBD / Versao</h3><div id="db-engine-bars"></div></div>
+      <div class="panel"><h3>SGBD / Versão</h3><div id="db-engine-bars"></div></div>
       <div class="panel"><h3>Qualidade do Cadastro</h3><div id="quality-list"></div></div>
-      <div class="panel"><h3>Atencao Necessaria</h3><div id="attention-list"></div></div>
+      <div class="panel"><h3>Atenção Necessária</h3><div id="attention-list"></div></div>
     </div>
   </section>
   <section id="view-lista" class="view">
@@ -75,16 +82,16 @@ if (isset($_GET['api'])) {
         <div class="list-section-title">1. Sistemas</div>
         <div class="table-wrap">
           <table class="list-desc-table">
-            <thead><tr><th>Nome</th><th>Descricao</th><th>Observacoes</th><th>Status</th><th style="width:98px">Acoes</th></tr></thead>
+            <thead><tr><th>Nome</th><th>Descricao</th><th>Observacoes</th><th>Status</th></tr></thead>
             <tbody id="list-desc-body"></tbody>
           </table>
         </div>
       </div>
       <div class="list-section">
-        <div class="list-section-title">2. Informacoes Tecnicas</div>
+        <div class="list-section-title">2. Informações Técnicas</div>
         <div class="table-wrap">
           <table class="list-main-table list-compact-table">
-            <thead><tr><th>Nome</th><th>Sistema</th><th>Versao</th><th>Categoria</th><th>Grupo</th><th>Criticidade</th><th>Tecnologias</th></tr></thead>
+            <thead><tr><th>Nome</th><th>Sistema</th><th>Versão</th><th>Categoria</th><th>Grupo</th><th>Criticidade</th><th>Tecnologias</th></tr></thead>
             <tbody id="list-main-body"></tbody>
           </table>
         </div>
@@ -93,7 +100,7 @@ if (isset($_GET['api'])) {
         <div class="list-section-title">3. Infraestrutura</div>
         <div class="table-wrap">
           <table class="list-infra-table list-compact-table">
-            <thead><tr><th>Nome</th><th>URL</th><th>URL Homologacao</th><th>VM Producao</th><th>IP Producao</th><th>VM Homologacao</th><th>IP Homologacao</th><th>Acesso</th><th>Administracao</th></tr></thead>
+            <thead><tr><th>Nome</th><th>URL</th><th>URL Homologacao</th><th>VM Producao</th><th>IP Producao</th><th>VM Homologacao</th><th>IP Homologacao</th><th>VM Desenvolvimento</th><th>IP Desenvolvimento</th><th>Acesso</th><th>Administracao</th></tr></thead>
             <tbody id="list-infra-body"></tbody>
           </table>
         </div>
@@ -172,25 +179,35 @@ if (isset($_GET['api'])) {
     </div>
   </section>
   <section id="view-maquinas" class="view">
-    <div class="dash-grid machines-grid">
-      <div class="panel">
+    <div class="panel">
       <div class="panel-head">
         <h3>Maquinas Virtuais</h3>
       </div>
-        <div class="toolbar vm-filters">
-          <input id="vmq" class="search vm-filter-search" type="text" placeholder="Buscar maquina, IP, SO..." oninput="renderMachines()">
-          <select id="vmcatf" onchange="renderMachines()"></select>
-          <select id="vmtypef" onchange="renderMachines()"></select>
-          <select id="vmaccessf" onchange="renderMachines()"></select>
-          <select id="vmadminf" onchange="renderMachines()"></select>
-          <span id="vm-result-count" class="result-count"></span>
-        </div>
-        <div id="vm-sections" class="vm-sections"></div>
+      <div class="toolbar vm-filters">
+        <input id="vmq" class="search vm-filter-search" type="text" placeholder="Buscar maquina, IP, SO..." oninput="renderMachines()">
+        <select id="vmcatf" onchange="renderMachines()"></select>
+        <select id="vmtypef" onchange="renderMachines()"></select>
+        <select id="vmaccessf" onchange="renderMachines()"></select>
+        <select id="vmadminf" onchange="renderMachines()"></select>
+        <span id="vm-result-count" class="result-count"></span>
       </div>
-      <div class="panel">
-        <h3>Relatorio por Maquina</h3>
-        <div id="vm-report" class="vm-report"></div>
+      <div id="vm-sections" class="vm-sections"></div>
+    </div>
+  </section>
+  <section id="view-vm-relatorio" class="view">
+    <div class="panel">
+      <div class="panel-head">
+        <h3>Relatório por Máquina</h3>
       </div>
+      <div class="toolbar vm-filters">
+        <input id="vmrq" class="search vm-filter-search" type="text" placeholder="Buscar maquina, IP, SO..." oninput="renderVmReportTab()">
+        <select id="vmrcatf" onchange="renderVmReportTab()"></select>
+        <select id="vmrtypef" onchange="renderVmReportTab()"></select>
+        <select id="vmraccessf" onchange="renderVmReportTab()"></select>
+        <select id="vmradminf" onchange="renderVmReportTab()"></select>
+        <span id="vmr-result-count" class="result-count"></span>
+      </div>
+      <div id="vm-report" class="vm-report"></div>
     </div>
   </section>
   <section id="view-arquivados" class="view">
@@ -216,6 +233,56 @@ if (isset($_GET['api'])) {
     </div>
   </section>
 </main>
+<input id="backup-file" type="file" accept=".json,application/json" class="hidden">
+<div id="mauth" class="modal-bg hidden" onclick="closeModal('mauth')">
+  <div class="modal auth-modal" onclick="event.stopPropagation()">
+    <div class="modal-head">
+    <div class="modal-title">Acesso ao Sistema</div>
+    <button class="close" onclick="closeModal('mauth')">&#10005;</button>
+    </div>
+    <div class="form">
+      <div class="field"><label>Usuario</label><input id="auth-username" autocomplete="username" placeholder="admin"></div>
+      <div class="field"><label>Senha</label><input id="auth-password" type="password" autocomplete="current-password" placeholder="••••••••"></div>
+      <div class="form-actions">
+        <button id="auth-login" class="btn btn-save" type="button">Entrar</button>
+      </div>
+      <div class="auth-hint">Login disponivel para perfis: edicao e admin.</div>
+    </div>
+  </div>
+</div>
+<div id="mpassword" class="modal-bg hidden">
+  <div class="modal auth-modal" onclick="event.stopPropagation()">
+    <div class="modal-head"><div class="modal-title">Trocar Senha</div><button class="close" onclick="closeModal('mpassword')">&#10005;</button></div>
+    <div class="form">
+      <div class="field"><label>Senha Atual</label><input id="pwd-current" type="password" autocomplete="current-password" placeholder="••••••••"></div>
+      <div class="field"><label>Nova Senha</label><input id="pwd-new" type="password" autocomplete="new-password" placeholder="••••••••"></div>
+      <div class="field"><label>Confirmar Nova Senha</label><input id="pwd-confirm" type="password" autocomplete="new-password" placeholder="••••••••"></div>
+      <div class="form-actions">
+        <button class="btn" type="button" onclick="closeModal('mpassword')">Cancelar</button>
+        <button id="pwd-save" class="btn btn-save" type="button">Atualizar Senha</button>
+      </div>
+      <div class="auth-hint">Use pelo menos 8 caracteres.</div>
+    </div>
+  </div>
+</div>
+<div id="mbackup" class="modal-bg hidden">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-head"><div class="modal-title">Exportação e Backup</div><button class="close" onclick="closeModal('mbackup')">&#10005;</button></div>
+    <div class="form">
+      <div class="field"><label>Exportacao CSV</label></div>
+      <div class="form-actions backup-actions">
+        <button id="backup-export-systems" class="btn" type="button">CSV Sistemas</button>
+        <button id="backup-export-vms" class="btn" type="button">CSV VMs</button>
+        <button id="backup-export-dbs" class="btn" type="button">CSV Bases</button>
+      </div>
+      <div class="field"><label>Backup completo</label></div>
+      <div class="form-actions backup-actions">
+        <button id="backup-export-json" class="btn btn-save" type="button">Exportar Backup JSON</button>
+        <button id="backup-import-btn" class="btn btn-danger" type="button">Restaurar Backup JSON</button>
+      </div>
+    </div>
+  </div>
+</div>
 <div id="mform" class="modal-bg hidden">
   <div class="modal" onclick="event.stopPropagation()">
     <div class="modal-head"><div id="ftitle" class="modal-title">Novo Sistema</div><button class="close" onclick="closeModal('mform')">&#10005;</button></div>
@@ -224,7 +291,7 @@ if (isset($_GET['api'])) {
       <div class="row3">
         <div class="field"><label>Nome *</label><input id="fname" oninput="toggleSave()" placeholder="Ex: GeoNetwork"></div>
         <div class="field"><label>Sistema</label><input id="fsystem" placeholder="Ex: Publicacoes SEI"></div>
-        <div class="field"><label>Versao</label><input id="fver" placeholder="Ex: 4.2.x"></div>
+        <div class="field"><label>Versão</label><input id="fver" placeholder="Ex: 4.2.x"></div>
       </div>
       <div class="row3">
         <div class="field"><label>Categoria</label><input id="fcat" placeholder="Ex: GIS"></div>
@@ -236,13 +303,14 @@ if (isset($_GET['api'])) {
         <div class="field"><label>Responsavel</label><input id="fowner"></div>
         <div class="field"><label>URLs (uma por linha)</label><textarea id="furl" placeholder="https://site-a...&#10;https://site-b..."></textarea></div>
       </div>
-      <div class="row2">
+      <div class="row3">
         <div class="field"><label>Maquina (Producao)</label><select id="fvm_id"></select></div>
         <div class="field"><label>Maquina (Homologacao)</label><select id="fvm_homolog_id"></select></div>
+        <div class="field"><label>Maquina (Desenvolvimento)</label><select id="fvm_dev_id"></select></div>
       </div>
       <div class="row2">
         <div class="field"><label>URLs de Homologacao (uma por linha)</label><textarea id="furl_homolog" placeholder="https://hml-a...&#10;https://hml-b..."></textarea></div>
-        <div class="field"><label>&nbsp;</label><button type="button" class="btn" onclick="openVmForm()">Gerenciar Maquinas</button></div>
+        <div class="field"><label>&nbsp;</label><button id="btn-manage-vms" type="button" class="btn" onclick="openVmForm()">Gerenciar Maquinas</button></div>
       </div>
       <div class="field"><label>Descricao</label><textarea id="fdesc"></textarea></div>
       <div class="row3">
@@ -275,6 +343,7 @@ if (isset($_GET['api'])) {
       <div class="form-actions">
         <button class="btn" onclick="closeModal('mform')">Cancelar</button>
         <button id="bsave" class="btn btn-save" onclick="saveSystem()" disabled>Salvar</button>
+        <button id="barchive-system" class="btn btn-danger hidden" type="button" onclick="archiveCurrentSystem()">Arquivar</button>
       </div>
     </div>
   </div>
@@ -315,7 +384,10 @@ if (isset($_GET['api'])) {
         <div class="field"><label>RAM</label><input id="fvmram" placeholder="Ex: 16 GB"></div>
         <div class="field"><label>Disco</label><input id="fvmdisk" placeholder="Ex: 200 GB SSD"></div>
       </div>
-      <div class="field"><label>Tecnologias e Versoes (virgula)</label><input id="fvmtech" placeholder="Ex: PHP 8.2, Apache 2.4, Tomcat 10, R 4.3"></div>
+      <div class="row2">
+        <div class="field"><label>Linguagem (virgula)</label><input id="fvmlanguage" placeholder="Ex: PHP, R"></div>
+        <div class="field"><label>Tecnologias (virgula)</label><input id="fvmtech" placeholder="Ex: Apache 2.4, Shiny Server"></div>
+      </div>
       <div class="field"><label>Instancias SGBD (uma por linha: Tecnologia - IP)</label><textarea id="fvminstances" placeholder="MySQL - 10.28.246.82&#10;PostgreSQL - 10.28.246.81"></textarea></div>
       <div class="form-actions">
         <button class="btn" onclick="closeModal('mvm')">Cancelar</button>

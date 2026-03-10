@@ -28,6 +28,7 @@ function ensureSystemColumnsSqlite3(SQLite3 $db): void {
     'vm_homolog' => "TEXT DEFAULT ''",
     'vm_id' => "INTEGER DEFAULT NULL",
     'vm_homolog_id' => "INTEGER DEFAULT NULL",
+    'vm_dev_id' => "INTEGER DEFAULT NULL",
     'archived' => "INTEGER DEFAULT 0",
     'archived_at' => "TEXT DEFAULT NULL",
     'responsible_sector' => "TEXT DEFAULT ''",
@@ -67,6 +68,7 @@ function ensureSystemColumnsPdo(PDO $db): void {
     'vm_homolog' => "TEXT DEFAULT ''",
     'vm_id' => "INTEGER DEFAULT NULL",
     'vm_homolog_id' => "INTEGER DEFAULT NULL",
+    'vm_dev_id' => "INTEGER DEFAULT NULL",
     'archived' => "INTEGER DEFAULT 0",
     'archived_at' => "TEXT DEFAULT NULL",
     'responsible_sector' => "TEXT DEFAULT ''",
@@ -96,13 +98,13 @@ function ensureSystemColumnsPdo(PDO $db): void {
 }
 
 function normalizeLegacyStatusValuesSqlite3(SQLite3 $db): void {
-  $db->exec("UPDATE systems SET status='Manutenção' WHERE status='ManutenÃ§Ã£o'");
-  $db->exec("UPDATE systems SET status='Implantação' WHERE status='ImplantaÃ§Ã£o'");
+  $db->exec("UPDATE systems SET status='Manutenção' WHERE status IN ('ManutenÃƒÂ§ÃƒÂ£o','ManutenÃ§Ã£o')");
+  $db->exec("UPDATE systems SET status='Implantação' WHERE status IN ('ImplantaÃƒÂ§ÃƒÂ£o','ImplantaÃ§Ã£o')");
 }
 
 function normalizeLegacyStatusValuesPdo(PDO $db): void {
-  $db->exec("UPDATE systems SET status='Manutenção' WHERE status='ManutenÃ§Ã£o'");
-  $db->exec("UPDATE systems SET status='Implantação' WHERE status='ImplantaÃ§Ã£o'");
+  $db->exec("UPDATE systems SET status='Manutenção' WHERE status IN ('ManutenÃƒÂ§ÃƒÂ£o','ManutenÃ§Ã£o')");
+  $db->exec("UPDATE systems SET status='Implantação' WHERE status IN ('ImplantaÃƒÂ§ÃƒÂ£o','ImplantaÃ§Ã£o')");
 }
 
 function ensureVmTableSqlite3(SQLite3 $db): void {
@@ -115,9 +117,12 @@ function ensureVmTableSqlite3(SQLite3 $db): void {
     vm_access TEXT DEFAULT 'Interno',
     vm_administration TEXT DEFAULT 'SEI',
     vm_instances TEXT DEFAULT '',
+    vm_language TEXT DEFAULT '',
     vm_tech TEXT DEFAULT '',
     diagnostic_json_ref TEXT DEFAULT '',
     diagnostic_json_updated_at TEXT DEFAULT NULL,
+    diagnostic_json_ref_r TEXT DEFAULT '',
+    diagnostic_json_updated_at_r TEXT DEFAULT NULL,
     os_name TEXT DEFAULT '',
     os_version TEXT DEFAULT '',
     vcpus TEXT DEFAULT '',
@@ -136,9 +141,12 @@ function ensureVmTableSqlite3(SQLite3 $db): void {
   if (!in_array('vm_access', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_access TEXT DEFAULT 'Interno'"); }
   if (!in_array('vm_administration', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_administration TEXT DEFAULT 'SEI'"); }
   if (!in_array('vm_instances', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_instances TEXT DEFAULT ''"); }
+  if (!in_array('vm_language', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_language TEXT DEFAULT ''"); }
   if (!in_array('vm_tech', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_tech TEXT DEFAULT ''"); }
   if (!in_array('diagnostic_json_ref', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN diagnostic_json_ref TEXT DEFAULT ''"); }
   if (!in_array('diagnostic_json_updated_at', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN diagnostic_json_updated_at TEXT DEFAULT NULL"); }
+  if (!in_array('diagnostic_json_ref_r', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN diagnostic_json_ref_r TEXT DEFAULT ''"); }
+  if (!in_array('diagnostic_json_updated_at_r', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN diagnostic_json_updated_at_r TEXT DEFAULT NULL"); }
   if (!in_array('os_name', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN os_name TEXT DEFAULT ''"); }
   if (!in_array('os_version', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN os_version TEXT DEFAULT ''"); }
   if (!in_array('vcpus', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vcpus TEXT DEFAULT ''"); }
@@ -158,9 +166,12 @@ function ensureVmTablePdo(PDO $db): void {
     vm_access TEXT DEFAULT 'Interno',
     vm_administration TEXT DEFAULT 'SEI',
     vm_instances TEXT DEFAULT '',
+    vm_language TEXT DEFAULT '',
     vm_tech TEXT DEFAULT '',
     diagnostic_json_ref TEXT DEFAULT '',
     diagnostic_json_updated_at TEXT DEFAULT NULL,
+    diagnostic_json_ref_r TEXT DEFAULT '',
+    diagnostic_json_updated_at_r TEXT DEFAULT NULL,
     os_name TEXT DEFAULT '',
     os_version TEXT DEFAULT '',
     vcpus TEXT DEFAULT '',
@@ -179,9 +190,12 @@ function ensureVmTablePdo(PDO $db): void {
   if (!in_array('vm_access', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_access TEXT DEFAULT 'Interno'"); }
   if (!in_array('vm_administration', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_administration TEXT DEFAULT 'SEI'"); }
   if (!in_array('vm_instances', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_instances TEXT DEFAULT ''"); }
+  if (!in_array('vm_language', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_language TEXT DEFAULT ''"); }
   if (!in_array('vm_tech', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_tech TEXT DEFAULT ''"); }
   if (!in_array('diagnostic_json_ref', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN diagnostic_json_ref TEXT DEFAULT ''"); }
   if (!in_array('diagnostic_json_updated_at', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN diagnostic_json_updated_at TEXT DEFAULT NULL"); }
+  if (!in_array('diagnostic_json_ref_r', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN diagnostic_json_ref_r TEXT DEFAULT ''"); }
+  if (!in_array('diagnostic_json_updated_at_r', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN diagnostic_json_updated_at_r TEXT DEFAULT NULL"); }
   if (!in_array('os_name', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN os_name TEXT DEFAULT ''"); }
   if (!in_array('os_version', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN os_version TEXT DEFAULT ''"); }
   if (!in_array('vcpus', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vcpus TEXT DEFAULT ''"); }
@@ -277,6 +291,68 @@ function ensureDatabaseTablePdo(PDO $db): void {
   $db->exec("CREATE INDEX IF NOT EXISTS idx_system_databases_system_id ON system_databases(system_id)");
   $db->exec("CREATE INDEX IF NOT EXISTS idx_system_databases_vm_id ON system_databases(vm_id)");
   $db->exec("CREATE INDEX IF NOT EXISTS idx_system_databases_vm_homolog_id ON system_databases(vm_homolog_id)");
+}
+
+function ensureUsersTableSqlite3(SQLite3 $db): void {
+  $db->exec("CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    full_name TEXT DEFAULT '',
+    role TEXT NOT NULL DEFAULT 'leitura',
+    active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now','localtime')),
+    updated_at TEXT DEFAULT (datetime('now','localtime'))
+  )");
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)");
+
+  $count = (int)$db->querySingle('SELECT COUNT(*) FROM users');
+  if ($count > 0) { return; }
+
+  $seed = [
+    ['username' => 'admin', 'password' => 'admin123', 'full_name' => 'Administrador', 'role' => 'admin'],
+    ['username' => 'editor', 'password' => 'editor123', 'full_name' => 'Editor', 'role' => 'edicao'],
+  ];
+
+  foreach ($seed as $user) {
+    $st = $db->prepare("INSERT INTO users(username,password_hash,full_name,role,active,created_at,updated_at) VALUES(:username,:password_hash,:full_name,:role,1,datetime('now','localtime'),datetime('now','localtime'))");
+    $st->bindValue(':username', $user['username'], SQLITE3_TEXT);
+    $st->bindValue(':password_hash', password_hash($user['password'], PASSWORD_DEFAULT), SQLITE3_TEXT);
+    $st->bindValue(':full_name', $user['full_name'], SQLITE3_TEXT);
+    $st->bindValue(':role', $user['role'], SQLITE3_TEXT);
+    $st->execute();
+  }
+}
+
+function ensureUsersTablePdo(PDO $db): void {
+  $db->exec("CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    full_name TEXT DEFAULT '',
+    role TEXT NOT NULL DEFAULT 'leitura',
+    active INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now','localtime')),
+    updated_at TEXT DEFAULT (datetime('now','localtime'))
+  )");
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)");
+
+  $count = (int)$db->query("SELECT COUNT(*) FROM users")->fetchColumn();
+  if ($count > 0) { return; }
+
+  $seed = [
+    ['username' => 'admin', 'password' => 'admin123', 'full_name' => 'Administrador', 'role' => 'admin'],
+    ['username' => 'editor', 'password' => 'editor123', 'full_name' => 'Editor', 'role' => 'edicao'],
+  ];
+
+  $st = $db->prepare("INSERT INTO users(username,password_hash,full_name,role,active,created_at,updated_at) VALUES(:username,:password_hash,:full_name,:role,1,datetime('now','localtime'),datetime('now','localtime'))");
+  foreach ($seed as $user) {
+    $st->bindValue(':username', $user['username'], PDO::PARAM_STR);
+    $st->bindValue(':password_hash', password_hash($user['password'], PASSWORD_DEFAULT), PDO::PARAM_STR);
+    $st->bindValue(':full_name', $user['full_name'], PDO::PARAM_STR);
+    $st->bindValue(':role', $user['role'], PDO::PARAM_STR);
+    $st->execute();
+  }
 }
 
 function findOrCreateVmIdSqlite3(SQLite3 $db, string $name, string $ip): ?int {
@@ -381,6 +457,7 @@ function db() {
       vm_homolog TEXT DEFAULT '',
       vm_id INTEGER DEFAULT NULL,
       vm_homolog_id INTEGER DEFAULT NULL,
+      vm_dev_id INTEGER DEFAULT NULL,
       archived INTEGER DEFAULT 0,
       archived_at TEXT DEFAULT NULL,
       responsible_sector TEXT DEFAULT '',
@@ -406,6 +483,7 @@ function db() {
     normalizeLegacyStatusValuesSqlite3($db);
     ensureVmTableSqlite3($db);
     ensureDatabaseTableSqlite3($db);
+    ensureUsersTableSqlite3($db);
     migrateLegacyVmLinksSqlite3($db);
     $count = (int)$db->querySingle('SELECT COUNT(*) FROM systems');
     if ($count === 0) {
@@ -432,6 +510,7 @@ function db() {
       vm_homolog TEXT DEFAULT '',
       vm_id INTEGER DEFAULT NULL,
       vm_homolog_id INTEGER DEFAULT NULL,
+      vm_dev_id INTEGER DEFAULT NULL,
       archived INTEGER DEFAULT 0,
       archived_at TEXT DEFAULT NULL,
       responsible_sector TEXT DEFAULT '',
@@ -457,6 +536,7 @@ function db() {
     normalizeLegacyStatusValuesPdo($db);
     ensureVmTablePdo($db);
     ensureDatabaseTablePdo($db);
+    ensureUsersTablePdo($db);
     migrateLegacyVmLinksPdo($db);
     $count = (int)$db->query("SELECT COUNT(*) FROM systems")->fetchColumn();
     if ($count === 0) {
@@ -470,3 +550,4 @@ function db() {
 
   throw new RuntimeException('SQLite indisponivel neste PHP. Habilite sqlite3 ou pdo_sqlite no php.ini.');
 }
+
