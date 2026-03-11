@@ -191,7 +191,10 @@ function applyAuthState(){
     topAction.classList.toggle('hidden', !canEditNow);
   }
   if (changePasswordBtn) changePasswordBtn.disabled = !authenticated;
-  if (exportBtn) exportBtn.disabled = !authenticated;
+  if (exportBtn) {
+    exportBtn.disabled = !authenticated;
+    exportBtn.classList.toggle('hidden', !canEditNow);
+  }
   if (backupBtn) {
     backupBtn.disabled = !adminNow;
     backupBtn.classList.toggle('hidden', !adminNow);
@@ -1960,6 +1963,7 @@ function renderCurrent(){
 }
 
 function openFormById(id){
+  if (!ensureCanEdit('Apenas perfis Editor e Administrador podem abrir o modal de edicao.')) return;
   const item = App.items.find((x)=>Number(x.id)===Number(id));
   if (item) openForm(item);
 }
