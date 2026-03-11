@@ -54,7 +54,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
 </header>
 <main>
   <div id="toolbar" class="toolbar">
-    <input id="q" class="search" type="text" placeholder="&#128269; Buscar por nome, tecnologia..." oninput="renderCurrent()">
+    <input id="q" class="search" type="text" placeholder="&#128269; Buscar por nome, linguagem..." oninput="renderCurrent()">
     <select id="cat" onchange="renderCurrent()"></select>
     <select id="groupf" onchange="renderCurrent()"></select>
     <select id="st" onchange="renderCurrent()"></select>
@@ -97,7 +97,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         <div class="list-section-title">2. Informações Técnicas</div>
         <div class="table-wrap">
           <table class="list-main-table list-compact-table">
-            <thead><tr><th>Nome</th><th>Sistema</th><th>Versão</th><th>Categoria</th><th>Grupo</th><th>Criticidade</th><th>Tecnologias</th></tr></thead>
+            <thead><tr><th>Nome</th><th>Sistema</th><th>Versão</th><th>Categoria</th><th>Grupo</th><th>Criticidade</th><th>Linguagem</th></tr></thead>
             <tbody id="list-main-body"></tbody>
           </table>
         </div>
@@ -344,7 +344,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         <div class="field"><label>&nbsp;</label></div>
         <div class="field"><label>&nbsp;</label></div>
       </div>
-      <div class="field"><label>Tecnologias (virgula)</label><input id="ftech" placeholder="PHP, JavaScript, SQLite"></div>
+      <div class="field"><label>Linguagem (virgula)</label><input id="ftech" placeholder="PHP, JavaScript, Python"></div>
       <div class="field"><label>Observacoes</label><textarea id="fnotes"></textarea></div>
       <div class="form-actions">
         <button class="btn" onclick="closeModal('mform')">Cancelar</button>
@@ -431,5 +431,3 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
 <script src="assets/app.js"></script>
 </body>
 </html>
-
-

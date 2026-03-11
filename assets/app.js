@@ -1309,7 +1309,7 @@ function renderSystemsCards(list){
       .sort((a,b)=>String(a.db_name || '').localeCompare(String(b.db_name || '')));
     const techMarkup = (i.tech || []).length
       ? (i.tech || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')
-      : '<span class="system-info-empty">Sem tecnologias cadastradas.</span>';
+      : '<span class="system-info-empty">Sem linguagens cadastradas.</span>';
 
     const dbMarkup = dbs.map((d) => {
       return `

@@ -75,11 +75,22 @@ class login_attempts {
   +TEXT attempted_at
 }
 
-virtual_machines "1" <-- "0..*" systems : vm_id (producao)
-virtual_machines "1" <-- "0..*" systems : vm_homolog_id (homologacao)
-virtual_machines "1" <-- "0..*" systems : vm_dev_id (desenvolvimento)
+virtual_machines "1" <-- "0..*" systems : vm_id (producao) [DEL SET NULL | UPD CASCADE]
+virtual_machines "1" <-- "0..*" systems : vm_homolog_id (homologacao) [DEL SET NULL | UPD CASCADE]
+virtual_machines "1" <-- "0..*" systems : vm_dev_id (desenvolvimento) [DEL SET NULL | UPD CASCADE]
 
-systems "1" <-- "0..*" system_databases : system_id
-virtual_machines "1" <-- "0..*" system_databases : vm_id
-virtual_machines "1" <-- "0..*" system_databases : vm_homolog_id
+systems "1" <-- "0..*" system_databases : system_id [DEL CASCADE | UPD CASCADE]
+virtual_machines "1" <-- "0..*" system_databases : vm_id [DEL SET NULL | UPD CASCADE]
+virtual_machines "1" <-- "0..*" system_databases : vm_homolog_id [DEL SET NULL | UPD CASCADE]
 ```
+
+## Relacoes FK (fisicas)
+
+| Tabela filha | Coluna FK | Referencia | ON DELETE | ON UPDATE |
+|---|---|---|---|---|
+| `systems` | `vm_id` | `virtual_machines(id)` | `SET NULL` | `CASCADE` |
+| `systems` | `vm_homolog_id` | `virtual_machines(id)` | `SET NULL` | `CASCADE` |
+| `systems` | `vm_dev_id` | `virtual_machines(id)` | `SET NULL` | `CASCADE` |
+| `system_databases` | `system_id` | `systems(id)` | `CASCADE` | `CASCADE` |
+| `system_databases` | `vm_id` | `virtual_machines(id)` | `SET NULL` | `CASCADE` |
+| `system_databases` | `vm_homolog_id` | `virtual_machines(id)` | `SET NULL` | `CASCADE` |
