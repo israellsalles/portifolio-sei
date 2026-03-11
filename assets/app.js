@@ -1455,13 +1455,13 @@ function renderDatabases(){
   table?.classList.toggle('readonly', !editable);
   const list = [...App.databases].sort((a,b)=>String(a.db_name || '').localeCompare(String(b.db_name || '')));
   if (!list.length) {
-    $('db-body').innerHTML = '<tr><td colspan="11" style="color:var(--muted)">Nenhuma base de dados cadastrada.</td></tr>';
+    $('db-body').innerHTML = '<tr><td colspan="10" style="color:var(--muted)">Nenhuma base de dados cadastrada.</td></tr>';
     $('db-cards').innerHTML = '<div class="db-mobile-card"><div class="db-mobile-value" style="color:var(--muted)">Nenhuma base de dados cadastrada.</div></div>';
     return;
   }
 
   $('db-body').innerHTML = list.map((d) => `
-    <tr>
+    <tr${editable ? ` onclick="openDbFormById(${d.id})"` : ''}>
       <td>${esc(d.system_name || '-')}</td>
       <td>${esc(d.db_name || '-')}</td>
       <td>${esc(d.db_user || '-')}</td>
@@ -1472,7 +1472,6 @@ function renderDatabases(){
       <td>${esc(dbInstanceIp(d, true))}</td>
       <td>${esc(dbInstanceName(d, true))}</td>
       <td>${esc(d.notes || '-')}</td>
-      <td>${editable ? `<div class="actions"><button class="act" onclick="openDbFormById(${d.id})">&#9998;</button><button class="act del" onclick="deleteDb(${d.id})">&#128465;</button></div>` : '-'}</td>
     </tr>
   `).join('');
 
@@ -1497,7 +1496,6 @@ function renderDatabases(){
       </div>
       ${editable ? `<div class="db-mobile-actions">
         <button class="act" onclick="openDbFormById(${d.id})">&#9998;</button>
-        <button class="act del" onclick="deleteDb(${d.id})">&#128465;</button>
       </div>` : ''}
     </div>
   `).join('');
@@ -1775,10 +1773,10 @@ function renderMachines(){
         const metricClass = type === 'SGBD' ? 'vm-db-col' : 'vm-rel-col';
         const metricValue = type === 'SGBD' ? dbs.length : relationCount;
         const diagBtn = vmSupportsDiagnostics(vm)
-          ? `<button class="act diag" onclick="openVmDiagnosticPageById(${vm.id})" title="Diagnostico JSON (${esc(vmDiagnosticTechs(vm).join('/') || 'VM')})">&#128202;</button>`
+          ? `<button class="act diag" onclick="event.stopPropagation();openVmDiagnosticPageById(${vm.id})" title="Diagnostico JSON (${esc(vmDiagnosticTechs(vm).join('/') || 'VM')})">&#128202;</button>`
           : '';
         return `
-          <tr>
+          <tr${editable ? ` onclick="openVmFormById(${vm.id})"` : ''}>
             <td class="vm-name-col">${esc(vm.name)}</td>
             <td class="vm-ip-col">${esc(vm.ip || '-')}</td>
             <td>${esc(vmCategoryLabel(vm))}</td>
@@ -1790,7 +1788,7 @@ function renderMachines(){
             <td class="vm-lang-col">${languageTags.length ? `<div class="vm-tech-tags">${languageTags.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : '-'}</td>
             <td class="vm-tech-col">${techTags.length ? `<div class="vm-tech-tags">${techTags.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : '-'}</td>
             <td class="${metricClass}">${metricValue}</td>
-            <td class="vm-actions-col">${editable ? `<div class="actions">${diagBtn}<button class="act" onclick="openVmFormById(${vm.id})">&#9998;</button><button class="act del" onclick="archiveVm(${vm.id})">&#128230;</button></div>` : (diagBtn ? `<div class="actions">${diagBtn}</div>` : '-')}</td>
+            <td class="vm-actions-col">${diagBtn ? `<div class="actions">${diagBtn}</div>` : '-'}</td>
           </tr>
         `;
       }).join('');
@@ -1827,10 +1825,7 @@ function renderMachines(){
               <div class="vm-mobile-stat"><div class="vm-mobile-stat-label">Bases</div><div class="vm-mobile-stat-value">${dbs.length}</div></div>
               <div class="vm-mobile-stat"><div class="vm-mobile-stat-label">Total</div><div class="vm-mobile-stat-value">${use.total}</div></div>
             </div>
-            ${(editable || diagBtn) ? `<div class="vm-mobile-actions">
-              ${diagBtn}
-              ${editable ? `<button class="act" onclick="openVmFormById(${vm.id})">&#9998;</button><button class="act del" onclick="archiveVm(${vm.id})">&#128230;</button>` : ''}
-            </div>` : ''}
+            ${diagBtn ? `<div class="vm-mobile-actions">${diagBtn}</div>` : ''}
           </div>
         `;
       }).join('');
@@ -1840,7 +1835,7 @@ function renderMachines(){
         <div class="vm-type-title">${esc(type)}</div>
         <div class="table-wrap vm-desktop-table">
             <table class="vm-compact-table">
-              <thead><tr><th class="vm-name-col">Nome da Maquina</th><th class="vm-ip-col">IP</th><th>Categoria</th><th>Tipo</th><th>Acesso</th><th>Administracao</th><th class="vm-os-col">Sistema Operacional</th><th class="vm-res-col">Recursos (vCPU | RAM | Disco)</th><th class="vm-lang-col">Linguagem</th><th class="vm-tech-col">Tecnologias</th><th class="${type === 'SGBD' ? 'vm-db-col' : 'vm-rel-col'}">${type === 'SGBD' ? 'Bases de Dados' : esc(relationHeader)}</th><th class="vm-actions-col">${editable ? 'Acoes' : 'Diagnostico'}</th></tr></thead>
+              <thead><tr><th class="vm-name-col">Nome da Maquina</th><th class="vm-ip-col">IP</th><th>Categoria</th><th>Tipo</th><th>Acesso</th><th>Administracao</th><th class="vm-os-col">Sistema Operacional</th><th class="vm-res-col">Recursos (vCPU | RAM | Disco)</th><th class="vm-lang-col">Linguagem</th><th class="vm-tech-col">Tecnologias</th><th class="${type === 'SGBD' ? 'vm-db-col' : 'vm-rel-col'}">${type === 'SGBD' ? 'Bases de Dados' : esc(relationHeader)}</th><th class="vm-actions-col">Diagnostico</th></tr></thead>
               <tbody>${rows}</tbody>
             </table>
           </div>
@@ -2156,7 +2151,9 @@ function openDbFormById(id){
 
 function openDbForm(item=null){
   if (!ensureCanEdit()) return;
+  const isEdit = Boolean(item?.id);
   $('dbtitle').textContent = item ? 'Editar Base de Dados' : 'Nova Base de Dados';
+  $('bdelete-db')?.classList.toggle('hidden', !isEdit);
   $('fdbid').value = item?.id || '';
   $('fdbname').value = item?.db_name || '';
   $('fdbuser').value = item?.db_user || '';
@@ -2178,6 +2175,12 @@ function openDbForm(item=null){
   );
   syncDbHomologIp();
   $('mdb').classList.remove('hidden');
+}
+
+function deleteCurrentDb(){
+  const id = Number($('fdbid')?.value || 0);
+  if (!id) return;
+  deleteDb(id);
 }
 
 async function saveDb(){
@@ -2233,6 +2236,7 @@ async function deleteDb(id){
     const r = await api('db-delete', {id});
     if(!r.ok) throw new Error(r.error || 'Erro ao excluir base');
     App.databases = App.databases.filter((x)=>Number(x.id)!==Number(id));
+    closeModal('mdb');
     renderCurrent();
     toast('Base excluida');
   }catch(e){ toast('Erro ao excluir base: ' + (e.message || '?'), true); }
@@ -2246,7 +2250,9 @@ function openVmFormById(id){
 
 function openVmForm(vm=null){
   if (!ensureCanEdit()) return;
+  const isEdit = Boolean(vm?.id);
   $('vmtitle').textContent = vm ? 'Editar Maquina' : 'Nova Maquina';
+  $('barchive-vm')?.classList.toggle('hidden', !isEdit);
   $('fvmid').value = vm?.id || '';
   $('fvmname').value = vm?.name || '';
   $('fvmip').value = vm?.ip || '';
@@ -2262,6 +2268,12 @@ function openVmForm(vm=null){
   $('fvmtech').value = vmTechList(vm).join(', ');
   $('fvminstances').value = vmInstancesText(vm);
   $('mvm').classList.remove('hidden');
+}
+
+function archiveCurrentVm(){
+  const id = Number($('fvmid')?.value || 0);
+  if (!id) return;
+  archiveVm(id);
 }
 
 async function saveVm(){
@@ -2334,6 +2346,7 @@ async function archiveVm(id){
     const r = await api('vm-archive', {id});
     if(!r.ok) throw new Error(r.error || 'Erro ao arquivar maquina');
     await refreshAll();
+    closeModal('mvm');
     toast('Maquina arquivada');
   } catch (e) {
     toast('Erro ao arquivar maquina: ' + (e.message || '?'), true);

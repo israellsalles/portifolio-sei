@@ -114,8 +114,6 @@ header{
   padding:7px 11px;
   font-size:13px
 }
-.bases-table.readonly th:last-child,
-.bases-table.readonly td:last-child,
 .archived-systems-table.readonly th:last-child,
 .archived-systems-table.readonly td:last-child,
 .archived-vms-table.readonly th:last-child,
@@ -1299,6 +1297,12 @@ tbody tr:hover td{background:#101d34}
 #mform #barchive-system{
   margin-left:auto
 }
+#mvm #barchive-vm{
+  margin-left:auto
+}
+#mdb #bdelete-db{
+  margin-left:auto
+}
 .btn{
   border:1px solid var(--line);
   background:var(--surface2);
@@ -2301,11 +2305,6 @@ tbody tr:hover td{background:#eef4ff}
   width:18%;
   white-space:nowrap;
   overflow-wrap:normal
-}
-#view-bases .bases-table th:nth-child(11),
-#view-bases .bases-table td:nth-child(11){
-  width:98px;
-  min-width:98px
 }
 #view-arquivados .archived-systems-table{
   min-width:820px

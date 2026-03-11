@@ -177,7 +177,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
       </div>
       <div class="table-wrap">
         <table class="bases-table compact-table">
-          <thead><tr><th>Sistema</th><th>Base de Dados</th><th>Usuario do Banco</th><th>Maquina</th><th>IP da Instancia</th><th>Instancia SGBD</th><th>VM Homologacao</th><th>IP da Instancia Homologacao</th><th>Instancia SGBD Homologacao</th><th>Observacoes</th><th style="width:98px">Acoes</th></tr></thead>
+          <thead><tr><th>Sistema</th><th>Base de Dados</th><th>Usuario do Banco</th><th>Maquina</th><th>IP da Instancia</th><th>Instancia SGBD</th><th>VM Homologacao</th><th>IP da Instancia Homologacao</th><th>Instancia SGBD Homologacao</th><th>Observacoes</th></tr></thead>
           <tbody id="db-body"></tbody>
         </table>
       </div>
@@ -392,6 +392,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
       <div class="form-actions">
         <button class="btn" onclick="closeModal('mvm')">Cancelar</button>
         <button class="btn btn-save" onclick="saveVm()">Salvar Maquina</button>
+        <button id="barchive-vm" class="btn btn-danger hidden" type="button" onclick="archiveCurrentVm()">Arquivar</button>
       </div>
     </div>
   </div>
@@ -418,6 +419,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
       <div class="form-actions">
         <button class="btn" onclick="closeModal('mdb')">Cancelar</button>
         <button class="btn btn-save" onclick="saveDb()">Salvar Base</button>
+        <button id="bdelete-db" class="btn btn-danger hidden" type="button" onclick="deleteCurrentDb()">Excluir</button>
       </div>
     </div>
   </div>
