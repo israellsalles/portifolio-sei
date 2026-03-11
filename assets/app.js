@@ -18,11 +18,28 @@ const roleRank = (role) => {
 };
 const canEdit = () => roleRank(App.auth?.user?.role) >= roleRank('edicao');
 const isAdmin = () => roleRank(App.auth?.user?.role) >= roleRank('admin');
+const safeHrefFromUrl = (rawUrl) => {
+  const raw = String(rawUrl ?? '').trim();
+  if (!raw) return '';
+  const hasScheme = /^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(raw);
+  const candidate = hasScheme ? raw : `https://${raw}`;
+  try {
+    const parsed = new URL(candidate);
+    const protocol = String(parsed.protocol || '').toLowerCase();
+    if (!['http:', 'https:'].includes(protocol)) return '';
+    if (!String(parsed.hostname || '').trim()) return '';
+    return parsed.href;
+  } catch {
+    return '';
+  }
+};
 const linkHtml = (url) => {
   const v = String(url ?? '').trim();
   if (!v) return '-';
+  const href = safeHrefFromUrl(v);
   const safe = esc(v);
-  return `<a href="${safe}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">${safe}</a>`;
+  if (!href) return safe;
+  return `<a href="${esc(href)}" target="_blank" rel="noreferrer" onclick="event.stopPropagation()">${safe}</a>`;
 };
 const parseUrlList = (raw) => {
   const values = Array.isArray(raw)
@@ -314,20 +331,6 @@ function openBackupModal(){
     return;
   }
   $('mbackup')?.classList.remove('hidden');
-}
-
-async function exportCsv(scope){
-  try {
-    const result = await api(`export-csv&scope=${encodeURIComponent(scope)}`);
-    if (!result.ok) throw new Error(result.error || 'Falha ao exportar CSV');
-    const filename = String(result.data?.filename || `export_${scope}.csv`);
-    const content = String(result.data?.content || '');
-    const mime = String(result.data?.mime || 'text/csv;charset=utf-8');
-    downloadTextFile(filename, content, mime);
-    toast('CSV exportado com sucesso.');
-  } catch (error) {
-    toast('Erro ao exportar CSV: ' + (error.message || '?'), true);
-  }
 }
 
 async function exportBackup(){
@@ -2441,9 +2444,6 @@ $('pwd-save')?.addEventListener('click', () => changePassword());
 $('btn-export')?.addEventListener('click', () => openBackupModal());
 $('btn-backup')?.addEventListener('click', () => triggerBackupImport());
 $('backup-file')?.addEventListener('change', (ev) => onBackupFileChange(ev));
-$('backup-export-systems')?.addEventListener('click', () => exportCsv('systems'));
-$('backup-export-vms')?.addEventListener('click', () => exportCsv('vms'));
-$('backup-export-dbs')?.addEventListener('click', () => exportCsv('databases'));
 $('backup-export-json')?.addEventListener('click', () => exportBackup());
 $('backup-import-btn')?.addEventListener('click', () => triggerBackupImport());
 

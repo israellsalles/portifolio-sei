@@ -1229,6 +1229,24 @@ tbody tr:hover td{background:#101d34}
 .backup-actions{
   flex-wrap:wrap
 }
+#mbackup .form{
+  gap:14px
+}
+#mbackup .modal-head{
+  margin-bottom:14px
+}
+#mbackup .field label{
+  margin-bottom:8px;
+  font-size:13px
+}
+#mbackup .backup-actions{
+  gap:12px
+}
+#mbackup .backup-actions .btn{
+  min-height:46px;
+  padding:0 16px;
+  font-size:15px
+}
 .modal-head{
   display:flex;
   justify-content:space-between;
@@ -1625,6 +1643,12 @@ tbody tr:hover td{background:#101d34}
   .auth-box{margin-left:auto}
   .btn-header{padding:7px 9px}
   .btn-primary{margin-left:auto}
+  #mbackup .backup-actions{
+    flex-direction:column
+  }
+  #mbackup .backup-actions .btn{
+    width:100%
+  }
 }
 @media(max-width:760px){
   main{padding:12px}

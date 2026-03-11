@@ -1065,20 +1065,23 @@ function backupDiagnosticsFromVmRows(array $rows): array {
 
 function restoreBackupDiagnostics(array $files): void {
   if (!$files) { return; }
-  $root = vmDiagnosticProjectRoot();
+  $baseDir = vmDiagnosticDir();
+  if (!is_dir($baseDir) && !@mkdir($baseDir, 0775, true) && !is_dir($baseDir)) { return; }
+  $baseReal = realpath($baseDir);
+  if ($baseReal === false) { return; }
+
   foreach ($files as $item) {
     if (!is_array($item)) { continue; }
     $ref = trim((string)($item['reference'] ?? ''));
     $contentBase64 = trim((string)($item['content_base64'] ?? ''));
     if ($ref === '' || $contentBase64 === '') { continue; }
-    if (!str_starts_with(str_replace('\\', '/', $ref), 'data/vm_diagnostics/')) { continue; }
+    $normalizedRef = str_replace('\\', '/', $ref);
+    if (!preg_match('#^data/vm_diagnostics/([A-Za-z0-9._-]+\.json)$#i', $normalizedRef, $match)) { continue; }
+    $filename = trim((string)($match[1] ?? ''));
+    if ($filename === '' || $filename === '.' || $filename === '..') { continue; }
     $decoded = base64_decode($contentBase64, true);
     if ($decoded === false) { continue; }
-    $relative = str_replace(['\\', '/'], DIRECTORY_SEPARATOR, $ref);
-    $fullPath = $root . DIRECTORY_SEPARATOR . ltrim($relative, DIRECTORY_SEPARATOR);
-    $dir = dirname($fullPath);
-    if (!is_dir($dir)) { @mkdir($dir, 0775, true); }
-    if (!is_dir($dir)) { continue; }
+    $fullPath = $baseReal . DIRECTORY_SEPARATOR . $filename;
     @file_put_contents($fullPath, $decoded);
   }
 }
@@ -2436,7 +2439,11 @@ function handleApiRequest(): void {
 
     echo json_encode(['ok'=>false,'error'=>'Unknown action']);
   } catch (Throwable $e) {
-    echo json_encode(['ok'=>false,'error'=>$e->getMessage()], JSON_UNESCAPED_UNICODE);
+    $status = http_response_code();
+    if (!is_int($status) || $status < 400) {
+      http_response_code(500);
+    }
+    error_log('[SEI API] ' . $e->getMessage());
+    echo json_encode(['ok'=>false,'error'=>'Erro interno no servidor.'], JSON_UNESCAPED_UNICODE);
   }
 }
-

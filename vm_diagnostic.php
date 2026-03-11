@@ -5,12 +5,17 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
   session_start([
     'cookie_httponly' => true,
     'cookie_samesite' => 'Lax',
+    'cookie_secure'   => !empty($_SERVER['HTTPS']),
   ]);
 }
 if (!is_array($_SESSION['auth_user'] ?? null)) {
   header('Location: index.php');
   exit;
 }
+if (empty($_SESSION['csrf_token'])) {
+  $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+$csrfToken = (string)($_SESSION['csrf_token'] ?? '');
 $vmId = (int)($_GET['id'] ?? 0);
 ?>
 <!DOCTYPE html>
@@ -18,6 +23,7 @@ $vmId = (int)($_GET['id'] ?? 0);
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="csrf-token" content="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
 <title>Diagnostico da VM</title>
 <style>
   :root{
@@ -743,7 +749,11 @@ function renderRPayload(payload){
 }
 
 async function apiCall(action, body=null){
-  const options = { headers: { 'Content-Type': 'application/json' } };
+  const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+  const csrfToken = csrfMeta ? String(csrfMeta.getAttribute('content') || '') : '';
+  const headers = { 'Content-Type': 'application/json' };
+  if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
+  const options = { headers };
   if (body !== null) {
     options.method = 'POST';
     options.body = JSON.stringify(body);

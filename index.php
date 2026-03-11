@@ -275,12 +275,6 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
   <div class="modal" onclick="event.stopPropagation()">
     <div class="modal-head"><div class="modal-title">Exportação e Backup</div><button class="close" onclick="closeModal('mbackup')">&#10005;</button></div>
     <div class="form">
-      <div class="field"><label>Exportacao CSV</label></div>
-      <div class="form-actions backup-actions">
-        <button id="backup-export-systems" class="btn" type="button">CSV Sistemas</button>
-        <button id="backup-export-vms" class="btn" type="button">CSV VMs</button>
-        <button id="backup-export-dbs" class="btn" type="button">CSV Bases</button>
-      </div>
       <div class="field"><label>Backup completo</label></div>
       <div class="form-actions backup-actions">
         <button id="backup-export-json" class="btn btn-save" type="button">Exportar Backup JSON</button>
