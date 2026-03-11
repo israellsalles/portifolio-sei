@@ -22,7 +22,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
 <title>SEI Portifólio</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/style.css?v=<?= filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'style.css') ?>">
 </head>
 <body>
 <header>
@@ -428,6 +428,6 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
     </div>
   </div>
 </div>
-<script src="assets/app.js"></script>
+<script src="assets/app.js?v=<?= filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'app.js') ?>"></script>
 </body>
 </html>
