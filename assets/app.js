@@ -97,7 +97,9 @@ function toast(msg, err=false){
 }
 
 async function api(action, body=null){
-  const opt = { headers:{'Content-Type':'application/json'} };
+  const csrfMeta = document.querySelector('meta[name="csrf-token"]');
+  const csrfToken = csrfMeta ? csrfMeta.getAttribute('content') : '';
+  const opt = { headers:{'Content-Type':'application/json', 'X-CSRF-Token': csrfToken} };
   if (body !== null){
     opt.method='POST';
     opt.body=JSON.stringify(body);

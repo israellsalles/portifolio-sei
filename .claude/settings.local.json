@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(php -l index.php)",
+      "Bash(php -l app/bootstrap.php)",
+      "Bash(php -l app/api.php)",
+      "Bash(php -l app/constants.php)",
+      "Bash(php -r \":*)"
+    ]
+  }
+}

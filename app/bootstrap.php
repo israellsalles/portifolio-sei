@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'constants.php';
+
 $projectRoot = __DIR__ . DIRECTORY_SEPARATOR . '..';
 $legacyDb = $projectRoot . DIRECTORY_SEPARATOR . 'sysportfolio.db';
 $dir = $projectRoot . DIRECTORY_SEPARATOR . 'data';
@@ -293,6 +295,345 @@ function ensureDatabaseTablePdo(PDO $db): void {
   $db->exec("CREATE INDEX IF NOT EXISTS idx_system_databases_vm_homolog_id ON system_databases(vm_homolog_id)");
 }
 
+function expectedSystemsForeignKeys(): array {
+  return [
+    'vm_id' => [
+      'table' => 'virtual_machines',
+      'to' => 'id',
+      'on_update' => 'CASCADE',
+      'on_delete' => 'SET NULL',
+    ],
+    'vm_homolog_id' => [
+      'table' => 'virtual_machines',
+      'to' => 'id',
+      'on_update' => 'CASCADE',
+      'on_delete' => 'SET NULL',
+    ],
+    'vm_dev_id' => [
+      'table' => 'virtual_machines',
+      'to' => 'id',
+      'on_update' => 'CASCADE',
+      'on_delete' => 'SET NULL',
+    ],
+  ];
+}
+
+function expectedSystemDatabasesForeignKeys(): array {
+  return [
+    'system_id' => [
+      'table' => 'systems',
+      'to' => 'id',
+      'on_update' => 'CASCADE',
+      'on_delete' => 'CASCADE',
+    ],
+    'vm_id' => [
+      'table' => 'virtual_machines',
+      'to' => 'id',
+      'on_update' => 'CASCADE',
+      'on_delete' => 'SET NULL',
+    ],
+    'vm_homolog_id' => [
+      'table' => 'virtual_machines',
+      'to' => 'id',
+      'on_update' => 'CASCADE',
+      'on_delete' => 'SET NULL',
+    ],
+  ];
+}
+
+function hasExpectedForeignKeys(array $actual, array $expected): bool {
+  foreach ($expected as $from => $spec) {
+    if (!isset($actual[$from])) { return false; }
+    $row = $actual[$from];
+    if (($row['table'] ?? '') !== strtolower((string)$spec['table'])) { return false; }
+    if (($row['to'] ?? '') !== strtolower((string)$spec['to'])) { return false; }
+    if (strtoupper((string)($row['on_update'] ?? '')) !== strtoupper((string)$spec['on_update'])) { return false; }
+    if (strtoupper((string)($row['on_delete'] ?? '')) !== strtoupper((string)$spec['on_delete'])) { return false; }
+  }
+  return true;
+}
+
+function systemsForeignKeyMapSqlite3(SQLite3 $db): array {
+  $map = [];
+  $res = $db->query('PRAGMA foreign_key_list(systems)');
+  while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
+    $from = strtolower(trim((string)($row['from'] ?? '')));
+    if ($from === '') { continue; }
+    $map[$from] = [
+      'table' => strtolower(trim((string)($row['table'] ?? ''))),
+      'to' => strtolower(trim((string)($row['to'] ?? ''))),
+      'on_update' => strtoupper(trim((string)($row['on_update'] ?? ''))),
+      'on_delete' => strtoupper(trim((string)($row['on_delete'] ?? ''))),
+    ];
+  }
+  return $map;
+}
+
+function systemDatabasesForeignKeyMapSqlite3(SQLite3 $db): array {
+  $map = [];
+  $res = $db->query('PRAGMA foreign_key_list(system_databases)');
+  while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
+    $from = strtolower(trim((string)($row['from'] ?? '')));
+    if ($from === '') { continue; }
+    $map[$from] = [
+      'table' => strtolower(trim((string)($row['table'] ?? ''))),
+      'to' => strtolower(trim((string)($row['to'] ?? ''))),
+      'on_update' => strtoupper(trim((string)($row['on_update'] ?? ''))),
+      'on_delete' => strtoupper(trim((string)($row['on_delete'] ?? ''))),
+    ];
+  }
+  return $map;
+}
+
+function systemsForeignKeyMapPdo(PDO $db): array {
+  $map = [];
+  $rows = $db->query('PRAGMA foreign_key_list(systems)')->fetchAll(PDO::FETCH_ASSOC);
+  foreach ($rows as $row) {
+    $from = strtolower(trim((string)($row['from'] ?? '')));
+    if ($from === '') { continue; }
+    $map[$from] = [
+      'table' => strtolower(trim((string)($row['table'] ?? ''))),
+      'to' => strtolower(trim((string)($row['to'] ?? ''))),
+      'on_update' => strtoupper(trim((string)($row['on_update'] ?? ''))),
+      'on_delete' => strtoupper(trim((string)($row['on_delete'] ?? ''))),
+    ];
+  }
+  return $map;
+}
+
+function systemDatabasesForeignKeyMapPdo(PDO $db): array {
+  $map = [];
+  $rows = $db->query('PRAGMA foreign_key_list(system_databases)')->fetchAll(PDO::FETCH_ASSOC);
+  foreach ($rows as $row) {
+    $from = strtolower(trim((string)($row['from'] ?? '')));
+    if ($from === '') { continue; }
+    $map[$from] = [
+      'table' => strtolower(trim((string)($row['table'] ?? ''))),
+      'to' => strtolower(trim((string)($row['to'] ?? ''))),
+      'on_update' => strtoupper(trim((string)($row['on_update'] ?? ''))),
+      'on_delete' => strtoupper(trim((string)($row['on_delete'] ?? ''))),
+    ];
+  }
+  return $map;
+}
+
+function systemsColumnsForRelationalMigration(): array {
+  return [
+    'id','name','system_name','system_group','ip','ip_homolog','vm','url_homolog','vm_homolog',
+    'vm_id','vm_homolog_id','vm_dev_id','archived','archived_at',
+    'responsible_sector','responsible_coordinator','extension_number','email','support','support_contact',
+    'analytics','ssl','waf','bundle','directory','size','repository',
+    'category','status','tech','url','description','owner','criticality','version','notes',
+    'created_at','updated_at',
+  ];
+}
+
+function systemDatabasesColumnsForRelationalMigration(): array {
+  return [
+    'id','system_id','vm_id','vm_homolog_id','db_name','db_user','db_engine',
+    'db_engine_version','db_engine_version_homolog',
+    'db_instance_name','db_instance_ip','db_instance_homolog_name','db_instance_homolog_ip',
+    'notes','archived','archived_at','created_at','updated_at',
+  ];
+}
+
+function createSystemsTableWithForeignKeysSql(): string {
+  return "CREATE TABLE systems (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    system_name TEXT DEFAULT '',
+    system_group TEXT DEFAULT '',
+    ip TEXT DEFAULT '',
+    ip_homolog TEXT DEFAULT '',
+    vm TEXT DEFAULT '',
+    url_homolog TEXT DEFAULT '',
+    vm_homolog TEXT DEFAULT '',
+    vm_id INTEGER DEFAULT NULL,
+    vm_homolog_id INTEGER DEFAULT NULL,
+    vm_dev_id INTEGER DEFAULT NULL,
+    archived INTEGER DEFAULT 0,
+    archived_at TEXT DEFAULT NULL,
+    responsible_sector TEXT DEFAULT '',
+    responsible_coordinator TEXT DEFAULT '',
+    extension_number TEXT DEFAULT '',
+    email TEXT DEFAULT '',
+    support TEXT DEFAULT '',
+    support_contact TEXT DEFAULT '',
+    analytics TEXT DEFAULT '',
+    ssl TEXT DEFAULT '',
+    waf TEXT DEFAULT '',
+    bundle TEXT DEFAULT '',
+    directory TEXT DEFAULT '',
+    size TEXT DEFAULT '',
+    repository TEXT DEFAULT '',
+    category TEXT DEFAULT 'Outro',
+    status TEXT DEFAULT 'Ativo',
+    tech TEXT DEFAULT '',
+    url TEXT DEFAULT '',
+    description TEXT DEFAULT '',
+    owner TEXT DEFAULT '',
+    criticality TEXT DEFAULT 'Media',
+    version TEXT DEFAULT '',
+    notes TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now','localtime')),
+    updated_at TEXT DEFAULT (datetime('now','localtime')),
+    FOREIGN KEY(vm_id) REFERENCES virtual_machines(id) ON UPDATE CASCADE ON DELETE SET NULL,
+    FOREIGN KEY(vm_homolog_id) REFERENCES virtual_machines(id) ON UPDATE CASCADE ON DELETE SET NULL,
+    FOREIGN KEY(vm_dev_id) REFERENCES virtual_machines(id) ON UPDATE CASCADE ON DELETE SET NULL
+  )";
+}
+
+function createSystemDatabasesTableWithForeignKeysSql(): string {
+  return "CREATE TABLE system_databases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    system_id INTEGER NOT NULL,
+    vm_id INTEGER DEFAULT NULL,
+    vm_homolog_id INTEGER DEFAULT NULL,
+    db_name TEXT NOT NULL,
+    db_user TEXT DEFAULT '',
+    db_engine TEXT NOT NULL,
+    db_engine_version TEXT DEFAULT '',
+    db_engine_version_homolog TEXT DEFAULT '',
+    db_instance_name TEXT DEFAULT '',
+    db_instance_ip TEXT DEFAULT '',
+    db_instance_homolog_name TEXT DEFAULT '',
+    db_instance_homolog_ip TEXT DEFAULT '',
+    notes TEXT DEFAULT '',
+    archived INTEGER DEFAULT 0,
+    archived_at TEXT DEFAULT NULL,
+    created_at TEXT DEFAULT (datetime('now','localtime')),
+    updated_at TEXT DEFAULT (datetime('now','localtime')),
+    FOREIGN KEY(system_id) REFERENCES systems(id) ON UPDATE CASCADE ON DELETE CASCADE,
+    FOREIGN KEY(vm_id) REFERENCES virtual_machines(id) ON UPDATE CASCADE ON DELETE SET NULL,
+    FOREIGN KEY(vm_homolog_id) REFERENCES virtual_machines(id) ON UPDATE CASCADE ON DELETE SET NULL
+  )";
+}
+
+function normalizeRelationalDataSqlite3(SQLite3 $db): void {
+  $db->exec("UPDATE systems SET vm_id=NULL WHERE vm_id IS NOT NULL AND (vm_id <= 0 OR vm_id NOT IN (SELECT id FROM virtual_machines))");
+  $db->exec("UPDATE systems SET vm_homolog_id=NULL WHERE vm_homolog_id IS NOT NULL AND (vm_homolog_id <= 0 OR vm_homolog_id NOT IN (SELECT id FROM virtual_machines))");
+  $db->exec("UPDATE systems SET vm_dev_id=NULL WHERE vm_dev_id IS NOT NULL AND (vm_dev_id <= 0 OR vm_dev_id NOT IN (SELECT id FROM virtual_machines))");
+  $db->exec("UPDATE system_databases SET vm_id=NULL WHERE vm_id IS NOT NULL AND (vm_id <= 0 OR vm_id NOT IN (SELECT id FROM virtual_machines))");
+  $db->exec("UPDATE system_databases SET vm_homolog_id=NULL WHERE vm_homolog_id IS NOT NULL AND (vm_homolog_id <= 0 OR vm_homolog_id NOT IN (SELECT id FROM virtual_machines))");
+  $db->exec("DELETE FROM system_databases WHERE system_id IS NULL OR system_id NOT IN (SELECT id FROM systems)");
+}
+
+function normalizeRelationalDataPdo(PDO $db): void {
+  $db->exec("UPDATE systems SET vm_id=NULL WHERE vm_id IS NOT NULL AND (vm_id <= 0 OR vm_id NOT IN (SELECT id FROM virtual_machines))");
+  $db->exec("UPDATE systems SET vm_homolog_id=NULL WHERE vm_homolog_id IS NOT NULL AND (vm_homolog_id <= 0 OR vm_homolog_id NOT IN (SELECT id FROM virtual_machines))");
+  $db->exec("UPDATE systems SET vm_dev_id=NULL WHERE vm_dev_id IS NOT NULL AND (vm_dev_id <= 0 OR vm_dev_id NOT IN (SELECT id FROM virtual_machines))");
+  $db->exec("UPDATE system_databases SET vm_id=NULL WHERE vm_id IS NOT NULL AND (vm_id <= 0 OR vm_id NOT IN (SELECT id FROM virtual_machines))");
+  $db->exec("UPDATE system_databases SET vm_homolog_id=NULL WHERE vm_homolog_id IS NOT NULL AND (vm_homolog_id <= 0 OR vm_homolog_id NOT IN (SELECT id FROM virtual_machines))");
+  $db->exec("DELETE FROM system_databases WHERE system_id IS NULL OR system_id NOT IN (SELECT id FROM systems)");
+}
+
+function ensureRelationalIndexesSqlite3(SQLite3 $db): void {
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_systems_vm_id ON systems(vm_id)");
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_systems_vm_homolog_id ON systems(vm_homolog_id)");
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_systems_vm_dev_id ON systems(vm_dev_id)");
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_system_databases_system_id ON system_databases(system_id)");
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_system_databases_vm_id ON system_databases(vm_id)");
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_system_databases_vm_homolog_id ON system_databases(vm_homolog_id)");
+}
+
+function ensureRelationalIndexesPdo(PDO $db): void {
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_systems_vm_id ON systems(vm_id)");
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_systems_vm_homolog_id ON systems(vm_homolog_id)");
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_systems_vm_dev_id ON systems(vm_dev_id)");
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_system_databases_system_id ON system_databases(system_id)");
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_system_databases_vm_id ON system_databases(vm_id)");
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_system_databases_vm_homolog_id ON system_databases(vm_homolog_id)");
+}
+
+function ensureRelationalSchemaSqlite3(SQLite3 $db): void {
+  $hasSystemsFks = hasExpectedForeignKeys(systemsForeignKeyMapSqlite3($db), expectedSystemsForeignKeys());
+  $hasDatabasesFks = hasExpectedForeignKeys(systemDatabasesForeignKeyMapSqlite3($db), expectedSystemDatabasesForeignKeys());
+
+  if ($hasSystemsFks && $hasDatabasesFks) {
+    ensureRelationalIndexesSqlite3($db);
+    return;
+  }
+
+  normalizeRelationalDataSqlite3($db);
+  $systemCols = implode(',', systemsColumnsForRelationalMigration());
+  $dbCols = implode(',', systemDatabasesColumnsForRelationalMigration());
+
+  $db->exec('PRAGMA foreign_keys = OFF');
+  $db->exec('BEGIN IMMEDIATE');
+  try {
+    $db->exec('DROP TABLE IF EXISTS systems_legacy_fkless');
+    $db->exec('DROP TABLE IF EXISTS system_databases_legacy_fkless');
+
+    $db->exec('ALTER TABLE systems RENAME TO systems_legacy_fkless');
+    $db->exec(createSystemsTableWithForeignKeysSql());
+    $db->exec("INSERT INTO systems ($systemCols) SELECT $systemCols FROM systems_legacy_fkless");
+    $db->exec('DROP TABLE systems_legacy_fkless');
+
+    $db->exec('ALTER TABLE system_databases RENAME TO system_databases_legacy_fkless');
+    $db->exec(createSystemDatabasesTableWithForeignKeysSql());
+    $db->exec("INSERT INTO system_databases ($dbCols) SELECT $dbCols FROM system_databases_legacy_fkless");
+    $db->exec('DROP TABLE system_databases_legacy_fkless');
+
+    ensureRelationalIndexesSqlite3($db);
+    $db->exec('COMMIT');
+  } catch (Throwable $e) {
+    $db->exec('ROLLBACK');
+    throw $e;
+  } finally {
+    $db->exec('PRAGMA foreign_keys = ON');
+  }
+
+  $fkCheck = $db->query('PRAGMA foreign_key_check');
+  if ($fkCheck && $fkCheck->fetchArray(SQLITE3_ASSOC)) {
+    throw new RuntimeException('Falha ao validar integridade referencial apos migracao de FOREIGN KEY.');
+  }
+}
+
+function ensureRelationalSchemaPdo(PDO $db): void {
+  $hasSystemsFks = hasExpectedForeignKeys(systemsForeignKeyMapPdo($db), expectedSystemsForeignKeys());
+  $hasDatabasesFks = hasExpectedForeignKeys(systemDatabasesForeignKeyMapPdo($db), expectedSystemDatabasesForeignKeys());
+
+  if ($hasSystemsFks && $hasDatabasesFks) {
+    ensureRelationalIndexesPdo($db);
+    return;
+  }
+
+  normalizeRelationalDataPdo($db);
+  $systemCols = implode(',', systemsColumnsForRelationalMigration());
+  $dbCols = implode(',', systemDatabasesColumnsForRelationalMigration());
+
+  $db->exec('PRAGMA foreign_keys = OFF');
+  try {
+    $db->beginTransaction();
+
+    $db->exec('DROP TABLE IF EXISTS systems_legacy_fkless');
+    $db->exec('DROP TABLE IF EXISTS system_databases_legacy_fkless');
+
+    $db->exec('ALTER TABLE systems RENAME TO systems_legacy_fkless');
+    $db->exec(createSystemsTableWithForeignKeysSql());
+    $db->exec("INSERT INTO systems ($systemCols) SELECT $systemCols FROM systems_legacy_fkless");
+    $db->exec('DROP TABLE systems_legacy_fkless');
+
+    $db->exec('ALTER TABLE system_databases RENAME TO system_databases_legacy_fkless');
+    $db->exec(createSystemDatabasesTableWithForeignKeysSql());
+    $db->exec("INSERT INTO system_databases ($dbCols) SELECT $dbCols FROM system_databases_legacy_fkless");
+    $db->exec('DROP TABLE system_databases_legacy_fkless');
+
+    ensureRelationalIndexesPdo($db);
+    $db->commit();
+  } catch (Throwable $e) {
+    if ($db->inTransaction()) { $db->rollBack(); }
+    throw $e;
+  } finally {
+    $db->exec('PRAGMA foreign_keys = ON');
+  }
+
+  $fkCheck = $db->query('PRAGMA foreign_key_check')->fetchAll(PDO::FETCH_ASSOC);
+  if (!empty($fkCheck)) {
+    throw new RuntimeException('Falha ao validar integridade referencial apos migracao de FOREIGN KEY.');
+  }
+}
+
 function ensureUsersTableSqlite3(SQLite3 $db): void {
   $db->exec("CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -306,12 +647,24 @@ function ensureUsersTableSqlite3(SQLite3 $db): void {
   )");
   $db->exec("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)");
 
+  $db->exec("CREATE TABLE IF NOT EXISTS login_attempts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ip TEXT NOT NULL,
+    attempted_at TEXT DEFAULT (datetime('now','localtime'))
+  )");
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON login_attempts(ip)");
+
   $count = (int)$db->querySingle('SELECT COUNT(*) FROM users');
   if ($count > 0) { return; }
 
+  $adminPass  = getenv('SEI_ADMIN_PASSWORD')  ?: bin2hex(random_bytes(12));
+  $editorPass = getenv('SEI_EDITOR_PASSWORD') ?: bin2hex(random_bytes(12));
+  if (!getenv('SEI_ADMIN_PASSWORD'))  { error_log("[SEI bootstrap] Senha inicial admin: $adminPass"); }
+  if (!getenv('SEI_EDITOR_PASSWORD')) { error_log("[SEI bootstrap] Senha inicial editor: $editorPass"); }
+
   $seed = [
-    ['username' => 'admin', 'password' => 'admin123', 'full_name' => 'Administrador', 'role' => 'admin'],
-    ['username' => 'editor', 'password' => 'editor123', 'full_name' => 'Editor', 'role' => 'edicao'],
+    ['username' => 'admin',  'password' => $adminPass,  'full_name' => 'Administrador', 'role' => ROLE_ADMIN],
+    ['username' => 'editor', 'password' => $editorPass, 'full_name' => 'Editor',        'role' => ROLE_EDICAO],
   ];
 
   foreach ($seed as $user) {
@@ -337,12 +690,24 @@ function ensureUsersTablePdo(PDO $db): void {
   )");
   $db->exec("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)");
 
+  $db->exec("CREATE TABLE IF NOT EXISTS login_attempts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ip TEXT NOT NULL,
+    attempted_at TEXT DEFAULT (datetime('now','localtime'))
+  )");
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON login_attempts(ip)");
+
   $count = (int)$db->query("SELECT COUNT(*) FROM users")->fetchColumn();
   if ($count > 0) { return; }
 
+  $adminPass  = getenv('SEI_ADMIN_PASSWORD')  ?: bin2hex(random_bytes(12));
+  $editorPass = getenv('SEI_EDITOR_PASSWORD') ?: bin2hex(random_bytes(12));
+  if (!getenv('SEI_ADMIN_PASSWORD'))  { error_log("[SEI bootstrap] Senha inicial admin: $adminPass"); }
+  if (!getenv('SEI_EDITOR_PASSWORD')) { error_log("[SEI bootstrap] Senha inicial editor: $editorPass"); }
+
   $seed = [
-    ['username' => 'admin', 'password' => 'admin123', 'full_name' => 'Administrador', 'role' => 'admin'],
-    ['username' => 'editor', 'password' => 'editor123', 'full_name' => 'Editor', 'role' => 'edicao'],
+    ['username' => 'admin',  'password' => $adminPass,  'full_name' => 'Administrador', 'role' => ROLE_ADMIN],
+    ['username' => 'editor', 'password' => $editorPass, 'full_name' => 'Editor',        'role' => ROLE_EDICAO],
   ];
 
   $st = $db->prepare("INSERT INTO users(username,password_hash,full_name,role,active,created_at,updated_at) VALUES(:username,:password_hash,:full_name,:role,1,datetime('now','localtime'),datetime('now','localtime'))");
@@ -445,6 +810,7 @@ function db() {
   if (class_exists('SQLite3')) {
     $db = new SQLite3(DB_PATH);
     $db->enableExceptions(true);
+    $db->exec('PRAGMA foreign_keys = ON');
     $db->exec("CREATE TABLE IF NOT EXISTS systems (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -485,6 +851,7 @@ function db() {
     ensureDatabaseTableSqlite3($db);
     ensureUsersTableSqlite3($db);
     migrateLegacyVmLinksSqlite3($db);
+    ensureRelationalSchemaSqlite3($db);
     $count = (int)$db->querySingle('SELECT COUNT(*) FROM systems');
     if ($count === 0) {
       $db->exec("INSERT INTO systems(name,category,status,tech,description,owner,criticality,version) VALUES
@@ -498,6 +865,7 @@ function db() {
   if (extension_loaded('pdo_sqlite')) {
     $db = new PDO('sqlite:' . DB_PATH);
     $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $db->exec('PRAGMA foreign_keys = ON');
     $db->exec("CREATE TABLE IF NOT EXISTS systems (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -538,6 +906,7 @@ function db() {
     ensureDatabaseTablePdo($db);
     ensureUsersTablePdo($db);
     migrateLegacyVmLinksPdo($db);
+    ensureRelationalSchemaPdo($db);
     $count = (int)$db->query("SELECT COUNT(*) FROM systems")->fetchColumn();
     if ($count === 0) {
       $db->exec("INSERT INTO systems(name,category,status,tech,description,owner,criticality,version) VALUES
@@ -550,4 +919,3 @@ function db() {
 
   throw new RuntimeException('SQLite indisponivel neste PHP. Habilite sqlite3 ou pdo_sqlite no php.ini.');
 }
-

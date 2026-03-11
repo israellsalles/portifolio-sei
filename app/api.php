@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . DIRECTORY_SEPARATOR . 'constants.php';
+
 function systemSelectSql(): string {
   return "SELECT
     s.*,
@@ -885,7 +887,11 @@ function startAppSession(): void {
   session_start([
     'cookie_httponly' => true,
     'cookie_samesite' => 'Lax',
+    'cookie_secure'   => !empty($_SERVER['HTTPS']),
   ]);
+  if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+  }
 }
 
 function roleRank(string $role): int {
@@ -1099,6 +1105,26 @@ function handleApiRequest(): void {
     $db = db();
     $api = (string)($_GET['api'] ?? '');
 
+    // Validacao CSRF para todos os endpoints POST, exceto login (protegido por rate limiting)
+    if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST' && $api !== 'login') {
+      $clientToken  = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+      $sessionToken = $_SESSION['csrf_token'] ?? '';
+      if ($sessionToken === '' || !hash_equals($sessionToken, $clientToken)) {
+        http_response_code(403);
+        echo json_encode(['ok' => false, 'error' => 'Token de seguranca invalido. Recarregue a pagina.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+    }
+
+    // Limpeza periodica de tentativas de login expiradas (~1% das requisicoes)
+    if (mt_rand(1, 100) === 1) {
+      try {
+        $db instanceof SQLite3
+          ? $db->exec("DELETE FROM login_attempts WHERE attempted_at < datetime('now','-3600 seconds','localtime')")
+          : $db->exec("DELETE FROM login_attempts WHERE attempted_at < datetime('now','-3600 seconds','localtime')");
+      } catch (\Throwable $e) { /* tabela pode nao existir em bancos antigos */ }
+    }
+
     if ($api === 'auth-status') {
       $sessionUser = sessionAuthUser();
       if (!$sessionUser) {
@@ -1126,6 +1152,35 @@ function handleApiRequest(): void {
       $data = json_decode((string)file_get_contents('php://input'), true);
       if (!is_array($data)) { echo json_encode(['ok'=>false,'error'=>'Invalid JSON']); return; }
 
+      // Rate limiting por IP
+      $clientIp = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+      try {
+        if ($db instanceof SQLite3) {
+          $escapedIp = SQLite3::escapeString($clientIp);
+          $attempts = (int)$db->querySingle(
+            "SELECT COUNT(*) FROM login_attempts WHERE ip='$escapedIp' AND attempted_at >= datetime('now','-" . LOGIN_WINDOW_SECS . " seconds','localtime')"
+          );
+        } else {
+          $stCount = $db->prepare("SELECT COUNT(*) FROM login_attempts WHERE ip=:ip AND attempted_at >= datetime('now','-" . LOGIN_WINDOW_SECS . " seconds','localtime')");
+          $stCount->bindValue(':ip', $clientIp, PDO::PARAM_STR);
+          $stCount->execute();
+          $attempts = (int)$stCount->fetchColumn();
+        }
+        if ($attempts >= LOGIN_MAX_ATTEMPTS) {
+          http_response_code(429);
+          echo json_encode(['ok'=>false,'error'=>'Muitas tentativas de login. Aguarde alguns minutos.'], JSON_UNESCAPED_UNICODE);
+          return;
+        }
+        // Registrar tentativa
+        if ($db instanceof SQLite3) {
+          $db->exec("INSERT INTO login_attempts(ip) VALUES('" . SQLite3::escapeString($clientIp) . "')");
+        } else {
+          $stIns = $db->prepare("INSERT INTO login_attempts(ip) VALUES(:ip)");
+          $stIns->bindValue(':ip', $clientIp, PDO::PARAM_STR);
+          $stIns->execute();
+        }
+      } catch (\Throwable $e) { /* tabela pode nao existir em bancos antigos, ignorar */ }
+
       $username = trim((string)($data['username'] ?? ''));
       $password = (string)($data['password'] ?? '');
       if ($username === '' || $password === '') {
@@ -1144,6 +1199,17 @@ function handleApiRequest(): void {
         echo json_encode(['ok'=>false,'error'=>'Credenciais invalidas.'], JSON_UNESCAPED_UNICODE);
         return;
       }
+
+      // Login bem-sucedido: limpar tentativas do IP
+      try {
+        if ($db instanceof SQLite3) {
+          $db->exec("DELETE FROM login_attempts WHERE ip='" . SQLite3::escapeString($clientIp) . "'");
+        } else {
+          $stClean = $db->prepare("DELETE FROM login_attempts WHERE ip=:ip");
+          $stClean->bindValue(':ip', $clientIp, PDO::PARAM_STR);
+          $stClean->execute();
+        }
+      } catch (\Throwable $e) { /* ignorar */ }
 
       session_regenerate_id(true);
       $public = publicUserPayload($user);
