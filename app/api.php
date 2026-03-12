@@ -69,6 +69,83 @@ function normalizeUtf8Text(string $value): string {
   return strtr($value, $map);
 }
 
+function normalizeSystemDocType(string $raw): string {
+  $value = strtolower(trim($raw));
+  if ($value === 'maintenance' || $value === 'manutencao' || $value === 'atualizacao') { return 'maintenance'; }
+  if ($value === 'security' || $value === 'seguranca') { return 'security'; }
+  if ($value === 'manual' || $value === 'procedures' || $value === 'procedimento' || $value === 'procedimentos') { return 'manual'; }
+  return $value === 'installation' || $value === 'instalacao' ? 'installation' : '';
+}
+
+function systemDocFieldMap(string $docType): ?array {
+  $type = normalizeSystemDocType($docType);
+  $map = [
+    'installation' => ['ref' => 'doc_installation_ref', 'updated_at' => 'doc_installation_updated_at', 'label' => 'Instalacao'],
+    'maintenance' => ['ref' => 'doc_maintenance_ref', 'updated_at' => 'doc_maintenance_updated_at', 'label' => 'Manutencao'],
+    'security' => ['ref' => 'doc_security_ref', 'updated_at' => 'doc_security_updated_at', 'label' => 'Seguranca'],
+    'manual' => ['ref' => 'doc_manual_ref', 'updated_at' => 'doc_manual_updated_at', 'label' => 'Manual'],
+  ];
+  return $map[$type] ?? null;
+}
+
+function systemDocAllFieldMaps(): array {
+  $types = ['installation', 'maintenance', 'security', 'manual'];
+  $out = [];
+  foreach ($types as $type) {
+    $entry = systemDocFieldMap($type);
+    if ($entry !== null) { $out[$type] = $entry; }
+  }
+  return $out;
+}
+
+function systemDocProjectRoot(): string {
+  $root = realpath(__DIR__ . DIRECTORY_SEPARATOR . '..');
+  return $root !== false ? $root : (__DIR__ . DIRECTORY_SEPARATOR . '..');
+}
+
+function systemDocDir(): string {
+  return systemDocProjectRoot() . DIRECTORY_SEPARATOR . 'data' . DIRECTORY_SEPARATOR . 'system_docs';
+}
+
+function ensureSystemDocDir(): string {
+  $dir = systemDocDir();
+  if (!is_dir($dir) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+    throw new RuntimeException('Nao foi possivel criar diretorio de documentos dos sistemas');
+  }
+  if (!is_writable($dir)) {
+    throw new RuntimeException('Diretorio de documentos dos sistemas sem permissao de escrita');
+  }
+  return $dir;
+}
+
+function sanitizeSystemDocFilename(string $filename): string {
+  $name = trim($filename);
+  if ($name === '') { $name = 'documento.pdf'; }
+  $name = str_replace(['\\', '/'], '-', $name);
+  $name = preg_replace('/[^A-Za-z0-9._-]+/', '_', $name) ?? 'documento.pdf';
+  if ($name === '' || $name === '.' || $name === '..') { $name = 'documento.pdf'; }
+  if (!str_ends_with(strtolower($name), '.pdf')) { $name .= '.pdf'; }
+  return $name;
+}
+
+function deleteSystemDocFileByReference(string $reference): void {
+  $ref = trim($reference);
+  if ($ref === '') { return; }
+  $relative = str_replace(['\\', '/'], DIRECTORY_SEPARATOR, $ref);
+  $fullPath = systemDocProjectRoot() . DIRECTORY_SEPARATOR . ltrim($relative, DIRECTORY_SEPARATOR);
+  if (is_file($fullPath)) { @unlink($fullPath); }
+}
+
+function systemDocReferencesFromSystemRow(array $row): array {
+  $refs = [];
+  foreach (systemDocAllFieldMaps() as $map) {
+    $ref = trim((string)($row[$map['ref']] ?? ''));
+    if ($ref === '') { continue; }
+    $refs[$ref] = $ref;
+  }
+  return array_values($refs);
+}
+
 function normalizeUrlListValue($raw): array {
   $values = [];
   if (is_array($raw)) {
@@ -171,6 +248,27 @@ function normalizeSystemRow(array $row): array {
     if (is_string($value)) { $row[$key] = normalizeUtf8Text($value); }
   }
   $row['tech'] = $row['tech'] !== '' ? array_values(array_filter(array_map('trim', explode(',', (string)$row['tech'])))) : [];
+  $row['target_version'] = trim((string)($row['target_version'] ?? ''));
+  $row['app_server'] = trim((string)($row['app_server'] ?? ''));
+  $row['web_server'] = trim((string)($row['web_server'] ?? ''));
+  $row['containerization'] = boolFromMixed($row['containerization'] ?? 0) ? 1 : 0;
+  $row['container_tool'] = trim((string)($row['container_tool'] ?? ''));
+  if ((int)$row['containerization'] <= 0) { $row['container_tool'] = ''; }
+  $row['runtime_port'] = trim((string)($row['runtime_port'] ?? ''));
+  $row['php_required_extensions'] = trim((string)($row['php_required_extensions'] ?? ''));
+  $row['php_recommended_extensions'] = trim((string)($row['php_recommended_extensions'] ?? ''));
+  $row['php_required_libraries'] = trim((string)($row['php_required_libraries'] ?? ''));
+  $row['php_required_ini'] = normalizeIniRequirementText((string)($row['php_required_ini'] ?? ''));
+  $row['r_required_packages'] = trim((string)($row['r_required_packages'] ?? ''));
+  foreach (systemDocAllFieldMaps() as $type => $map) {
+    $row[$map['ref']] = trim((string)($row[$map['ref']] ?? ''));
+    $row[$map['updated_at']] = trim((string)($row[$map['updated_at']] ?? ''));
+  }
+  $row['php_required_extensions_list'] = splitCsvList($row['php_required_extensions']);
+  $row['php_recommended_extensions_list'] = splitCsvList($row['php_recommended_extensions']);
+  $row['php_required_libraries_list'] = splitCsvList($row['php_required_libraries']);
+  $row['php_required_ini_list'] = splitIniRequirementLines($row['php_required_ini']);
+  $row['r_required_packages_list'] = splitCsvList($row['r_required_packages']);
   $row['vm_id'] = isset($row['vm_id']) && $row['vm_id'] !== null && (int)$row['vm_id'] > 0 ? (int)$row['vm_id'] : null;
   $row['vm_homolog_id'] = isset($row['vm_homolog_id']) && $row['vm_homolog_id'] !== null && (int)$row['vm_homolog_id'] > 0 ? (int)$row['vm_homolog_id'] : null;
   $row['vm_dev_id'] = isset($row['vm_dev_id']) && $row['vm_dev_id'] !== null && (int)$row['vm_dev_id'] > 0 ? (int)$row['vm_dev_id'] : null;
@@ -187,6 +285,23 @@ function normalizeSystemRow(array $row): array {
   if (($row['vm_dev_name'] ?? '') === '') { $row['vm_dev_name'] = (string)($row['vm_dev'] ?? ''); }
   if (($row['vm_dev_ip'] ?? '') === '') { $row['vm_dev_ip'] = (string)($row['ip_dev'] ?? ''); }
 
+  $row['system_documents'] = [];
+  foreach (systemDocAllFieldMaps() as $type => $map) {
+    $reference = trim((string)($row[$map['ref']] ?? ''));
+    $updatedAt = trim((string)($row[$map['updated_at']] ?? ''));
+    $row['system_documents'][$type] = [
+      'type' => $type,
+      'label' => (string)$map['label'],
+      'reference' => $reference,
+      'filename' => $reference !== '' ? basename($reference) : '',
+      'updated_at' => $updatedAt,
+      'has_file' => $reference !== '',
+      'url' => (int)($row['id'] ?? 0) > 0 && $reference !== ''
+        ? ('?api=system-doc-view&id=' . (int)$row['id'] . '&doc_type=' . rawurlencode($type))
+        : '',
+    ];
+  }
+
   return $row;
 }
 
@@ -194,8 +309,17 @@ function fetchSystemsSqlite3(SQLite3 $db, bool $archived=false): array {
   $flag = $archived ? 1 : 0;
   $res = $db->query(systemSelectSql() . " WHERE IFNULL(s.archived,0)=$flag ORDER BY s.name COLLATE NOCASE");
   $out = [];
+  $vmCache = [];
+  $vmLoader = function (?int $id) use ($db, &$vmCache): ?array {
+    $vmId = (int)($id ?? 0);
+    if ($vmId <= 0) { return null; }
+    if (array_key_exists($vmId, $vmCache)) { return $vmCache[$vmId]; }
+    $vmCache[$vmId] = fetchVmByIdSqlite3($db, $vmId);
+    return $vmCache[$vmId];
+  };
   while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
-    $out[] = normalizeSystemRow($row);
+    $normalized = normalizeSystemRow($row);
+    $out[] = enrichSystemRowWithPhpCompatibility($normalized, $vmLoader);
   }
   return $out;
 }
@@ -203,7 +327,18 @@ function fetchSystemsSqlite3(SQLite3 $db, bool $archived=false): array {
 function fetchSystemsPdo(PDO $db, bool $archived=false): array {
   $flag = $archived ? 1 : 0;
   $rows = $db->query(systemSelectSql() . " WHERE IFNULL(s.archived,0)=$flag ORDER BY s.name COLLATE NOCASE")->fetchAll(PDO::FETCH_ASSOC);
-  foreach ($rows as &$row) { $row = normalizeSystemRow($row); }
+  $vmCache = [];
+  $vmLoader = function (?int $id) use ($db, &$vmCache): ?array {
+    $vmId = (int)($id ?? 0);
+    if ($vmId <= 0) { return null; }
+    if (array_key_exists($vmId, $vmCache)) { return $vmCache[$vmId]; }
+    $vmCache[$vmId] = fetchVmByIdPdo($db, $vmId);
+    return $vmCache[$vmId];
+  };
+  foreach ($rows as &$row) {
+    $normalized = normalizeSystemRow($row);
+    $row = enrichSystemRowWithPhpCompatibility($normalized, $vmLoader);
+  }
   unset($row);
   return $rows;
 }
@@ -214,7 +349,16 @@ function fetchSystemByIdSqlite3(SQLite3 $db, int $id): ?array {
   $res = $st->execute();
   $row = $res ? $res->fetchArray(SQLITE3_ASSOC) : false;
   if (!is_array($row)) { return null; }
-  return normalizeSystemRow($row);
+  $normalized = normalizeSystemRow($row);
+  $vmCache = [];
+  $vmLoader = function (?int $vmId) use ($db, &$vmCache): ?array {
+    $idInt = (int)($vmId ?? 0);
+    if ($idInt <= 0) { return null; }
+    if (array_key_exists($idInt, $vmCache)) { return $vmCache[$idInt]; }
+    $vmCache[$idInt] = fetchVmByIdSqlite3($db, $idInt);
+    return $vmCache[$idInt];
+  };
+  return enrichSystemRowWithPhpCompatibility($normalized, $vmLoader);
 }
 
 function fetchSystemByIdPdo(PDO $db, int $id): ?array {
@@ -223,7 +367,16 @@ function fetchSystemByIdPdo(PDO $db, int $id): ?array {
   $st->execute();
   $row = $st->fetch(PDO::FETCH_ASSOC);
   if (!is_array($row)) { return null; }
-  return normalizeSystemRow($row);
+  $normalized = normalizeSystemRow($row);
+  $vmCache = [];
+  $vmLoader = function (?int $vmId) use ($db, &$vmCache): ?array {
+    $idInt = (int)($vmId ?? 0);
+    if ($idInt <= 0) { return null; }
+    if (array_key_exists($idInt, $vmCache)) { return $vmCache[$idInt]; }
+    $vmCache[$idInt] = fetchVmByIdPdo($db, $idInt);
+    return $vmCache[$idInt];
+  };
+  return enrichSystemRowWithPhpCompatibility($normalized, $vmLoader);
 }
 
 function bindSystemFieldSqlite3(SQLite3Stmt $st, string $field, array $data): void {
@@ -231,6 +384,10 @@ function bindSystemFieldSqlite3(SQLite3Stmt $st, string $field, array $data): vo
     $id = (int)($data[$field] ?? 0);
     if ($id > 0) { $st->bindValue(':'.$field, $id, SQLITE3_INTEGER); }
     else { $st->bindValue(':'.$field, null, SQLITE3_NULL); }
+    return;
+  }
+  if ($field === 'containerization') {
+    $st->bindValue(':'.$field, boolFromMixed($data[$field] ?? 0) ? 1 : 0, SQLITE3_INTEGER);
     return;
   }
   if ($field === 'archived') {
@@ -253,6 +410,10 @@ function bindSystemFieldPdo(PDOStatement $st, string $field, array $data): void 
     else { $st->bindValue(':'.$field, null, PDO::PARAM_NULL); }
     return;
   }
+  if ($field === 'containerization') {
+    $st->bindValue(':'.$field, boolFromMixed($data[$field] ?? 0) ? 1 : 0, PDO::PARAM_INT);
+    return;
+  }
   if ($field === 'archived') {
     $st->bindValue(':'.$field, (int)($data[$field] ?? 0), PDO::PARAM_INT);
     return;
@@ -272,11 +433,571 @@ function splitCsvList(string $raw): array {
   return array_values(array_filter(array_map('trim', explode(',', $value))));
 }
 
+function normalizeCsvListValue($raw): string {
+  $tokens = [];
+  if (is_array($raw)) {
+    foreach ($raw as $entry) {
+      $parts = preg_split('/[\r\n,;]+/', (string)$entry) ?: [];
+      foreach ($parts as $part) {
+        $value = trim((string)$part);
+        if ($value !== '') { $tokens[] = $value; }
+      }
+    }
+  } else {
+    $parts = preg_split('/[\r\n,;]+/', (string)$raw) ?: [];
+    foreach ($parts as $part) {
+      $value = trim((string)$part);
+      if ($value !== '') { $tokens[] = $value; }
+    }
+  }
+
+  $seen = [];
+  $out = [];
+  foreach ($tokens as $token) {
+    $key = strtolower($token);
+    if (isset($seen[$key])) { continue; }
+    $seen[$key] = true;
+    $out[] = $token;
+  }
+  return implode(',', $out);
+}
+
+function mergeCsvListValues($primary, $extra): string {
+  return normalizeCsvListValue([
+    normalizeCsvListValue($primary),
+    normalizeCsvListValue($extra),
+  ]);
+}
+
+function splitIniRequirementLines(string $raw): array {
+  $value = str_replace("\r", "\n", trim($raw));
+  if ($value === '') { return []; }
+  return array_values(array_filter(array_map('trim', explode("\n", $value))));
+}
+
+function normalizeIniRequirementText(string $raw): string {
+  return implode("\n", splitIniRequirementLines($raw));
+}
+
+function parseIniRequirementLine(string $line): ?array {
+  $raw = trim($line);
+  if ($raw === '') { return null; }
+  if (!preg_match('/^([A-Za-z0-9_.-]+)\s*(>=|<=|!=|=|>|<)?\s*(.*)$/', $raw, $m)) {
+    return null;
+  }
+  $directive = trim((string)($m[1] ?? ''));
+  if ($directive === '') { return null; }
+  $operator = trim((string)($m[2] ?? ''));
+  $expected = trim((string)($m[3] ?? ''));
+  if ($operator === '' && $expected !== '') { $operator = '='; }
+  if ($operator === '') { $operator = 'exists'; }
+  return [
+    'raw' => $raw,
+    'directive' => $directive,
+    'directive_key' => strtolower($directive),
+    'operator' => $operator,
+    'expected' => $expected,
+  ];
+}
+
+function parseIniRequirements(string $raw): array {
+  $out = [];
+  foreach (splitIniRequirementLines($raw) as $line) {
+    $rule = parseIniRequirementLine($line);
+    if ($rule !== null) { $out[] = $rule; }
+  }
+  return $out;
+}
+
+function iniValueToNumber(string $value): ?float {
+  $normalized = trim($value);
+  if ($normalized === '') { return null; }
+  if (!preg_match('/^\s*([+-]?\d+(?:\.\d+)?)\s*([KMGTP]?)(?:B)?\s*$/i', $normalized, $m)) {
+    return null;
+  }
+  $number = (float)($m[1] ?? 0);
+  $unit = strtoupper(trim((string)($m[2] ?? '')));
+  $factor = 1.0;
+  if ($unit === 'K') { $factor = 1024.0; }
+  elseif ($unit === 'M') { $factor = 1024.0 * 1024.0; }
+  elseif ($unit === 'G') { $factor = 1024.0 * 1024.0 * 1024.0; }
+  elseif ($unit === 'T') { $factor = 1024.0 * 1024.0 * 1024.0 * 1024.0; }
+  elseif ($unit === 'P') { $factor = 1024.0 * 1024.0 * 1024.0 * 1024.0 * 1024.0; }
+  return $number * $factor;
+}
+
+function normalizeIniScalar(string $value): string {
+  $normalized = strtolower(trim($value));
+  if (in_array($normalized, ['on', 'yes', 'true'], true)) { return '1'; }
+  if (in_array($normalized, ['off', 'no', 'false'], true)) { return '0'; }
+  return $normalized;
+}
+
+function compareIniRequirementValues(string $actual, string $expected, string $operator): bool {
+  $op = trim($operator);
+  if ($op === 'exists') { return trim($actual) !== ''; }
+  $actualNum = iniValueToNumber($actual);
+  $expectedNum = iniValueToNumber($expected);
+  if ($actualNum !== null && $expectedNum !== null && in_array($op, ['>','>=','<','<='], true)) {
+    if ($op === '>') { return $actualNum > $expectedNum; }
+    if ($op === '>=') { return $actualNum >= $expectedNum; }
+    if ($op === '<') { return $actualNum < $expectedNum; }
+    return $actualNum <= $expectedNum;
+  }
+
+  $actualNorm = normalizeIniScalar($actual);
+  $expectedNorm = normalizeIniScalar($expected);
+  if ($op === '=' || $op === '==') { return $actualNorm === $expectedNorm; }
+  if ($op === '!=') { return $actualNorm !== $expectedNorm; }
+
+  if ($op === '>') { return strcmp($actualNorm, $expectedNorm) > 0; }
+  if ($op === '>=') { return strcmp($actualNorm, $expectedNorm) >= 0; }
+  if ($op === '<') { return strcmp($actualNorm, $expectedNorm) < 0; }
+  if ($op === '<=') { return strcmp($actualNorm, $expectedNorm) <= 0; }
+  return false;
+}
+
+function phpRequirementsFromSystemRow(array $row): array {
+  $requiredRaw = splitCsvList((string)($row['php_required_extensions'] ?? ''));
+  $recommendedRaw = splitCsvList((string)($row['php_recommended_extensions'] ?? ''));
+  $requiredExtensions = [];
+  $seenRequired = [];
+  foreach (array_merge($requiredRaw, $recommendedRaw) as $ext) {
+    $name = trim((string)$ext);
+    if ($name === '') { continue; }
+    $key = strtolower($name);
+    if (isset($seenRequired[$key])) { continue; }
+    $seenRequired[$key] = true;
+    $requiredExtensions[] = $name;
+  }
+  $recommendedExtensions = [];
+  $requiredLibraries = [];
+  $iniText = normalizeIniRequirementText((string)($row['php_required_ini'] ?? ''));
+  $iniRules = parseIniRequirements($iniText);
+  $hasRequirements = count($requiredExtensions) > 0 || count($iniRules) > 0;
+  return [
+    'required_extensions' => $requiredExtensions,
+    'recommended_extensions' => $recommendedExtensions,
+    'required_libraries' => $requiredLibraries,
+    'ini_text' => $iniText,
+    'ini_rules' => $iniRules,
+    'has_requirements' => $hasRequirements,
+  ];
+}
+
+function phpExtensionsMapFromPayload(array $payload): array {
+  $map = [];
+  foreach (($payload['extensions'] ?? []) as $ext) {
+    if (!is_array($ext)) { continue; }
+    $name = trim((string)($ext['name'] ?? ''));
+    if ($name === '') { continue; }
+    $map[strtolower($name)] = $name;
+  }
+  return $map;
+}
+
+function phpIniMapFromPayload(array $payload): array {
+  $map = [];
+  foreach (($payload['ini'] ?? []) as $item) {
+    if (!is_array($item)) { continue; }
+    $directive = trim((string)($item['directive'] ?? ''));
+    if ($directive === '') { continue; }
+    $map[strtolower($directive)] = trim((string)($item['local_value'] ?? ''));
+  }
+  return $map;
+}
+
+function evaluateSystemPhpCompatibilityForVm(array $requirements, ?array $vm, string $environment): array {
+  $base = [
+    'environment' => $environment,
+    'vm_id' => (int)($vm['id'] ?? 0),
+    'vm_name' => $vm ? vmLabelFromRow($vm) : '',
+    'status' => 'not_applicable',
+    'label' => 'Sem requisitos PHP',
+    'missing_required_extensions' => [],
+    'missing_recommended_extensions' => [],
+    'unverified_libraries' => [],
+    'unmet_ini_rules' => [],
+    'notes' => [],
+  ];
+
+  if (!($requirements['has_requirements'] ?? false)) { return $base; }
+
+  if (!$vm || (int)($vm['id'] ?? 0) <= 0) {
+    $base['status'] = 'no_vm';
+    $base['label'] = 'Sem VM vinculada';
+    $base['notes'][] = 'Ambiente sem VM vinculada.';
+    return $base;
+  }
+
+  if (!vmSupportsDiagnosticTech($vm, 'php')) {
+    $base['status'] = 'incompatible';
+    $base['label'] = 'Incompatível';
+    $base['notes'][] = 'VM sem tecnologia PHP cadastrada.';
+    return $base;
+  }
+
+  try {
+    $entry = loadVmDiagnosticEntry($vm, 'php');
+  } catch (Throwable $e) {
+    $base['status'] = 'warning';
+    $base['label'] = 'Diagnóstico inválido';
+    $base['notes'][] = 'JSON de diagnóstico PHP inválido para esta VM.';
+    return $base;
+  }
+
+  if (!is_array($entry) || !($entry['has_file'] ?? false) || !is_array($entry['json'] ?? null)) {
+    $base['status'] = 'warning';
+    $base['label'] = 'Sem diagnóstico';
+    $base['notes'][] = 'VM sem arquivo de diagnóstico PHP para validação automática.';
+    return $base;
+  }
+
+  $payload = $entry['json'];
+  $extensionsMap = phpExtensionsMapFromPayload($payload);
+  $iniMap = phpIniMapFromPayload($payload);
+
+  $missingRequired = [];
+  foreach (($requirements['required_extensions'] ?? []) as $ext) {
+    $name = trim((string)$ext);
+    if ($name === '') { continue; }
+    if (!isset($extensionsMap[strtolower($name)])) { $missingRequired[] = $name; }
+  }
+
+  $missingRecommended = [];
+  foreach (($requirements['recommended_extensions'] ?? []) as $ext) {
+    $name = trim((string)$ext);
+    if ($name === '') { continue; }
+    if (!isset($extensionsMap[strtolower($name)])) { $missingRecommended[] = $name; }
+  }
+
+  $unmetIni = [];
+  foreach (($requirements['ini_rules'] ?? []) as $rule) {
+    if (!is_array($rule)) { continue; }
+    $directiveKey = strtolower(trim((string)($rule['directive_key'] ?? '')));
+    $directive = trim((string)($rule['directive'] ?? ''));
+    if ($directiveKey === '' || $directive === '') { continue; }
+    $actual = (string)($iniMap[$directiveKey] ?? '');
+    $operator = (string)($rule['operator'] ?? 'exists');
+    $expected = (string)($rule['expected'] ?? '');
+    $ok = compareIniRequirementValues($actual, $expected, $operator);
+    if ($ok) { continue; }
+    $unmetIni[] = [
+      'directive' => $directive,
+      'operator' => $operator,
+      'expected' => $expected,
+      'actual' => $actual,
+      'raw' => (string)($rule['raw'] ?? $directive),
+    ];
+  }
+
+  $base['missing_required_extensions'] = $missingRequired;
+  $base['missing_recommended_extensions'] = $missingRecommended;
+  $base['unverified_libraries'] = array_values(array_filter(array_map('trim', $requirements['required_libraries'] ?? [])));
+  $base['unmet_ini_rules'] = $unmetIni;
+
+  if (count($missingRequired) > 0 || count($unmetIni) > 0) {
+    $base['status'] = 'incompatible';
+    $base['label'] = 'Incompatível';
+    return $base;
+  }
+
+  if (count($missingRecommended) > 0 || count($base['unverified_libraries']) > 0) {
+    $base['status'] = 'warning';
+    $base['label'] = 'Parcialmente compatível';
+    if (count($base['unverified_libraries']) > 0) {
+      $base['notes'][] = 'Bibliotecas/pacotes requeridos não são verificáveis automaticamente via diagnóstico.';
+    }
+    return $base;
+  }
+
+  $base['status'] = 'compatible';
+  $base['label'] = 'Compatível';
+  return $base;
+}
+
+function systemPhpCompatibilityLabel(string $status): string {
+  $map = [
+    'compatible' => 'Compatível',
+    'warning' => 'Parcial',
+    'incompatible' => 'Incompatível',
+    'no_vm' => 'Sem VM',
+    'not_applicable' => 'N/A',
+  ];
+  return $map[$status] ?? 'N/A';
+}
+
+function buildSystemPhpCompatibility(array $row, callable $vmLoader): array {
+  $requirements = phpRequirementsFromSystemRow($row);
+  $environments = [
+    evaluateSystemPhpCompatibilityForVm($requirements, $vmLoader((int)($row['vm_id'] ?? 0)), 'Producao'),
+    evaluateSystemPhpCompatibilityForVm($requirements, $vmLoader((int)($row['vm_homolog_id'] ?? 0)), 'Homologacao'),
+    evaluateSystemPhpCompatibilityForVm($requirements, $vmLoader((int)($row['vm_dev_id'] ?? 0)), 'Desenvolvimento'),
+  ];
+
+  $statuses = array_map(fn($item) => (string)($item['status'] ?? 'not_applicable'), $environments);
+  $overall = 'not_applicable';
+  if ($requirements['has_requirements']) {
+    if (in_array('incompatible', $statuses, true)) { $overall = 'incompatible'; }
+    elseif (in_array('warning', $statuses, true)) { $overall = 'warning'; }
+    elseif (in_array('compatible', $statuses, true)) { $overall = 'compatible'; }
+    elseif (in_array('no_vm', $statuses, true)) { $overall = 'no_vm'; }
+    else { $overall = 'warning'; }
+  }
+
+  $issues = 0;
+  foreach ($environments as $env) {
+    if (!is_array($env)) { continue; }
+    $issues += count($env['missing_required_extensions'] ?? []);
+    $issues += count($env['unmet_ini_rules'] ?? []);
+    $issues += count($env['missing_recommended_extensions'] ?? []);
+  }
+
+  return [
+    'has_requirements' => (bool)($requirements['has_requirements'] ?? false),
+    'status' => $overall,
+    'label' => systemPhpCompatibilityLabel($overall),
+    'issues' => $issues,
+    'environments' => $environments,
+  ];
+}
+
+function rRequirementsFromSystemRow(array $row): array {
+  $requiredPackages = splitCsvList((string)($row['r_required_packages'] ?? ''));
+  return [
+    'required_packages' => $requiredPackages,
+    'has_requirements' => count($requiredPackages) > 0,
+  ];
+}
+
+function rPackagesMapFromPayload(array $payload): array {
+  $map = [];
+  foreach (($payload['packages'] ?? []) as $pkg) {
+    if (!is_array($pkg)) { continue; }
+    $name = trim((string)($pkg['Package'] ?? $pkg['package'] ?? $pkg['name'] ?? ''));
+    if ($name === '') { continue; }
+    $version = trim((string)($pkg['Version'] ?? $pkg['version'] ?? ''));
+    $map[strtolower($name)] = ['name' => $name, 'version' => $version];
+  }
+  return $map;
+}
+
+function evaluateSystemRCompatibilityForVm(array $requirements, ?array $vm, string $environment): array {
+  $base = [
+    'environment' => $environment,
+    'vm_id' => (int)($vm['id'] ?? 0),
+    'vm_name' => $vm ? vmLabelFromRow($vm) : '',
+    'status' => 'not_applicable',
+    'label' => 'Sem requisitos R',
+    'missing_required_packages' => [],
+    'notes' => [],
+  ];
+
+  if (!($requirements['has_requirements'] ?? false)) { return $base; }
+
+  if (!$vm || (int)($vm['id'] ?? 0) <= 0) {
+    $base['status'] = 'no_vm';
+    $base['label'] = 'Sem VM vinculada';
+    $base['notes'][] = 'Ambiente sem VM vinculada.';
+    return $base;
+  }
+
+  if (!vmSupportsDiagnosticTech($vm, 'r')) {
+    $base['status'] = 'incompatible';
+    $base['label'] = 'Incompatível';
+    $base['notes'][] = 'VM sem tecnologia R cadastrada.';
+    return $base;
+  }
+
+  try {
+    $entry = loadVmDiagnosticEntry($vm, 'r');
+  } catch (Throwable $e) {
+    $base['status'] = 'warning';
+    $base['label'] = 'Diagnóstico inválido';
+    $base['notes'][] = 'JSON de diagnóstico R inválido para esta VM.';
+    return $base;
+  }
+
+  if (!is_array($entry) || !($entry['has_file'] ?? false) || !is_array($entry['json'] ?? null)) {
+    $base['status'] = 'warning';
+    $base['label'] = 'Sem diagnóstico';
+    $base['notes'][] = 'VM sem arquivo de diagnóstico R para validação automática.';
+    return $base;
+  }
+
+  $packagesMap = rPackagesMapFromPayload($entry['json']);
+  $missingRequired = [];
+  foreach (($requirements['required_packages'] ?? []) as $pkg) {
+    $name = trim((string)$pkg);
+    if ($name === '') { continue; }
+    if (!isset($packagesMap[strtolower($name)])) { $missingRequired[] = $name; }
+  }
+  $base['missing_required_packages'] = $missingRequired;
+
+  if (count($missingRequired) > 0) {
+    $base['status'] = 'incompatible';
+    $base['label'] = 'Incompatível';
+    return $base;
+  }
+
+  $base['status'] = 'compatible';
+  $base['label'] = 'Compatível';
+  return $base;
+}
+
+function systemRCompatibilityLabel(string $status): string {
+  $map = [
+    'compatible' => 'Compatível',
+    'warning' => 'Parcial',
+    'incompatible' => 'Incompatível',
+    'no_vm' => 'Sem VM',
+    'not_applicable' => 'N/A',
+  ];
+  return $map[$status] ?? 'N/A';
+}
+
+function buildSystemRCompatibility(array $row, callable $vmLoader): array {
+  $requirements = rRequirementsFromSystemRow($row);
+  $environments = [
+    evaluateSystemRCompatibilityForVm($requirements, $vmLoader((int)($row['vm_id'] ?? 0)), 'Producao'),
+    evaluateSystemRCompatibilityForVm($requirements, $vmLoader((int)($row['vm_homolog_id'] ?? 0)), 'Homologacao'),
+    evaluateSystemRCompatibilityForVm($requirements, $vmLoader((int)($row['vm_dev_id'] ?? 0)), 'Desenvolvimento'),
+  ];
+
+  $statuses = array_map(fn($item) => (string)($item['status'] ?? 'not_applicable'), $environments);
+  $overall = 'not_applicable';
+  if ($requirements['has_requirements']) {
+    if (in_array('incompatible', $statuses, true)) { $overall = 'incompatible'; }
+    elseif (in_array('warning', $statuses, true)) { $overall = 'warning'; }
+    elseif (in_array('compatible', $statuses, true)) { $overall = 'compatible'; }
+    elseif (in_array('no_vm', $statuses, true)) { $overall = 'no_vm'; }
+    else { $overall = 'warning'; }
+  }
+
+  $issues = 0;
+  foreach ($environments as $env) {
+    if (!is_array($env)) { continue; }
+    $issues += count($env['missing_required_packages'] ?? []);
+  }
+
+  return [
+    'has_requirements' => (bool)($requirements['has_requirements'] ?? false),
+    'status' => $overall,
+    'label' => systemRCompatibilityLabel($overall),
+    'issues' => $issues,
+    'environments' => $environments,
+  ];
+}
+
+function enrichSystemRowWithPhpCompatibility(array $row, callable $vmLoader): array {
+  $phpRequirements = phpRequirementsFromSystemRow($row);
+  $row['php_required_extensions'] = implode(',', $phpRequirements['required_extensions']);
+  $row['php_recommended_extensions'] = implode(',', $phpRequirements['recommended_extensions']);
+  $row['php_required_libraries'] = implode(',', $phpRequirements['required_libraries']);
+  $row['php_required_ini'] = (string)($phpRequirements['ini_text'] ?? '');
+  $row['php_required_extensions_list'] = $phpRequirements['required_extensions'];
+  $row['php_recommended_extensions_list'] = $phpRequirements['recommended_extensions'];
+  $row['php_required_libraries_list'] = $phpRequirements['required_libraries'];
+  $row['php_required_ini_list'] = array_map(fn($rule) => (string)($rule['raw'] ?? ''), $phpRequirements['ini_rules'] ?? []);
+  $row['php_requirements'] = [
+    'required_extensions' => $phpRequirements['required_extensions'],
+    'recommended_extensions' => $phpRequirements['recommended_extensions'],
+    'required_libraries' => $phpRequirements['required_libraries'],
+    'required_ini' => $row['php_required_ini_list'],
+    'has_requirements' => (bool)($phpRequirements['has_requirements'] ?? false),
+  ];
+
+  $rRequirements = rRequirementsFromSystemRow($row);
+  $row['r_required_packages'] = implode(',', $rRequirements['required_packages']);
+  $row['r_required_packages_list'] = $rRequirements['required_packages'];
+  $row['r_requirements'] = [
+    'required_packages' => $rRequirements['required_packages'],
+    'has_requirements' => (bool)($rRequirements['has_requirements'] ?? false),
+  ];
+
+  $row['php_compatibility'] = buildSystemPhpCompatibility($row, $vmLoader);
+  $row['r_compatibility'] = buildSystemRCompatibility($row, $vmLoader);
+  return $row;
+}
+
+function normalizePortListValue($raw, ?string &$error = null): string {
+  $error = null;
+  $tokens = [];
+  if (is_array($raw)) {
+    foreach ($raw as $entry) {
+      $parts = preg_split('/[\r\n,;\s]+/', (string)$entry) ?: [];
+      foreach ($parts as $part) {
+        $value = trim((string)$part);
+        if ($value !== '') { $tokens[] = $value; }
+      }
+    }
+  } else {
+    $parts = preg_split('/[\r\n,;\s]+/', (string)$raw) ?: [];
+    foreach ($parts as $part) {
+      $value = trim((string)$part);
+      if ($value !== '') { $tokens[] = $value; }
+    }
+  }
+
+  $seen = [];
+  $out = [];
+  foreach ($tokens as $token) {
+    if (!preg_match('/^\d+$/', $token)) {
+      $error = "Porta de execucao invalida: {$token}.";
+      return '';
+    }
+    $port = (int)$token;
+    if ($port < 1 || $port > 65535) {
+      $error = "Porta de execucao fora da faixa: {$token}.";
+      return '';
+    }
+    $normalized = (string)$port;
+    if (isset($seen[$normalized])) { continue; }
+    $seen[$normalized] = true;
+    $out[] = $normalized;
+  }
+
+  return implode(',', $out);
+}
+
+function boolFromMixed($value): bool {
+  if (is_bool($value)) { return $value; }
+  if (is_int($value) || is_float($value)) { return ((int)$value) !== 0; }
+  $normalized = strtolower(trim((string)$value));
+  if ($normalized === '') { return false; }
+  return in_array($normalized, ['1', 'true', 'sim', 'yes', 'on'], true);
+}
+
 function vmTechListFromRow(array $row): array {
   if (is_array($row['vm_tech_list'] ?? null)) {
     return array_values(array_filter(array_map(fn($v) => trim((string)$v), $row['vm_tech_list'])));
   }
+  $appServer = splitCsvList((string)($row['vm_app_server'] ?? ''));
+  if ($appServer) { return $appServer; }
   return splitCsvList((string)($row['vm_tech'] ?? ''));
+}
+
+function vmAppServerListFromRow(array $row): array {
+  if (is_array($row['vm_app_server_list'] ?? null)) {
+    return array_values(array_filter(array_map(fn($v) => trim((string)$v), $row['vm_app_server_list'])));
+  }
+  $list = splitCsvList((string)($row['vm_app_server'] ?? ''));
+  if ($list) { return $list; }
+  return splitCsvList((string)($row['vm_tech'] ?? ''));
+}
+
+function vmWebServerListFromRow(array $row): array {
+  if (is_array($row['vm_web_server_list'] ?? null)) {
+    return array_values(array_filter(array_map(fn($v) => trim((string)$v), $row['vm_web_server_list'])));
+  }
+  return splitCsvList((string)($row['vm_web_server'] ?? ''));
+}
+
+function vmContainerToolListFromRow(array $row): array {
+  if (is_array($row['vm_container_tool_list'] ?? null)) {
+    return array_values(array_filter(array_map(fn($v) => trim((string)$v), $row['vm_container_tool_list'])));
+  }
+  return splitCsvList((string)($row['vm_container_tool'] ?? ''));
 }
 
 function vmLanguageListFromRow(array $row): array {
@@ -352,6 +1073,17 @@ function listVmsSqlite3(SQLite3 $db, bool $archived=false): array {
     $row['vm_instances_list'] = normalizeVmInstancesValue($row['vm_instances']);
     $row['vm_language'] = trim((string)($row['vm_language'] ?? ''));
     $row['vm_language_list'] = vmLanguageListFromRow($row);
+    $row['vm_target_version'] = trim((string)($row['vm_target_version'] ?? ''));
+    $row['vm_tech'] = trim((string)($row['vm_tech'] ?? ''));
+    $row['vm_app_server'] = trim((string)($row['vm_app_server'] ?? ''));
+    if ($row['vm_app_server'] === '' && $row['vm_tech'] !== '') { $row['vm_app_server'] = $row['vm_tech']; }
+    $row['vm_app_server_list'] = vmAppServerListFromRow($row);
+    $row['vm_web_server'] = trim((string)($row['vm_web_server'] ?? ''));
+    $row['vm_web_server_list'] = vmWebServerListFromRow($row);
+    $row['vm_containerization'] = boolFromMixed($row['vm_containerization'] ?? 0) ? 1 : 0;
+    $row['vm_container_tool'] = trim((string)($row['vm_container_tool'] ?? ''));
+    $row['vm_container_tool_list'] = $row['vm_containerization'] > 0 ? vmContainerToolListFromRow($row) : [];
+    $row['vm_runtime_port'] = trim((string)($row['vm_runtime_port'] ?? ''));
     $row['vm_tech'] = trim((string)($row['vm_tech'] ?? ''));
     $row['vm_tech_list'] = vmTechListFromRow($row);
     $row['diagnostic_json_ref'] = trim((string)($row['diagnostic_json_ref'] ?? ''));
@@ -395,6 +1127,17 @@ function listVmsPdo(PDO $db, bool $archived=false): array {
     $row['vm_instances_list'] = normalizeVmInstancesValue($row['vm_instances']);
     $row['vm_language'] = trim((string)($row['vm_language'] ?? ''));
     $row['vm_language_list'] = vmLanguageListFromRow($row);
+    $row['vm_target_version'] = trim((string)($row['vm_target_version'] ?? ''));
+    $row['vm_tech'] = trim((string)($row['vm_tech'] ?? ''));
+    $row['vm_app_server'] = trim((string)($row['vm_app_server'] ?? ''));
+    if ($row['vm_app_server'] === '' && $row['vm_tech'] !== '') { $row['vm_app_server'] = $row['vm_tech']; }
+    $row['vm_app_server_list'] = vmAppServerListFromRow($row);
+    $row['vm_web_server'] = trim((string)($row['vm_web_server'] ?? ''));
+    $row['vm_web_server_list'] = vmWebServerListFromRow($row);
+    $row['vm_containerization'] = boolFromMixed($row['vm_containerization'] ?? 0) ? 1 : 0;
+    $row['vm_container_tool'] = trim((string)($row['vm_container_tool'] ?? ''));
+    $row['vm_container_tool_list'] = $row['vm_containerization'] > 0 ? vmContainerToolListFromRow($row) : [];
+    $row['vm_runtime_port'] = trim((string)($row['vm_runtime_port'] ?? ''));
     $row['vm_tech'] = trim((string)($row['vm_tech'] ?? ''));
     $row['vm_tech_list'] = vmTechListFromRow($row);
     $row['diagnostic_json_ref'] = trim((string)($row['diagnostic_json_ref'] ?? ''));
@@ -413,7 +1156,7 @@ function listVmsPdo(PDO $db, bool $archived=false): array {
 }
 
 function fetchVmByIdSqlite3(SQLite3 $db, int $id): ?array {
-  $st = $db->prepare("SELECT id,name,ip,vm_category,vm_type,vm_access,vm_administration,vm_instances,vm_language,vm_tech,diagnostic_json_ref,diagnostic_json_updated_at,diagnostic_json_ref_r,diagnostic_json_updated_at_r,os_name,os_version,vcpus,ram,disk,created_at,updated_at FROM virtual_machines WHERE id=:id");
+  $st = $db->prepare("SELECT id,name,ip,vm_category,vm_type,vm_access,vm_administration,vm_instances,vm_language,vm_target_version,vm_app_server,vm_web_server,vm_containerization,vm_container_tool,vm_runtime_port,vm_tech,diagnostic_json_ref,diagnostic_json_updated_at,diagnostic_json_ref_r,diagnostic_json_updated_at_r,os_name,os_version,vcpus,ram,disk,created_at,updated_at FROM virtual_machines WHERE id=:id");
   $st->bindValue(':id', $id, SQLITE3_INTEGER);
   $res = $st->execute();
   $row = $res ? $res->fetchArray(SQLITE3_ASSOC) : false;
@@ -430,6 +1173,17 @@ function fetchVmByIdSqlite3(SQLite3 $db, int $id): ?array {
   $row['vm_instances_list'] = normalizeVmInstancesValue($row['vm_instances']);
   $row['vm_language'] = trim((string)($row['vm_language'] ?? ''));
   $row['vm_language_list'] = vmLanguageListFromRow($row);
+  $row['vm_target_version'] = trim((string)($row['vm_target_version'] ?? ''));
+  $row['vm_tech'] = trim((string)($row['vm_tech'] ?? ''));
+  $row['vm_app_server'] = trim((string)($row['vm_app_server'] ?? ''));
+  if ($row['vm_app_server'] === '' && $row['vm_tech'] !== '') { $row['vm_app_server'] = $row['vm_tech']; }
+  $row['vm_app_server_list'] = vmAppServerListFromRow($row);
+  $row['vm_web_server'] = trim((string)($row['vm_web_server'] ?? ''));
+  $row['vm_web_server_list'] = vmWebServerListFromRow($row);
+  $row['vm_containerization'] = boolFromMixed($row['vm_containerization'] ?? 0) ? 1 : 0;
+  $row['vm_container_tool'] = trim((string)($row['vm_container_tool'] ?? ''));
+  $row['vm_container_tool_list'] = $row['vm_containerization'] > 0 ? vmContainerToolListFromRow($row) : [];
+  $row['vm_runtime_port'] = trim((string)($row['vm_runtime_port'] ?? ''));
   $row['vm_tech'] = trim((string)($row['vm_tech'] ?? ''));
   $row['vm_tech_list'] = vmTechListFromRow($row);
   $row['diagnostic_json_ref'] = trim((string)($row['diagnostic_json_ref'] ?? ''));
@@ -441,7 +1195,7 @@ function fetchVmByIdSqlite3(SQLite3 $db, int $id): ?array {
 }
 
 function fetchVmByIdPdo(PDO $db, int $id): ?array {
-  $st = $db->prepare("SELECT id,name,ip,vm_category,vm_type,vm_access,vm_administration,vm_instances,vm_language,vm_tech,diagnostic_json_ref,diagnostic_json_updated_at,diagnostic_json_ref_r,diagnostic_json_updated_at_r,os_name,os_version,vcpus,ram,disk,created_at,updated_at FROM virtual_machines WHERE id=:id");
+  $st = $db->prepare("SELECT id,name,ip,vm_category,vm_type,vm_access,vm_administration,vm_instances,vm_language,vm_target_version,vm_app_server,vm_web_server,vm_containerization,vm_container_tool,vm_runtime_port,vm_tech,diagnostic_json_ref,diagnostic_json_updated_at,diagnostic_json_ref_r,diagnostic_json_updated_at_r,os_name,os_version,vcpus,ram,disk,created_at,updated_at FROM virtual_machines WHERE id=:id");
   $st->bindValue(':id', $id, PDO::PARAM_INT);
   $st->execute();
   $row = $st->fetch(PDO::FETCH_ASSOC);
@@ -458,6 +1212,17 @@ function fetchVmByIdPdo(PDO $db, int $id): ?array {
   $row['vm_instances_list'] = normalizeVmInstancesValue($row['vm_instances']);
   $row['vm_language'] = trim((string)($row['vm_language'] ?? ''));
   $row['vm_language_list'] = vmLanguageListFromRow($row);
+  $row['vm_target_version'] = trim((string)($row['vm_target_version'] ?? ''));
+  $row['vm_tech'] = trim((string)($row['vm_tech'] ?? ''));
+  $row['vm_app_server'] = trim((string)($row['vm_app_server'] ?? ''));
+  if ($row['vm_app_server'] === '' && $row['vm_tech'] !== '') { $row['vm_app_server'] = $row['vm_tech']; }
+  $row['vm_app_server_list'] = vmAppServerListFromRow($row);
+  $row['vm_web_server'] = trim((string)($row['vm_web_server'] ?? ''));
+  $row['vm_web_server_list'] = vmWebServerListFromRow($row);
+  $row['vm_containerization'] = boolFromMixed($row['vm_containerization'] ?? 0) ? 1 : 0;
+  $row['vm_container_tool'] = trim((string)($row['vm_container_tool'] ?? ''));
+  $row['vm_container_tool_list'] = $row['vm_containerization'] > 0 ? vmContainerToolListFromRow($row) : [];
+  $row['vm_runtime_port'] = trim((string)($row['vm_runtime_port'] ?? ''));
   $row['vm_tech'] = trim((string)($row['vm_tech'] ?? ''));
   $row['vm_tech_list'] = vmTechListFromRow($row);
   $row['diagnostic_json_ref'] = trim((string)($row['diagnostic_json_ref'] ?? ''));
@@ -881,6 +1646,116 @@ function fetchDatabaseByIdPdo(PDO $db, int $id): ?array {
   return normalizeDatabaseRow($row);
 }
 
+function normalizeTicketTargetType(string $raw): string {
+  return strtolower(trim($raw)) === 'vm' ? 'vm' : 'system';
+}
+
+function ticketSelectSql(): string {
+  return "SELECT
+    t.*,
+    s.name AS system_name_ref,
+    vm.name AS vm_name_ref
+  FROM tickets t
+  LEFT JOIN systems s ON s.id = t.system_id
+  LEFT JOIN virtual_machines vm ON vm.id = t.vm_id";
+}
+
+function normalizeTicketRow(array $row): array {
+  foreach ($row as $key => $value) {
+    if (is_string($value)) { $row[$key] = normalizeUtf8Text($value); }
+  }
+  $row['id'] = (int)($row['id'] ?? 0);
+  $row['target_type'] = normalizeTicketTargetType((string)($row['target_type'] ?? 'system'));
+  $row['system_id'] = isset($row['system_id']) && $row['system_id'] !== null && (int)$row['system_id'] > 0 ? (int)$row['system_id'] : null;
+  $row['vm_id'] = isset($row['vm_id']) && $row['vm_id'] !== null && (int)$row['vm_id'] > 0 ? (int)$row['vm_id'] : null;
+  $row['ticket_number'] = trim((string)($row['ticket_number'] ?? ''));
+  $row['description'] = trim((string)($row['description'] ?? ''));
+  $row['created_at'] = trim((string)($row['created_at'] ?? ''));
+  $row['updated_at'] = trim((string)($row['updated_at'] ?? ''));
+  $systemName = trim((string)($row['system_name_ref'] ?? ''));
+  $vmName = trim((string)($row['vm_name_ref'] ?? ''));
+  $row['target_name'] = $row['target_type'] === 'vm' ? ($vmName !== '' ? $vmName : '-') : ($systemName !== '' ? $systemName : '-');
+  return $row;
+}
+
+function listTicketsSqlite3(SQLite3 $db): array {
+  $res = $db->query(ticketSelectSql() . " ORDER BY t.created_at DESC, t.id DESC");
+  $out = [];
+  while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
+    $out[] = normalizeTicketRow($row);
+  }
+  return $out;
+}
+
+function listTicketsPdo(PDO $db): array {
+  $rows = $db->query(ticketSelectSql() . " ORDER BY t.created_at DESC, t.id DESC")->fetchAll(PDO::FETCH_ASSOC);
+  foreach ($rows as &$row) { $row = normalizeTicketRow($row); }
+  unset($row);
+  return $rows;
+}
+
+function fetchTicketByIdSqlite3(SQLite3 $db, int $id): ?array {
+  $st = $db->prepare(ticketSelectSql() . " WHERE t.id=:id LIMIT 1");
+  $st->bindValue(':id', $id, SQLITE3_INTEGER);
+  $res = $st->execute();
+  $row = $res ? $res->fetchArray(SQLITE3_ASSOC) : false;
+  if (!is_array($row)) { return null; }
+  return normalizeTicketRow($row);
+}
+
+function fetchTicketByIdPdo(PDO $db, int $id): ?array {
+  $st = $db->prepare(ticketSelectSql() . " WHERE t.id=:id LIMIT 1");
+  $st->bindValue(':id', $id, PDO::PARAM_INT);
+  $st->execute();
+  $row = $st->fetch(PDO::FETCH_ASSOC);
+  if (!is_array($row)) { return null; }
+  return normalizeTicketRow($row);
+}
+
+function fetchActiveSystemNameSqlite3(SQLite3 $db, int $id): ?string {
+  if ($id <= 0) { return null; }
+  $st = $db->prepare("SELECT name FROM systems WHERE id=:id AND IFNULL(archived,0)=0 LIMIT 1");
+  $st->bindValue(':id', $id, SQLITE3_INTEGER);
+  $res = $st->execute();
+  $row = $res ? $res->fetchArray(SQLITE3_ASSOC) : false;
+  if (!is_array($row)) { return null; }
+  $name = trim((string)($row['name'] ?? ''));
+  return $name !== '' ? $name : null;
+}
+
+function fetchActiveSystemNamePdo(PDO $db, int $id): ?string {
+  if ($id <= 0) { return null; }
+  $st = $db->prepare("SELECT name FROM systems WHERE id=:id AND IFNULL(archived,0)=0 LIMIT 1");
+  $st->bindValue(':id', $id, PDO::PARAM_INT);
+  $st->execute();
+  $row = $st->fetch(PDO::FETCH_ASSOC);
+  if (!is_array($row)) { return null; }
+  $name = trim((string)($row['name'] ?? ''));
+  return $name !== '' ? $name : null;
+}
+
+function fetchActiveVmNameSqlite3(SQLite3 $db, int $id): ?string {
+  if ($id <= 0) { return null; }
+  $st = $db->prepare("SELECT name FROM virtual_machines WHERE id=:id AND IFNULL(archived,0)=0 LIMIT 1");
+  $st->bindValue(':id', $id, SQLITE3_INTEGER);
+  $res = $st->execute();
+  $row = $res ? $res->fetchArray(SQLITE3_ASSOC) : false;
+  if (!is_array($row)) { return null; }
+  $name = trim((string)($row['name'] ?? ''));
+  return $name !== '' ? $name : null;
+}
+
+function fetchActiveVmNamePdo(PDO $db, int $id): ?string {
+  if ($id <= 0) { return null; }
+  $st = $db->prepare("SELECT name FROM virtual_machines WHERE id=:id AND IFNULL(archived,0)=0 LIMIT 1");
+  $st->bindValue(':id', $id, PDO::PARAM_INT);
+  $st->execute();
+  $row = $st->fetch(PDO::FETCH_ASSOC);
+  if (!is_array($row)) { return null; }
+  $name = trim((string)($row['name'] ?? ''));
+  return $name !== '' ? $name : null;
+}
+
 function startAppSession(): void {
   if (session_status() === PHP_SESSION_ACTIVE) { return; }
   session_name('SEIPORTFOLIOSESSID');
@@ -1086,6 +1961,53 @@ function restoreBackupDiagnostics(array $files): void {
   }
 }
 
+function backupSystemDocsFromSystemRows(array $rows): array {
+  $files = [];
+  $seen = [];
+  $root = systemDocProjectRoot();
+  foreach ($rows as $row) {
+    if (!is_array($row)) { continue; }
+    $refs = systemDocReferencesFromSystemRow($row);
+    foreach ($refs as $ref) {
+      if (isset($seen[$ref])) { continue; }
+      $seen[$ref] = true;
+      $relative = str_replace(['\\', '/'], DIRECTORY_SEPARATOR, $ref);
+      $fullPath = $root . DIRECTORY_SEPARATOR . ltrim($relative, DIRECTORY_SEPARATOR);
+      if (!is_file($fullPath) || !is_readable($fullPath)) { continue; }
+      $content = @file_get_contents($fullPath);
+      if (!is_string($content)) { continue; }
+      $files[] = [
+        'reference' => $ref,
+        'content_base64' => base64_encode($content),
+      ];
+    }
+  }
+  return $files;
+}
+
+function restoreBackupSystemDocs(array $files): void {
+  if (!$files) { return; }
+  $baseDir = systemDocDir();
+  if (!is_dir($baseDir) && !@mkdir($baseDir, 0775, true) && !is_dir($baseDir)) { return; }
+  $baseReal = realpath($baseDir);
+  if ($baseReal === false) { return; }
+
+  foreach ($files as $item) {
+    if (!is_array($item)) { continue; }
+    $ref = trim((string)($item['reference'] ?? ''));
+    $contentBase64 = trim((string)($item['content_base64'] ?? ''));
+    if ($ref === '' || $contentBase64 === '') { continue; }
+    $normalizedRef = str_replace('\\', '/', $ref);
+    if (!preg_match('#^data/system_docs/([A-Za-z0-9._-]+\.pdf)$#i', $normalizedRef, $match)) { continue; }
+    $filename = trim((string)($match[1] ?? ''));
+    if ($filename === '' || $filename === '.' || $filename === '..') { continue; }
+    $decoded = base64_decode($contentBase64, true);
+    if ($decoded === false) { continue; }
+    $fullPath = $baseReal . DIRECTORY_SEPARATOR . $filename;
+    @file_put_contents($fullPath, $decoded);
+  }
+}
+
 function sqlValueSqlite3($value): string {
   if ($value === null) { return 'NULL'; }
   if (is_bool($value)) { return $value ? '1' : '0'; }
@@ -1228,7 +2150,7 @@ function handleApiRequest(): void {
       return;
     }
 
-    $publicActions = ['list', 'vm-list', 'db-list', 'archived-list'];
+    $publicActions = ['list', 'vm-list', 'db-list', 'archived-list', 'ticket-list', 'system-doc-view'];
     $authUser = sessionAuthUser();
     if (!$authUser && !in_array($api, $publicActions, true)) {
       echo json_encode(['ok'=>false,'error'=>'Autenticacao necessaria.'], JSON_UNESCAPED_UNICODE);
@@ -1291,7 +2213,7 @@ function handleApiRequest(): void {
       return;
     }
 
-    $editActions = ['save', 'archive', 'restore', 'vm-save', 'vm-archive', 'vm-restore', 'db-save', 'db-delete', 'vm-diagnostic-save', 'vm-diagnostic-clear'];
+    $editActions = ['save', 'archive', 'restore', 'vm-save', 'vm-archive', 'vm-restore', 'db-save', 'db-delete', 'vm-diagnostic-save', 'vm-diagnostic-clear', 'ticket-save', 'ticket-update', 'ticket-delete', 'system-doc-upload', 'system-doc-delete'];
     if (in_array($api, $editActions, true) && !roleAtLeast((string)$authUser['role'], 'edicao')) {
       echo json_encode(['ok'=>false,'error'=>'Perfil apenas leitura.'], JSON_UNESCAPED_UNICODE);
       return;
@@ -1322,6 +2244,79 @@ function handleApiRequest(): void {
       return;
     }
 
+    if ($api === 'ticket-list') {
+      $out = $db instanceof SQLite3 ? listTicketsSqlite3($db) : listTicketsPdo($db);
+      echo json_encode(['ok'=>true,'data'=>$out], JSON_UNESCAPED_UNICODE);
+      return;
+    }
+
+    if ($api === 'system-doc-view') {
+      $id = (int)($_GET['id'] ?? 0);
+      $docType = normalizeSystemDocType((string)($_GET['doc_type'] ?? ''));
+      $docMap = systemDocFieldMap($docType);
+      if ($id <= 0 || $docMap === null) {
+        echo json_encode(['ok'=>false,'error'=>'Parametros invalidos.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+
+      $row = $db instanceof SQLite3 ? fetchSystemByIdSqlite3($db, $id) : fetchSystemByIdPdo($db, $id);
+      if (!$row) {
+        echo json_encode(['ok'=>false,'error'=>'Sistema nao encontrado.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+
+      $reference = trim((string)($row[$docMap['ref']] ?? ''));
+      if ($reference === '') {
+        echo json_encode(['ok'=>false,'error'=>'Documento nao cadastrado.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+
+      $relative = str_replace(['\\', '/'], DIRECTORY_SEPARATOR, $reference);
+      $fullPath = systemDocProjectRoot() . DIRECTORY_SEPARATOR . ltrim($relative, DIRECTORY_SEPARATOR);
+      if (!is_file($fullPath) || !is_readable($fullPath)) {
+        echo json_encode(['ok'=>false,'error'=>'Arquivo de documento nao encontrado.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+
+      $filename = basename($fullPath);
+      if (function_exists('header_remove')) { @header_remove('Content-Type'); }
+      header('Content-Type: application/pdf');
+      header('Content-Length: ' . (string)filesize($fullPath));
+      header('Content-Disposition: inline; filename="' . rawurlencode($filename) . '"');
+      readfile($fullPath);
+      return;
+    }
+
+    if ($api === 'system-php-compat-get') {
+      $id = (int)($_GET['id'] ?? 0);
+      if ($id <= 0) {
+        echo json_encode(['ok'=>false,'error'=>'Invalid ID'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+      $row = $db instanceof SQLite3 ? fetchSystemByIdSqlite3($db, $id) : fetchSystemByIdPdo($db, $id);
+      if (!$row) {
+        echo json_encode(['ok'=>false,'error'=>'Sistema nao encontrado'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+      echo json_encode(['ok'=>true,'data'=>$row], JSON_UNESCAPED_UNICODE);
+      return;
+    }
+
+    if ($api === 'system-r-compat-get') {
+      $id = (int)($_GET['id'] ?? 0);
+      if ($id <= 0) {
+        echo json_encode(['ok'=>false,'error'=>'Invalid ID'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+      $row = $db instanceof SQLite3 ? fetchSystemByIdSqlite3($db, $id) : fetchSystemByIdPdo($db, $id);
+      if (!$row) {
+        echo json_encode(['ok'=>false,'error'=>'Sistema nao encontrado'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+      echo json_encode(['ok'=>true,'data'=>$row], JSON_UNESCAPED_UNICODE);
+      return;
+    }
+
     if ($api === 'export-csv') {
       $scope = strtolower(trim((string)($_GET['scope'] ?? 'systems')));
       if (!in_array($scope, ['systems', 'vms', 'databases'], true)) {
@@ -1333,7 +2328,7 @@ function handleApiRequest(): void {
       $rows = [];
       if ($scope === 'systems') {
         $systems = $db instanceof SQLite3 ? fetchSystemsSqlite3($db, false) : fetchSystemsPdo($db, false);
-        $headers = ['id','name','system_name','category','system_group','status','criticality','owner','url','url_homolog','vm_name','vm_ip','vm_homolog_name','vm_homolog_ip','vm_dev_name','vm_dev_ip','tech','description','notes','updated_at'];
+        $headers = ['id','name','system_name','category','system_group','status','criticality','owner','url','url_homolog','vm_name','vm_ip','vm_homolog_name','vm_homolog_ip','vm_dev_name','vm_dev_ip','tech','target_version','app_server','web_server','containerization','container_tool','runtime_port','php_required_extensions','php_recommended_extensions','php_required_libraries','php_required_ini','r_required_packages','description','notes','updated_at'];
         foreach ($systems as $item) {
           if (!is_array($item)) { continue; }
           $rows[] = [
@@ -1354,6 +2349,17 @@ function handleApiRequest(): void {
             'vm_dev_name' => (string)($item['vm_dev_name'] ?? ''),
             'vm_dev_ip' => (string)($item['vm_dev_ip'] ?? ''),
             'tech' => is_array($item['tech'] ?? null) ? implode(', ', $item['tech']) : (string)($item['tech'] ?? ''),
+            'target_version' => (string)($item['target_version'] ?? ''),
+            'app_server' => (string)($item['app_server'] ?? ''),
+            'web_server' => (string)($item['web_server'] ?? ''),
+            'containerization' => (int)($item['containerization'] ?? 0) > 0 ? 1 : 0,
+            'container_tool' => (string)($item['container_tool'] ?? ''),
+            'runtime_port' => (string)($item['runtime_port'] ?? ''),
+            'php_required_extensions' => (string)($item['php_required_extensions'] ?? ''),
+            'php_recommended_extensions' => (string)($item['php_recommended_extensions'] ?? ''),
+            'php_required_libraries' => (string)($item['php_required_libraries'] ?? ''),
+            'php_required_ini' => (string)($item['php_required_ini'] ?? ''),
+            'r_required_packages' => (string)($item['r_required_packages'] ?? ''),
             'description' => (string)($item['description'] ?? ''),
             'notes' => (string)($item['notes'] ?? ''),
             'updated_at' => (string)($item['updated_at'] ?? ''),
@@ -1361,7 +2367,7 @@ function handleApiRequest(): void {
         }
       } elseif ($scope === 'vms') {
         $vms = $db instanceof SQLite3 ? listVmsSqlite3($db, false) : listVmsPdo($db, false);
-        $headers = ['id','name','ip','vm_category','vm_type','vm_access','vm_administration','os_name','vcpus','ram','disk','vm_language','vm_tech','vm_instances','system_count','database_count','updated_at'];
+        $headers = ['id','name','ip','vm_category','vm_type','vm_access','vm_administration','os_name','vcpus','ram','disk','vm_language','vm_target_version','vm_app_server','vm_web_server','vm_containerization','vm_container_tool','vm_runtime_port','vm_tech','vm_instances','system_count','database_count','updated_at'];
         foreach ($vms as $item) {
           if (!is_array($item)) { continue; }
           $rows[] = [
@@ -1377,6 +2383,12 @@ function handleApiRequest(): void {
             'ram' => (string)($item['ram'] ?? ''),
             'disk' => (string)($item['disk'] ?? ''),
             'vm_language' => is_array($item['vm_language_list'] ?? null) ? implode(', ', $item['vm_language_list']) : (string)($item['vm_language'] ?? ''),
+            'vm_target_version' => (string)($item['vm_target_version'] ?? ''),
+            'vm_app_server' => is_array($item['vm_app_server_list'] ?? null) ? implode(', ', $item['vm_app_server_list']) : (string)($item['vm_app_server'] ?? ''),
+            'vm_web_server' => is_array($item['vm_web_server_list'] ?? null) ? implode(', ', $item['vm_web_server_list']) : (string)($item['vm_web_server'] ?? ''),
+            'vm_containerization' => (int)($item['vm_containerization'] ?? 0) > 0 ? 1 : 0,
+            'vm_container_tool' => is_array($item['vm_container_tool_list'] ?? null) ? implode(', ', $item['vm_container_tool_list']) : (string)($item['vm_container_tool'] ?? ''),
+            'vm_runtime_port' => (string)($item['vm_runtime_port'] ?? ''),
             'vm_tech' => is_array($item['vm_tech_list'] ?? null) ? implode(', ', $item['vm_tech_list']) : (string)($item['vm_tech'] ?? ''),
             'vm_instances' => is_array($item['vm_instances_list'] ?? null) ? json_encode($item['vm_instances_list'], JSON_UNESCAPED_UNICODE) : (string)($item['vm_instances'] ?? ''),
             'system_count' => (int)($item['system_count'] ?? 0),
@@ -1424,10 +2436,11 @@ function handleApiRequest(): void {
       $dbArchived = $db instanceof SQLite3 ? listDatabasesSqlite3($db, true) : listDatabasesPdo($db, true);
       $users = $db instanceof SQLite3 ? fetchUsersForBackupSqlite3($db) : fetchUsersForBackupPdo($db);
       $diagnosticFiles = backupDiagnosticsFromVmRows(array_merge($vmsActive, $vmsArchived));
+      $systemDocFiles = backupSystemDocsFromSystemRows(array_merge($systemsActive, $systemsArchived));
 
       $payload = [
         'meta' => [
-          'app' => 'SEI Portifolio',
+          'app' => 'Catálogo de Sistemas SEI',
           'version' => 1,
           'exported_at' => date('c'),
         ],
@@ -1436,6 +2449,7 @@ function handleApiRequest(): void {
         'databases' => ['active' => $dbActive, 'archived' => $dbArchived],
         'users' => $users,
         'diagnostic_files' => $diagnosticFiles,
+        'system_doc_files' => $systemDocFiles,
       ];
 
       echo json_encode(['ok'=>true,'data'=>$payload], JSON_UNESCAPED_UNICODE);
@@ -1453,6 +2467,7 @@ function handleApiRequest(): void {
       $databaseRows = sanitizeBackupRows($backup, 'databases');
       $usersRows = is_array($backup['users'] ?? null) ? $backup['users'] : [];
       $diagnosticFiles = is_array($backup['diagnostic_files'] ?? null) ? $backup['diagnostic_files'] : [];
+      $systemDocFiles = is_array($backup['system_doc_files'] ?? null) ? $backup['system_doc_files'] : [];
 
       if (!$systemsRows && !$vmRows && !$databaseRows) {
         echo json_encode(['ok'=>false,'error'=>'Backup vazio ou invalido.'], JSON_UNESCAPED_UNICODE);
@@ -1476,6 +2491,17 @@ function handleApiRequest(): void {
             if (is_array($vmLanguage)) { $vmLanguage = implode(',', array_filter(array_map('trim', $vmLanguage))); }
             $vmTech = $row['vm_tech'] ?? ($row['vm_tech_list'] ?? '');
             if (is_array($vmTech)) { $vmTech = implode(',', array_filter(array_map('trim', $vmTech))); }
+            $vmTargetVersion = trim((string)($row['vm_target_version'] ?? ''));
+            $vmAppServer = $row['vm_app_server'] ?? ($row['vm_app_server_list'] ?? '');
+            if (is_array($vmAppServer)) { $vmAppServer = implode(',', array_filter(array_map('trim', $vmAppServer))); }
+            if ((string)$vmAppServer === '' && (string)$vmTech !== '') { $vmAppServer = (string)$vmTech; }
+            $vmWebServer = $row['vm_web_server'] ?? ($row['vm_web_server_list'] ?? '');
+            if (is_array($vmWebServer)) { $vmWebServer = implode(',', array_filter(array_map('trim', $vmWebServer))); }
+            $vmContainerization = boolFromMixed($row['vm_containerization'] ?? 0) ? 1 : 0;
+            $vmContainerTool = $row['vm_container_tool'] ?? ($row['vm_container_tool_list'] ?? '');
+            if (is_array($vmContainerTool)) { $vmContainerTool = implode(',', array_filter(array_map('trim', $vmContainerTool))); }
+            if ($vmContainerization === 0) { $vmContainerTool = ''; }
+            $vmRuntimePort = trim((string)($row['vm_runtime_port'] ?? ''));
             $values = [
               sqlValueSqlite3($id),
               sqlValueSqlite3(normalizeUtf8Text(trim((string)($row['name'] ?? '')))),
@@ -1486,6 +2512,12 @@ function handleApiRequest(): void {
               sqlValueSqlite3(trim((string)($row['vm_administration'] ?? 'SEI')) ?: 'SEI'),
               sqlValueSqlite3((string)$vmInstances),
               sqlValueSqlite3((string)$vmLanguage),
+              sqlValueSqlite3((string)$vmTargetVersion),
+              sqlValueSqlite3((string)$vmAppServer),
+              sqlValueSqlite3((string)$vmWebServer),
+              sqlValueSqlite3((int)$vmContainerization > 0 ? 1 : 0),
+              sqlValueSqlite3((string)$vmContainerTool),
+              sqlValueSqlite3((string)$vmRuntimePort),
               sqlValueSqlite3((string)$vmTech),
               sqlValueSqlite3(trim((string)($row['diagnostic_json_ref'] ?? ''))),
               sqlValueSqlite3(trim((string)($row['diagnostic_json_updated_at'] ?? '')) ?: null),
@@ -1501,7 +2533,7 @@ function handleApiRequest(): void {
               sqlValueSqlite3(trim((string)($row['created_at'] ?? date('Y-m-d H:i:s')))),
               sqlValueSqlite3(trim((string)($row['updated_at'] ?? date('Y-m-d H:i:s')))),
             ];
-            $db->exec("INSERT INTO virtual_machines(id,name,ip,vm_category,vm_type,vm_access,vm_administration,vm_instances,vm_language,vm_tech,diagnostic_json_ref,diagnostic_json_updated_at,diagnostic_json_ref_r,diagnostic_json_updated_at_r,os_name,os_version,vcpus,ram,disk,archived,archived_at,created_at,updated_at) VALUES(" . implode(',', $values) . ")");
+            $db->exec("INSERT INTO virtual_machines(id,name,ip,vm_category,vm_type,vm_access,vm_administration,vm_instances,vm_language,vm_target_version,vm_app_server,vm_web_server,vm_containerization,vm_container_tool,vm_runtime_port,vm_tech,diagnostic_json_ref,diagnostic_json_updated_at,diagnostic_json_ref_r,diagnostic_json_updated_at_r,os_name,os_version,vcpus,ram,disk,archived,archived_at,created_at,updated_at) VALUES(" . implode(',', $values) . ")");
           }
 
           foreach ($systemsRows as $row) {
@@ -1511,6 +2543,17 @@ function handleApiRequest(): void {
             if ($id <= 0 || $name === '') { continue; }
             $tech = $row['tech'] ?? '';
             if (is_array($tech)) { $tech = implode(',', array_filter(array_map('trim', $tech))); }
+            $phpRequiredExtensions = mergeCsvListValues(
+              $row['php_required_extensions'] ?? ($row['php_required_extensions_list'] ?? ''),
+              $row['php_recommended_extensions'] ?? ($row['php_recommended_extensions_list'] ?? '')
+            );
+            $phpRecommendedExtensions = '';
+            $phpRequiredLibraries = '';
+            $phpRequiredIni = normalizeIniRequirementText((string)($row['php_required_ini'] ?? ''));
+            $rRequiredPackages = normalizeCsvListValue($row['r_required_packages'] ?? ($row['r_required_packages_list'] ?? ''));
+            if ($phpRequiredIni === '' && is_array($row['php_required_ini_list'] ?? null)) {
+              $phpRequiredIni = normalizeIniRequirementText(implode("\n", array_map(fn($entry) => trim((string)$entry), $row['php_required_ini_list'])));
+            }
             $values = [
               sqlValueSqlite3($id),
               sqlValueSqlite3($name),
@@ -1532,9 +2575,34 @@ function handleApiRequest(): void {
               sqlValueSqlite3(trim((string)($row['email'] ?? ''))),
               sqlValueSqlite3(trim((string)($row['support'] ?? ''))),
               sqlValueSqlite3(trim((string)($row['support_contact'] ?? ''))),
+              sqlValueSqlite3(trim((string)($row['analytics'] ?? ''))),
+              sqlValueSqlite3(trim((string)($row['ssl'] ?? ''))),
+              sqlValueSqlite3(trim((string)($row['waf'] ?? ''))),
+              sqlValueSqlite3(trim((string)($row['bundle'] ?? ''))),
+              sqlValueSqlite3(trim((string)($row['directory'] ?? ''))),
+              sqlValueSqlite3(trim((string)($row['size'] ?? ''))),
+              sqlValueSqlite3(trim((string)($row['repository'] ?? ''))),
+              sqlValueSqlite3(trim((string)($row['target_version'] ?? ''))),
+              sqlValueSqlite3(trim((string)($row['app_server'] ?? ''))),
+              sqlValueSqlite3(trim((string)($row['web_server'] ?? ''))),
+              sqlValueSqlite3(boolFromMixed($row['containerization'] ?? 0) ? 1 : 0),
+              sqlValueSqlite3(boolFromMixed($row['containerization'] ?? 0) ? trim((string)($row['container_tool'] ?? '')) : ''),
+              sqlValueSqlite3(trim((string)($row['runtime_port'] ?? ''))),
+              sqlValueSqlite3($phpRequiredExtensions),
+              sqlValueSqlite3($phpRecommendedExtensions),
+              sqlValueSqlite3($phpRequiredLibraries),
+              sqlValueSqlite3($phpRequiredIni),
+              sqlValueSqlite3($rRequiredPackages),
+              sqlValueSqlite3(trim((string)($row['doc_installation_ref'] ?? ''))),
+              sqlValueSqlite3(trim((string)($row['doc_installation_updated_at'] ?? '')) ?: null),
+              sqlValueSqlite3(trim((string)($row['doc_maintenance_ref'] ?? ''))),
+              sqlValueSqlite3(trim((string)($row['doc_maintenance_updated_at'] ?? '')) ?: null),
+              sqlValueSqlite3(trim((string)($row['doc_security_ref'] ?? ''))),
+              sqlValueSqlite3(trim((string)($row['doc_security_updated_at'] ?? '')) ?: null),
+              sqlValueSqlite3(trim((string)($row['doc_manual_ref'] ?? ''))),
+              sqlValueSqlite3(trim((string)($row['doc_manual_updated_at'] ?? '')) ?: null),
               sqlValueSqlite3(trim((string)($row['category'] ?? 'Outro')) ?: 'Outro'),
               sqlValueSqlite3(normalizeSystemStatus((string)($row['status'] ?? 'Ativo')) ?: 'Ativo'),
-              sqlValueSqlite3(trim((string)($row['waf'] ?? ''))),
               sqlValueSqlite3((string)$tech),
               sqlValueSqlite3(trim((string)($row['url'] ?? ''))),
               sqlValueSqlite3(trim((string)($row['description'] ?? ''))),
@@ -1545,7 +2613,7 @@ function handleApiRequest(): void {
               sqlValueSqlite3(trim((string)($row['created_at'] ?? date('Y-m-d H:i:s')))),
               sqlValueSqlite3(trim((string)($row['updated_at'] ?? date('Y-m-d H:i:s')))),
             ];
-            $db->exec("INSERT INTO systems(id,name,system_name,system_group,ip,ip_homolog,vm,url_homolog,vm_homolog,vm_id,vm_homolog_id,vm_dev_id,archived,archived_at,responsible_sector,responsible_coordinator,extension_number,email,support,support_contact,category,status,waf,tech,url,description,owner,criticality,version,notes,created_at,updated_at) VALUES(" . implode(',', $values) . ")");
+            $db->exec("INSERT INTO systems(id,name,system_name,system_group,ip,ip_homolog,vm,url_homolog,vm_homolog,vm_id,vm_homolog_id,vm_dev_id,archived,archived_at,responsible_sector,responsible_coordinator,extension_number,email,support,support_contact,analytics,ssl,waf,bundle,directory,size,repository,target_version,app_server,web_server,containerization,container_tool,runtime_port,php_required_extensions,php_recommended_extensions,php_required_libraries,php_required_ini,r_required_packages,doc_installation_ref,doc_installation_updated_at,doc_maintenance_ref,doc_maintenance_updated_at,doc_security_ref,doc_security_updated_at,doc_manual_ref,doc_manual_updated_at,category,status,tech,url,description,owner,criticality,version,notes,created_at,updated_at) VALUES(" . implode(',', $values) . ")");
           }
 
           foreach ($databaseRows as $row) {
@@ -1621,6 +2689,17 @@ function handleApiRequest(): void {
             if (is_array($vmLanguage)) { $vmLanguage = implode(',', array_filter(array_map('trim', $vmLanguage))); }
             $vmTech = $row['vm_tech'] ?? ($row['vm_tech_list'] ?? '');
             if (is_array($vmTech)) { $vmTech = implode(',', array_filter(array_map('trim', $vmTech))); }
+            $vmTargetVersion = trim((string)($row['vm_target_version'] ?? ''));
+            $vmAppServer = $row['vm_app_server'] ?? ($row['vm_app_server_list'] ?? '');
+            if (is_array($vmAppServer)) { $vmAppServer = implode(',', array_filter(array_map('trim', $vmAppServer))); }
+            if ((string)$vmAppServer === '' && (string)$vmTech !== '') { $vmAppServer = (string)$vmTech; }
+            $vmWebServer = $row['vm_web_server'] ?? ($row['vm_web_server_list'] ?? '');
+            if (is_array($vmWebServer)) { $vmWebServer = implode(',', array_filter(array_map('trim', $vmWebServer))); }
+            $vmContainerization = boolFromMixed($row['vm_containerization'] ?? 0) ? 1 : 0;
+            $vmContainerTool = $row['vm_container_tool'] ?? ($row['vm_container_tool_list'] ?? '');
+            if (is_array($vmContainerTool)) { $vmContainerTool = implode(',', array_filter(array_map('trim', $vmContainerTool))); }
+            if ($vmContainerization === 0) { $vmContainerTool = ''; }
+            $vmRuntimePort = trim((string)($row['vm_runtime_port'] ?? ''));
             $values = [
               sqlValuePdo($db, $id),
               sqlValuePdo($db, normalizeUtf8Text(trim((string)($row['name'] ?? '')))),
@@ -1631,6 +2710,12 @@ function handleApiRequest(): void {
               sqlValuePdo($db, trim((string)($row['vm_administration'] ?? 'SEI')) ?: 'SEI'),
               sqlValuePdo($db, (string)$vmInstances),
               sqlValuePdo($db, (string)$vmLanguage),
+              sqlValuePdo($db, (string)$vmTargetVersion),
+              sqlValuePdo($db, (string)$vmAppServer),
+              sqlValuePdo($db, (string)$vmWebServer),
+              sqlValuePdo($db, (int)$vmContainerization > 0 ? 1 : 0),
+              sqlValuePdo($db, (string)$vmContainerTool),
+              sqlValuePdo($db, (string)$vmRuntimePort),
               sqlValuePdo($db, (string)$vmTech),
               sqlValuePdo($db, trim((string)($row['diagnostic_json_ref'] ?? ''))),
               sqlValuePdo($db, trim((string)($row['diagnostic_json_updated_at'] ?? '')) ?: null),
@@ -1646,7 +2731,7 @@ function handleApiRequest(): void {
               sqlValuePdo($db, trim((string)($row['created_at'] ?? date('Y-m-d H:i:s')))),
               sqlValuePdo($db, trim((string)($row['updated_at'] ?? date('Y-m-d H:i:s')))),
             ];
-            $db->exec("INSERT INTO virtual_machines(id,name,ip,vm_category,vm_type,vm_access,vm_administration,vm_instances,vm_language,vm_tech,diagnostic_json_ref,diagnostic_json_updated_at,diagnostic_json_ref_r,diagnostic_json_updated_at_r,os_name,os_version,vcpus,ram,disk,archived,archived_at,created_at,updated_at) VALUES(" . implode(',', $values) . ")");
+            $db->exec("INSERT INTO virtual_machines(id,name,ip,vm_category,vm_type,vm_access,vm_administration,vm_instances,vm_language,vm_target_version,vm_app_server,vm_web_server,vm_containerization,vm_container_tool,vm_runtime_port,vm_tech,diagnostic_json_ref,diagnostic_json_updated_at,diagnostic_json_ref_r,diagnostic_json_updated_at_r,os_name,os_version,vcpus,ram,disk,archived,archived_at,created_at,updated_at) VALUES(" . implode(',', $values) . ")");
           }
 
           foreach ($systemsRows as $row) {
@@ -1656,6 +2741,17 @@ function handleApiRequest(): void {
             if ($id <= 0 || $name === '') { continue; }
             $tech = $row['tech'] ?? '';
             if (is_array($tech)) { $tech = implode(',', array_filter(array_map('trim', $tech))); }
+            $phpRequiredExtensions = mergeCsvListValues(
+              $row['php_required_extensions'] ?? ($row['php_required_extensions_list'] ?? ''),
+              $row['php_recommended_extensions'] ?? ($row['php_recommended_extensions_list'] ?? '')
+            );
+            $phpRecommendedExtensions = '';
+            $phpRequiredLibraries = '';
+            $phpRequiredIni = normalizeIniRequirementText((string)($row['php_required_ini'] ?? ''));
+            $rRequiredPackages = normalizeCsvListValue($row['r_required_packages'] ?? ($row['r_required_packages_list'] ?? ''));
+            if ($phpRequiredIni === '' && is_array($row['php_required_ini_list'] ?? null)) {
+              $phpRequiredIni = normalizeIniRequirementText(implode("\n", array_map(fn($entry) => trim((string)$entry), $row['php_required_ini_list'])));
+            }
             $values = [
               sqlValuePdo($db, $id),
               sqlValuePdo($db, $name),
@@ -1677,9 +2773,34 @@ function handleApiRequest(): void {
               sqlValuePdo($db, trim((string)($row['email'] ?? ''))),
               sqlValuePdo($db, trim((string)($row['support'] ?? ''))),
               sqlValuePdo($db, trim((string)($row['support_contact'] ?? ''))),
+              sqlValuePdo($db, trim((string)($row['analytics'] ?? ''))),
+              sqlValuePdo($db, trim((string)($row['ssl'] ?? ''))),
+              sqlValuePdo($db, trim((string)($row['waf'] ?? ''))),
+              sqlValuePdo($db, trim((string)($row['bundle'] ?? ''))),
+              sqlValuePdo($db, trim((string)($row['directory'] ?? ''))),
+              sqlValuePdo($db, trim((string)($row['size'] ?? ''))),
+              sqlValuePdo($db, trim((string)($row['repository'] ?? ''))),
+              sqlValuePdo($db, trim((string)($row['target_version'] ?? ''))),
+              sqlValuePdo($db, trim((string)($row['app_server'] ?? ''))),
+              sqlValuePdo($db, trim((string)($row['web_server'] ?? ''))),
+              sqlValuePdo($db, boolFromMixed($row['containerization'] ?? 0) ? 1 : 0),
+              sqlValuePdo($db, boolFromMixed($row['containerization'] ?? 0) ? trim((string)($row['container_tool'] ?? '')) : ''),
+              sqlValuePdo($db, trim((string)($row['runtime_port'] ?? ''))),
+              sqlValuePdo($db, $phpRequiredExtensions),
+              sqlValuePdo($db, $phpRecommendedExtensions),
+              sqlValuePdo($db, $phpRequiredLibraries),
+              sqlValuePdo($db, $phpRequiredIni),
+              sqlValuePdo($db, $rRequiredPackages),
+              sqlValuePdo($db, trim((string)($row['doc_installation_ref'] ?? ''))),
+              sqlValuePdo($db, trim((string)($row['doc_installation_updated_at'] ?? '')) ?: null),
+              sqlValuePdo($db, trim((string)($row['doc_maintenance_ref'] ?? ''))),
+              sqlValuePdo($db, trim((string)($row['doc_maintenance_updated_at'] ?? '')) ?: null),
+              sqlValuePdo($db, trim((string)($row['doc_security_ref'] ?? ''))),
+              sqlValuePdo($db, trim((string)($row['doc_security_updated_at'] ?? '')) ?: null),
+              sqlValuePdo($db, trim((string)($row['doc_manual_ref'] ?? ''))),
+              sqlValuePdo($db, trim((string)($row['doc_manual_updated_at'] ?? '')) ?: null),
               sqlValuePdo($db, trim((string)($row['category'] ?? 'Outro')) ?: 'Outro'),
               sqlValuePdo($db, normalizeSystemStatus((string)($row['status'] ?? 'Ativo')) ?: 'Ativo'),
-              sqlValuePdo($db, trim((string)($row['waf'] ?? ''))),
               sqlValuePdo($db, (string)$tech),
               sqlValuePdo($db, trim((string)($row['url'] ?? ''))),
               sqlValuePdo($db, trim((string)($row['description'] ?? ''))),
@@ -1690,7 +2811,7 @@ function handleApiRequest(): void {
               sqlValuePdo($db, trim((string)($row['created_at'] ?? date('Y-m-d H:i:s')))),
               sqlValuePdo($db, trim((string)($row['updated_at'] ?? date('Y-m-d H:i:s')))),
             ];
-            $db->exec("INSERT INTO systems(id,name,system_name,system_group,ip,ip_homolog,vm,url_homolog,vm_homolog,vm_id,vm_homolog_id,vm_dev_id,archived,archived_at,responsible_sector,responsible_coordinator,extension_number,email,support,support_contact,category,status,waf,tech,url,description,owner,criticality,version,notes,created_at,updated_at) VALUES(" . implode(',', $values) . ")");
+            $db->exec("INSERT INTO systems(id,name,system_name,system_group,ip,ip_homolog,vm,url_homolog,vm_homolog,vm_id,vm_homolog_id,vm_dev_id,archived,archived_at,responsible_sector,responsible_coordinator,extension_number,email,support,support_contact,analytics,ssl,waf,bundle,directory,size,repository,target_version,app_server,web_server,containerization,container_tool,runtime_port,php_required_extensions,php_recommended_extensions,php_required_libraries,php_required_ini,r_required_packages,doc_installation_ref,doc_installation_updated_at,doc_maintenance_ref,doc_maintenance_updated_at,doc_security_ref,doc_security_updated_at,doc_manual_ref,doc_manual_updated_at,category,status,tech,url,description,owner,criticality,version,notes,created_at,updated_at) VALUES(" . implode(',', $values) . ")");
           }
 
           foreach ($databaseRows as $row) {
@@ -1752,6 +2873,7 @@ function handleApiRequest(): void {
       }
 
       restoreBackupDiagnostics($diagnosticFiles);
+      restoreBackupSystemDocs($systemDocFiles);
       echo json_encode(['ok'=>true,'data'=>[
         'systems' => count($systemsRows),
         'vms' => count($vmRows),
@@ -1817,6 +2939,26 @@ function handleApiRequest(): void {
       if (!is_string($vmInstances)) { $vmInstances = '[]'; }
       $vmLanguage = is_array($data['vm_language'] ?? null) ? implode(',', array_filter(array_map('trim', $data['vm_language']))) : trim((string)($data['vm_language'] ?? ''));
       $vmTech = is_array($data['vm_tech'] ?? null) ? implode(',', array_filter(array_map('trim', $data['vm_tech']))) : trim((string)($data['vm_tech'] ?? ''));
+      $hasVmTargetVersion = array_key_exists('vm_target_version', $data);
+      $hasVmContainerization = array_key_exists('vm_containerization', $data);
+      $vmTargetVersion = trim((string)($data['vm_target_version'] ?? ''));
+      $vmAppServer = is_array($data['vm_app_server'] ?? null) ? implode(',', array_filter(array_map('trim', $data['vm_app_server']))) : trim((string)($data['vm_app_server'] ?? ''));
+      $vmWebServer = is_array($data['vm_web_server'] ?? null) ? implode(',', array_filter(array_map('trim', $data['vm_web_server']))) : trim((string)($data['vm_web_server'] ?? ''));
+      $vmContainerization = boolFromMixed($data['vm_containerization'] ?? 0) ? 1 : 0;
+      $vmContainerTool = is_array($data['vm_container_tool'] ?? null) ? implode(',', array_filter(array_map('trim', $data['vm_container_tool']))) : trim((string)($data['vm_container_tool'] ?? ''));
+      $vmRuntimePort = trim((string)($data['vm_runtime_port'] ?? ''));
+      if ($vmAppServer === '' && $vmTech !== '') { $vmAppServer = $vmTech; }
+      if ($vmTech === '' && $vmAppServer !== '') { $vmTech = $vmAppServer; }
+      if (!$hasVmContainerization) {
+        $vmContainerization = $vmContainerTool !== '' ? 1 : 0;
+      }
+      if ($vmContainerization === 0) { $vmContainerTool = ''; }
+      $vmRuntimePortError = null;
+      $vmRuntimePort = normalizePortListValue($vmRuntimePort, $vmRuntimePortError);
+      if ($vmRuntimePortError !== null) {
+        echo json_encode(['ok'=>false,'error'=>$vmRuntimePortError], JSON_UNESCAPED_UNICODE);
+        return;
+      }
       $osName = trim((string)($data['os_name'] ?? ''));
       $osVersion = trim((string)($data['os_version'] ?? ''));
       $vcpus = trim((string)($data['vcpus'] ?? ''));
@@ -1838,8 +2980,22 @@ function handleApiRequest(): void {
 
       if (!empty($data['id'])) {
         $id = (int)$data['id'];
+        $currentVm = $db instanceof SQLite3 ? fetchVmByIdSqlite3($db, $id) : fetchVmByIdPdo($db, $id);
+        if (!$currentVm) { echo json_encode(['ok'=>false,'error'=>'Maquina nao encontrada']); return; }
+        if (!$hasVmTargetVersion) {
+          $vmTargetVersion = trim((string)($currentVm['vm_target_version'] ?? ''));
+        }
+        if (!$hasVmContainerization) {
+          if ($vmContainerTool === '') {
+            $vmContainerization = boolFromMixed($currentVm['vm_containerization'] ?? 0) ? 1 : 0;
+          } else {
+            $vmContainerization = 1;
+          }
+          if ($vmContainerization === 0) { $vmContainerTool = ''; }
+        }
+
         if ($db instanceof SQLite3) {
-          $st = $db->prepare("UPDATE virtual_machines SET name=:name, ip=:ip, vm_category=:vm_category, vm_type=:vm_type, vm_access=:vm_access, vm_administration=:vm_administration, vm_instances=:vm_instances, vm_language=:vm_language, vm_tech=:vm_tech, os_name=:os_name, os_version=:os_version, vcpus=:vcpus, ram=:ram, disk=:disk, updated_at=datetime('now','localtime') WHERE id=:id");
+          $st = $db->prepare("UPDATE virtual_machines SET name=:name, ip=:ip, vm_category=:vm_category, vm_type=:vm_type, vm_access=:vm_access, vm_administration=:vm_administration, vm_instances=:vm_instances, vm_language=:vm_language, vm_target_version=:vm_target_version, vm_app_server=:vm_app_server, vm_web_server=:vm_web_server, vm_containerization=:vm_containerization, vm_container_tool=:vm_container_tool, vm_runtime_port=:vm_runtime_port, vm_tech=:vm_tech, os_name=:os_name, os_version=:os_version, vcpus=:vcpus, ram=:ram, disk=:disk, updated_at=datetime('now','localtime') WHERE id=:id");
           $st->bindValue(':name', $name, SQLITE3_TEXT);
           $st->bindValue(':ip', $ip, SQLITE3_TEXT);
           $st->bindValue(':vm_category', $vmCategory, SQLITE3_TEXT);
@@ -1848,6 +3004,12 @@ function handleApiRequest(): void {
           $st->bindValue(':vm_administration', $vmAdministration, SQLITE3_TEXT);
           $st->bindValue(':vm_instances', $vmInstances, SQLITE3_TEXT);
           $st->bindValue(':vm_language', $vmLanguage, SQLITE3_TEXT);
+          $st->bindValue(':vm_target_version', $vmTargetVersion, SQLITE3_TEXT);
+          $st->bindValue(':vm_app_server', $vmAppServer, SQLITE3_TEXT);
+          $st->bindValue(':vm_web_server', $vmWebServer, SQLITE3_TEXT);
+          $st->bindValue(':vm_containerization', $vmContainerization, SQLITE3_INTEGER);
+          $st->bindValue(':vm_container_tool', $vmContainerTool, SQLITE3_TEXT);
+          $st->bindValue(':vm_runtime_port', $vmRuntimePort, SQLITE3_TEXT);
           $st->bindValue(':vm_tech', $vmTech, SQLITE3_TEXT);
           $st->bindValue(':os_name', $osName, SQLITE3_TEXT);
           $st->bindValue(':os_version', $osVersion, SQLITE3_TEXT);
@@ -1858,7 +3020,7 @@ function handleApiRequest(): void {
           $st->execute();
           $row = fetchVmByIdSqlite3($db, $id);
         } else {
-          $st = $db->prepare("UPDATE virtual_machines SET name=:name, ip=:ip, vm_category=:vm_category, vm_type=:vm_type, vm_access=:vm_access, vm_administration=:vm_administration, vm_instances=:vm_instances, vm_language=:vm_language, vm_tech=:vm_tech, os_name=:os_name, os_version=:os_version, vcpus=:vcpus, ram=:ram, disk=:disk, updated_at=datetime('now','localtime') WHERE id=:id");
+          $st = $db->prepare("UPDATE virtual_machines SET name=:name, ip=:ip, vm_category=:vm_category, vm_type=:vm_type, vm_access=:vm_access, vm_administration=:vm_administration, vm_instances=:vm_instances, vm_language=:vm_language, vm_target_version=:vm_target_version, vm_app_server=:vm_app_server, vm_web_server=:vm_web_server, vm_containerization=:vm_containerization, vm_container_tool=:vm_container_tool, vm_runtime_port=:vm_runtime_port, vm_tech=:vm_tech, os_name=:os_name, os_version=:os_version, vcpus=:vcpus, ram=:ram, disk=:disk, updated_at=datetime('now','localtime') WHERE id=:id");
           $st->bindValue(':name', $name, PDO::PARAM_STR);
           $st->bindValue(':ip', $ip, PDO::PARAM_STR);
           $st->bindValue(':vm_category', $vmCategory, PDO::PARAM_STR);
@@ -1867,6 +3029,12 @@ function handleApiRequest(): void {
           $st->bindValue(':vm_administration', $vmAdministration, PDO::PARAM_STR);
           $st->bindValue(':vm_instances', $vmInstances, PDO::PARAM_STR);
           $st->bindValue(':vm_language', $vmLanguage, PDO::PARAM_STR);
+          $st->bindValue(':vm_target_version', $vmTargetVersion, PDO::PARAM_STR);
+          $st->bindValue(':vm_app_server', $vmAppServer, PDO::PARAM_STR);
+          $st->bindValue(':vm_web_server', $vmWebServer, PDO::PARAM_STR);
+          $st->bindValue(':vm_containerization', $vmContainerization, PDO::PARAM_INT);
+          $st->bindValue(':vm_container_tool', $vmContainerTool, PDO::PARAM_STR);
+          $st->bindValue(':vm_runtime_port', $vmRuntimePort, PDO::PARAM_STR);
           $st->bindValue(':vm_tech', $vmTech, PDO::PARAM_STR);
           $st->bindValue(':os_name', $osName, PDO::PARAM_STR);
           $st->bindValue(':os_version', $osVersion, PDO::PARAM_STR);
@@ -1879,7 +3047,7 @@ function handleApiRequest(): void {
         }
       } else {
         if ($db instanceof SQLite3) {
-          $st = $db->prepare("INSERT INTO virtual_machines(name,ip,vm_category,vm_type,vm_access,vm_administration,vm_instances,vm_language,vm_tech,os_name,os_version,vcpus,ram,disk) VALUES(:name,:ip,:vm_category,:vm_type,:vm_access,:vm_administration,:vm_instances,:vm_language,:vm_tech,:os_name,:os_version,:vcpus,:ram,:disk)");
+          $st = $db->prepare("INSERT INTO virtual_machines(name,ip,vm_category,vm_type,vm_access,vm_administration,vm_instances,vm_language,vm_target_version,vm_app_server,vm_web_server,vm_containerization,vm_container_tool,vm_runtime_port,vm_tech,os_name,os_version,vcpus,ram,disk) VALUES(:name,:ip,:vm_category,:vm_type,:vm_access,:vm_administration,:vm_instances,:vm_language,:vm_target_version,:vm_app_server,:vm_web_server,:vm_containerization,:vm_container_tool,:vm_runtime_port,:vm_tech,:os_name,:os_version,:vcpus,:ram,:disk)");
           $st->bindValue(':name', $name, SQLITE3_TEXT);
           $st->bindValue(':ip', $ip, SQLITE3_TEXT);
           $st->bindValue(':vm_category', $vmCategory, SQLITE3_TEXT);
@@ -1888,6 +3056,12 @@ function handleApiRequest(): void {
           $st->bindValue(':vm_administration', $vmAdministration, SQLITE3_TEXT);
           $st->bindValue(':vm_instances', $vmInstances, SQLITE3_TEXT);
           $st->bindValue(':vm_language', $vmLanguage, SQLITE3_TEXT);
+          $st->bindValue(':vm_target_version', $vmTargetVersion, SQLITE3_TEXT);
+          $st->bindValue(':vm_app_server', $vmAppServer, SQLITE3_TEXT);
+          $st->bindValue(':vm_web_server', $vmWebServer, SQLITE3_TEXT);
+          $st->bindValue(':vm_containerization', $vmContainerization, SQLITE3_INTEGER);
+          $st->bindValue(':vm_container_tool', $vmContainerTool, SQLITE3_TEXT);
+          $st->bindValue(':vm_runtime_port', $vmRuntimePort, SQLITE3_TEXT);
           $st->bindValue(':vm_tech', $vmTech, SQLITE3_TEXT);
           $st->bindValue(':os_name', $osName, SQLITE3_TEXT);
           $st->bindValue(':os_version', $osVersion, SQLITE3_TEXT);
@@ -1898,7 +3072,7 @@ function handleApiRequest(): void {
           $id = (int)$db->lastInsertRowID();
           $row = fetchVmByIdSqlite3($db, $id);
         } else {
-          $st = $db->prepare("INSERT INTO virtual_machines(name,ip,vm_category,vm_type,vm_access,vm_administration,vm_instances,vm_language,vm_tech,os_name,os_version,vcpus,ram,disk) VALUES(:name,:ip,:vm_category,:vm_type,:vm_access,:vm_administration,:vm_instances,:vm_language,:vm_tech,:os_name,:os_version,:vcpus,:ram,:disk)");
+          $st = $db->prepare("INSERT INTO virtual_machines(name,ip,vm_category,vm_type,vm_access,vm_administration,vm_instances,vm_language,vm_target_version,vm_app_server,vm_web_server,vm_containerization,vm_container_tool,vm_runtime_port,vm_tech,os_name,os_version,vcpus,ram,disk) VALUES(:name,:ip,:vm_category,:vm_type,:vm_access,:vm_administration,:vm_instances,:vm_language,:vm_target_version,:vm_app_server,:vm_web_server,:vm_containerization,:vm_container_tool,:vm_runtime_port,:vm_tech,:os_name,:os_version,:vcpus,:ram,:disk)");
           $st->bindValue(':name', $name, PDO::PARAM_STR);
           $st->bindValue(':ip', $ip, PDO::PARAM_STR);
           $st->bindValue(':vm_category', $vmCategory, PDO::PARAM_STR);
@@ -1907,6 +3081,12 @@ function handleApiRequest(): void {
           $st->bindValue(':vm_administration', $vmAdministration, PDO::PARAM_STR);
           $st->bindValue(':vm_instances', $vmInstances, PDO::PARAM_STR);
           $st->bindValue(':vm_language', $vmLanguage, PDO::PARAM_STR);
+          $st->bindValue(':vm_target_version', $vmTargetVersion, PDO::PARAM_STR);
+          $st->bindValue(':vm_app_server', $vmAppServer, PDO::PARAM_STR);
+          $st->bindValue(':vm_web_server', $vmWebServer, PDO::PARAM_STR);
+          $st->bindValue(':vm_containerization', $vmContainerization, PDO::PARAM_INT);
+          $st->bindValue(':vm_container_tool', $vmContainerTool, PDO::PARAM_STR);
+          $st->bindValue(':vm_runtime_port', $vmRuntimePort, PDO::PARAM_STR);
           $st->bindValue(':vm_tech', $vmTech, PDO::PARAM_STR);
           $st->bindValue(':os_name', $osName, PDO::PARAM_STR);
           $st->bindValue(':os_version', $osVersion, PDO::PARAM_STR);
@@ -1960,6 +3140,15 @@ function handleApiRequest(): void {
           'vm_language'=>trim((string)($vm['vm_language'] ?? '')),
           'vm_language_list'=>is_array($vm['vm_language_list'] ?? null) ? $vm['vm_language_list'] : [],
           'vm_language_versions'=>is_array($vm['vm_language_versions'] ?? null) ? $vm['vm_language_versions'] : ['php'=>'','r'=>''],
+          'vm_target_version'=>trim((string)($vm['vm_target_version'] ?? '')),
+          'vm_app_server'=>trim((string)($vm['vm_app_server'] ?? '')),
+          'vm_app_server_list'=>is_array($vm['vm_app_server_list'] ?? null) ? $vm['vm_app_server_list'] : [],
+          'vm_web_server'=>trim((string)($vm['vm_web_server'] ?? '')),
+          'vm_web_server_list'=>is_array($vm['vm_web_server_list'] ?? null) ? $vm['vm_web_server_list'] : [],
+          'vm_containerization'=>(int)($vm['vm_containerization'] ?? 0) > 0 ? 1 : 0,
+          'vm_container_tool'=>trim((string)($vm['vm_container_tool'] ?? '')),
+          'vm_container_tool_list'=>is_array($vm['vm_container_tool_list'] ?? null) ? $vm['vm_container_tool_list'] : [],
+          'vm_runtime_port'=>trim((string)($vm['vm_runtime_port'] ?? '')),
           'vm_tech'=>trim((string)($vm['vm_tech'] ?? '')),
           'vm_tech_list'=>is_array($vm['vm_tech_list'] ?? null) ? $vm['vm_tech_list'] : [],
           'supports'=>$supports,
@@ -2363,6 +3552,310 @@ function handleApiRequest(): void {
       return;
     }
 
+    if ($api === 'ticket-save') {
+      if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') { echo json_encode(['ok'=>false,'error'=>'Invalid method']); return; }
+      $data = json_decode((string)file_get_contents('php://input'), true);
+      if (!is_array($data)) { echo json_encode(['ok'=>false,'error'=>'Invalid JSON']); return; }
+
+      $targetType = normalizeTicketTargetType((string)($data['target_type'] ?? 'system'));
+      $ticketNumber = trim((string)($data['ticket_number'] ?? ''));
+      $description = trim((string)($data['description'] ?? ''));
+      $systemId = (int)($data['system_id'] ?? 0);
+      $vmId = (int)($data['vm_id'] ?? 0);
+
+      if ($ticketNumber === '') {
+        echo json_encode(['ok'=>false,'error'=>'Numero do chamado e obrigatorio.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+      if ($description === '') {
+        echo json_encode(['ok'=>false,'error'=>'Descricao do chamado e obrigatoria.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+
+      if ($targetType === 'system') {
+        if ($systemId <= 0) {
+          echo json_encode(['ok'=>false,'error'=>'Selecione um sistema valido.'], JSON_UNESCAPED_UNICODE);
+          return;
+        }
+        if (($db instanceof SQLite3 ? fetchActiveSystemNameSqlite3($db, $systemId) : fetchActiveSystemNamePdo($db, $systemId)) === null) {
+          echo json_encode(['ok'=>false,'error'=>'Sistema invalido ou arquivado.'], JSON_UNESCAPED_UNICODE);
+          return;
+        }
+        $vmId = 0;
+      } else {
+        if ($vmId <= 0) {
+          echo json_encode(['ok'=>false,'error'=>'Selecione uma maquina valida.'], JSON_UNESCAPED_UNICODE);
+          return;
+        }
+        if (($db instanceof SQLite3 ? fetchActiveVmNameSqlite3($db, $vmId) : fetchActiveVmNamePdo($db, $vmId)) === null) {
+          echo json_encode(['ok'=>false,'error'=>'Maquina invalida ou arquivada.'], JSON_UNESCAPED_UNICODE);
+          return;
+        }
+        $systemId = 0;
+      }
+
+      if ($db instanceof SQLite3) {
+        $st = $db->prepare("INSERT INTO tickets(target_type,system_id,vm_id,ticket_number,description,created_at,updated_at) VALUES(:target_type,:system_id,:vm_id,:ticket_number,:description,datetime('now','localtime'),datetime('now','localtime'))");
+        $st->bindValue(':target_type', $targetType, SQLITE3_TEXT);
+        if ($systemId > 0) { $st->bindValue(':system_id', $systemId, SQLITE3_INTEGER); }
+        else { $st->bindValue(':system_id', null, SQLITE3_NULL); }
+        if ($vmId > 0) { $st->bindValue(':vm_id', $vmId, SQLITE3_INTEGER); }
+        else { $st->bindValue(':vm_id', null, SQLITE3_NULL); }
+        $st->bindValue(':ticket_number', $ticketNumber, SQLITE3_TEXT);
+        $st->bindValue(':description', $description, SQLITE3_TEXT);
+        $st->execute();
+        $id = (int)$db->lastInsertRowID();
+        $row = fetchTicketByIdSqlite3($db, $id);
+      } else {
+        $st = $db->prepare("INSERT INTO tickets(target_type,system_id,vm_id,ticket_number,description,created_at,updated_at) VALUES(:target_type,:system_id,:vm_id,:ticket_number,:description,datetime('now','localtime'),datetime('now','localtime'))");
+        $st->bindValue(':target_type', $targetType, PDO::PARAM_STR);
+        if ($systemId > 0) { $st->bindValue(':system_id', $systemId, PDO::PARAM_INT); }
+        else { $st->bindValue(':system_id', null, PDO::PARAM_NULL); }
+        if ($vmId > 0) { $st->bindValue(':vm_id', $vmId, PDO::PARAM_INT); }
+        else { $st->bindValue(':vm_id', null, PDO::PARAM_NULL); }
+        $st->bindValue(':ticket_number', $ticketNumber, PDO::PARAM_STR);
+        $st->bindValue(':description', $description, PDO::PARAM_STR);
+        $st->execute();
+        $id = (int)$db->lastInsertId();
+        $row = fetchTicketByIdPdo($db, $id);
+      }
+
+      if (!$row) { echo json_encode(['ok'=>false,'error'=>'Chamado nao encontrado.'], JSON_UNESCAPED_UNICODE); return; }
+      echo json_encode(['ok'=>true,'data'=>$row], JSON_UNESCAPED_UNICODE);
+      return;
+    }
+
+    if ($api === 'ticket-update') {
+      if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') { echo json_encode(['ok'=>false,'error'=>'Invalid method']); return; }
+      $data = json_decode((string)file_get_contents('php://input'), true);
+      if (!is_array($data)) { echo json_encode(['ok'=>false,'error'=>'Invalid JSON']); return; }
+
+      $id = (int)($data['id'] ?? 0);
+      if ($id <= 0) {
+        echo json_encode(['ok'=>false,'error'=>'ID do chamado invalido.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+
+      $existing = $db instanceof SQLite3 ? fetchTicketByIdSqlite3($db, $id) : fetchTicketByIdPdo($db, $id);
+      if (!$existing) {
+        echo json_encode(['ok'=>false,'error'=>'Chamado nao encontrado.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+
+      $targetType = normalizeTicketTargetType((string)($data['target_type'] ?? $existing['target_type'] ?? 'system'));
+      $ticketNumber = trim((string)($data['ticket_number'] ?? ''));
+      $description = trim((string)($data['description'] ?? ''));
+      $systemId = (int)($data['system_id'] ?? 0);
+      $vmId = (int)($data['vm_id'] ?? 0);
+
+      if ($ticketNumber === '') {
+        echo json_encode(['ok'=>false,'error'=>'Numero do chamado e obrigatorio.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+      if ($description === '') {
+        echo json_encode(['ok'=>false,'error'=>'Descricao do chamado e obrigatoria.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+
+      if ($targetType === 'system') {
+        if ($systemId <= 0) {
+          echo json_encode(['ok'=>false,'error'=>'Selecione um sistema valido.'], JSON_UNESCAPED_UNICODE);
+          return;
+        }
+        if (($db instanceof SQLite3 ? fetchActiveSystemNameSqlite3($db, $systemId) : fetchActiveSystemNamePdo($db, $systemId)) === null) {
+          echo json_encode(['ok'=>false,'error'=>'Sistema invalido ou arquivado.'], JSON_UNESCAPED_UNICODE);
+          return;
+        }
+        $vmId = 0;
+      } else {
+        if ($vmId <= 0) {
+          echo json_encode(['ok'=>false,'error'=>'Selecione uma maquina valida.'], JSON_UNESCAPED_UNICODE);
+          return;
+        }
+        if (($db instanceof SQLite3 ? fetchActiveVmNameSqlite3($db, $vmId) : fetchActiveVmNamePdo($db, $vmId)) === null) {
+          echo json_encode(['ok'=>false,'error'=>'Maquina invalida ou arquivada.'], JSON_UNESCAPED_UNICODE);
+          return;
+        }
+        $systemId = 0;
+      }
+
+      if ($db instanceof SQLite3) {
+        $st = $db->prepare("UPDATE tickets SET target_type=:target_type, system_id=:system_id, vm_id=:vm_id, ticket_number=:ticket_number, description=:description, updated_at=datetime('now','localtime') WHERE id=:id");
+        $st->bindValue(':target_type', $targetType, SQLITE3_TEXT);
+        if ($systemId > 0) { $st->bindValue(':system_id', $systemId, SQLITE3_INTEGER); }
+        else { $st->bindValue(':system_id', null, SQLITE3_NULL); }
+        if ($vmId > 0) { $st->bindValue(':vm_id', $vmId, SQLITE3_INTEGER); }
+        else { $st->bindValue(':vm_id', null, SQLITE3_NULL); }
+        $st->bindValue(':ticket_number', $ticketNumber, SQLITE3_TEXT);
+        $st->bindValue(':description', $description, SQLITE3_TEXT);
+        $st->bindValue(':id', $id, SQLITE3_INTEGER);
+        $st->execute();
+        $row = fetchTicketByIdSqlite3($db, $id);
+      } else {
+        $st = $db->prepare("UPDATE tickets SET target_type=:target_type, system_id=:system_id, vm_id=:vm_id, ticket_number=:ticket_number, description=:description, updated_at=datetime('now','localtime') WHERE id=:id");
+        $st->bindValue(':target_type', $targetType, PDO::PARAM_STR);
+        if ($systemId > 0) { $st->bindValue(':system_id', $systemId, PDO::PARAM_INT); }
+        else { $st->bindValue(':system_id', null, PDO::PARAM_NULL); }
+        if ($vmId > 0) { $st->bindValue(':vm_id', $vmId, PDO::PARAM_INT); }
+        else { $st->bindValue(':vm_id', null, PDO::PARAM_NULL); }
+        $st->bindValue(':ticket_number', $ticketNumber, PDO::PARAM_STR);
+        $st->bindValue(':description', $description, PDO::PARAM_STR);
+        $st->bindValue(':id', $id, PDO::PARAM_INT);
+        $st->execute();
+        $row = fetchTicketByIdPdo($db, $id);
+      }
+
+      if (!$row) { echo json_encode(['ok'=>false,'error'=>'Chamado nao encontrado.'], JSON_UNESCAPED_UNICODE); return; }
+      echo json_encode(['ok'=>true,'data'=>$row], JSON_UNESCAPED_UNICODE);
+      return;
+    }
+
+    if ($api === 'ticket-delete') {
+      if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') { echo json_encode(['ok'=>false,'error'=>'Invalid method']); return; }
+      $data = json_decode((string)file_get_contents('php://input'), true);
+      if (!is_array($data)) { echo json_encode(['ok'=>false,'error'=>'Invalid JSON']); return; }
+
+      $id = (int)($data['id'] ?? 0);
+      if ($id <= 0) {
+        echo json_encode(['ok'=>false,'error'=>'ID do chamado invalido.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+
+      $existing = $db instanceof SQLite3 ? fetchTicketByIdSqlite3($db, $id) : fetchTicketByIdPdo($db, $id);
+      if (!$existing) {
+        echo json_encode(['ok'=>false,'error'=>'Chamado nao encontrado.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+
+      if ($db instanceof SQLite3) {
+        $st = $db->prepare("DELETE FROM tickets WHERE id=:id");
+        $st->bindValue(':id', $id, SQLITE3_INTEGER);
+        $st->execute();
+      } else {
+        $st = $db->prepare("DELETE FROM tickets WHERE id=:id");
+        $st->bindValue(':id', $id, PDO::PARAM_INT);
+        $st->execute();
+      }
+
+      echo json_encode(['ok'=>true], JSON_UNESCAPED_UNICODE);
+      return;
+    }
+
+    if ($api === 'system-doc-upload') {
+      if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') { echo json_encode(['ok'=>false,'error'=>'Invalid method']); return; }
+      $data = json_decode((string)file_get_contents('php://input'), true);
+      if (!is_array($data)) { echo json_encode(['ok'=>false,'error'=>'Invalid JSON']); return; }
+
+      $systemId = (int)($data['system_id'] ?? 0);
+      $docType = normalizeSystemDocType((string)($data['doc_type'] ?? ''));
+      $docMap = systemDocFieldMap($docType);
+      $filename = trim((string)($data['filename'] ?? ''));
+      $contentBase64 = trim((string)($data['content_base64'] ?? ''));
+      if ($systemId <= 0 || $docMap === null) {
+        echo json_encode(['ok'=>false,'error'=>'Parametros invalidos para upload do documento.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+      if ($contentBase64 === '') {
+        echo json_encode(['ok'=>false,'error'=>'Conteudo do PDF nao informado.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+
+      if (preg_match('#^data:application/pdf;base64,#i', $contentBase64) === 1) {
+        $contentBase64 = preg_replace('#^data:application/pdf;base64,#i', '', $contentBase64) ?? '';
+      }
+      $decoded = base64_decode($contentBase64, true);
+      if ($decoded === false || $decoded === '') {
+        echo json_encode(['ok'=>false,'error'=>'Arquivo PDF invalido (base64).'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+      if (strncmp($decoded, '%PDF', 4) !== 0) {
+        echo json_encode(['ok'=>false,'error'=>'O arquivo enviado nao parece ser um PDF valido.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+
+      $current = $db instanceof SQLite3 ? fetchSystemByIdSqlite3($db, $systemId) : fetchSystemByIdPdo($db, $systemId);
+      if (!$current) {
+        echo json_encode(['ok'=>false,'error'=>'Sistema nao encontrado.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+
+      $safeName = sanitizeSystemDocFilename($filename !== '' ? $filename : ($docType . '.pdf'));
+      $dir = ensureSystemDocDir();
+      $stamp = date('Ymd_His');
+      $storedName = "system_{$systemId}_{$docType}_{$stamp}_{$safeName}";
+      $fullPath = $dir . DIRECTORY_SEPARATOR . $storedName;
+      if (@file_put_contents($fullPath, $decoded) === false) {
+        echo json_encode(['ok'=>false,'error'=>'Falha ao gravar arquivo PDF.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+
+      $reference = 'data/system_docs/' . $storedName;
+      $updatedAt = date('Y-m-d H:i:s');
+      $oldReference = trim((string)($current[$docMap['ref']] ?? ''));
+      if ($db instanceof SQLite3) {
+        $st = $db->prepare("UPDATE systems SET {$docMap['ref']}=:ref, {$docMap['updated_at']}=:doc_updated_at, updated_at=datetime('now','localtime') WHERE id=:id");
+        $st->bindValue(':ref', $reference, SQLITE3_TEXT);
+        $st->bindValue(':doc_updated_at', $updatedAt, SQLITE3_TEXT);
+        $st->bindValue(':id', $systemId, SQLITE3_INTEGER);
+        $st->execute();
+        $row = fetchSystemByIdSqlite3($db, $systemId);
+      } else {
+        $st = $db->prepare("UPDATE systems SET {$docMap['ref']}=:ref, {$docMap['updated_at']}=:doc_updated_at, updated_at=datetime('now','localtime') WHERE id=:id");
+        $st->bindValue(':ref', $reference, PDO::PARAM_STR);
+        $st->bindValue(':doc_updated_at', $updatedAt, PDO::PARAM_STR);
+        $st->bindValue(':id', $systemId, PDO::PARAM_INT);
+        $st->execute();
+        $row = fetchSystemByIdPdo($db, $systemId);
+      }
+
+      if ($oldReference !== '' && $oldReference !== $reference) {
+        deleteSystemDocFileByReference($oldReference);
+      }
+      if (!$row) { echo json_encode(['ok'=>false,'error'=>'Sistema nao encontrado apos upload.'], JSON_UNESCAPED_UNICODE); return; }
+      echo json_encode(['ok'=>true,'data'=>$row], JSON_UNESCAPED_UNICODE);
+      return;
+    }
+
+    if ($api === 'system-doc-delete') {
+      if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') { echo json_encode(['ok'=>false,'error'=>'Invalid method']); return; }
+      $data = json_decode((string)file_get_contents('php://input'), true);
+      if (!is_array($data)) { echo json_encode(['ok'=>false,'error'=>'Invalid JSON']); return; }
+
+      $systemId = (int)($data['system_id'] ?? 0);
+      $docType = normalizeSystemDocType((string)($data['doc_type'] ?? ''));
+      $docMap = systemDocFieldMap($docType);
+      if ($systemId <= 0 || $docMap === null) {
+        echo json_encode(['ok'=>false,'error'=>'Parametros invalidos para exclusao do documento.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+
+      $current = $db instanceof SQLite3 ? fetchSystemByIdSqlite3($db, $systemId) : fetchSystemByIdPdo($db, $systemId);
+      if (!$current) {
+        echo json_encode(['ok'=>false,'error'=>'Sistema nao encontrado.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+
+      $oldReference = trim((string)($current[$docMap['ref']] ?? ''));
+      if ($db instanceof SQLite3) {
+        $st = $db->prepare("UPDATE systems SET {$docMap['ref']}='', {$docMap['updated_at']}=NULL, updated_at=datetime('now','localtime') WHERE id=:id");
+        $st->bindValue(':id', $systemId, SQLITE3_INTEGER);
+        $st->execute();
+        $row = fetchSystemByIdSqlite3($db, $systemId);
+      } else {
+        $st = $db->prepare("UPDATE systems SET {$docMap['ref']}='', {$docMap['updated_at']}=NULL, updated_at=datetime('now','localtime') WHERE id=:id");
+        $st->bindValue(':id', $systemId, PDO::PARAM_INT);
+        $st->execute();
+        $row = fetchSystemByIdPdo($db, $systemId);
+      }
+
+      if ($oldReference !== '') {
+        deleteSystemDocFileByReference($oldReference);
+      }
+      if (!$row) { echo json_encode(['ok'=>false,'error'=>'Sistema nao encontrado apos exclusao do documento.'], JSON_UNESCAPED_UNICODE); return; }
+      echo json_encode(['ok'=>true,'data'=>$row], JSON_UNESCAPED_UNICODE);
+      return;
+    }
+
     if ($api === 'save') {
       if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') { echo json_encode(['ok'=>false,'error'=>'Invalid method']); return; }
       $data = json_decode((string)file_get_contents('php://input'), true);
@@ -2373,7 +3866,32 @@ function handleApiRequest(): void {
       $data['url'] = packUrlListValue($data['url'] ?? '');
       $data['url_homolog'] = packUrlListValue($data['url_homolog'] ?? '');
       $tech = is_array($data['tech'] ?? null) ? implode(',', array_filter(array_map('trim', $data['tech']))) : trim((string)($data['tech'] ?? ''));
-      $fields = ['name','system_name','vm_id','vm_homolog_id','vm_dev_id','category','system_group','status','url','url_homolog','description','owner','criticality','version','notes','responsible_sector','responsible_coordinator','extension_number','email','support','support_contact','analytics','ssl','waf','bundle','directory','size','repository','archived','archived_at'];
+      $data['target_version'] = trim((string)($data['target_version'] ?? ''));
+      $data['app_server'] = trim((string)($data['app_server'] ?? ''));
+      $data['web_server'] = trim((string)($data['web_server'] ?? ''));
+      $data['containerization'] = boolFromMixed($data['containerization'] ?? 0) ? 1 : 0;
+      $data['container_tool'] = trim((string)($data['container_tool'] ?? ''));
+      if ((int)$data['containerization'] <= 0) { $data['container_tool'] = ''; }
+      $runtimePortError = null;
+      $data['runtime_port'] = normalizePortListValue($data['runtime_port'] ?? '', $runtimePortError);
+      $data['php_required_extensions'] = mergeCsvListValues(
+        $data['php_required_extensions'] ?? '',
+        $data['php_recommended_extensions'] ?? ''
+      );
+      $data['php_recommended_extensions'] = '';
+      $data['php_required_libraries'] = '';
+      if (is_array($data['php_required_ini'] ?? null)) {
+        $data['php_required_ini'] = normalizeIniRequirementText(implode("\n", array_map(fn($entry) => trim((string)$entry), $data['php_required_ini'])));
+      } else {
+        $data['php_required_ini'] = normalizeIniRequirementText((string)($data['php_required_ini'] ?? ''));
+      }
+      $data['r_required_packages'] = normalizeCsvListValue($data['r_required_packages'] ?? '');
+      if ($runtimePortError !== null) {
+        echo json_encode(['ok'=>false,'error'=>$runtimePortError], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+
+      $fields = ['name','system_name','vm_id','vm_homolog_id','vm_dev_id','category','system_group','status','url','url_homolog','description','owner','criticality','version','notes','responsible_sector','responsible_coordinator','extension_number','email','support','support_contact','analytics','ssl','waf','bundle','directory','size','repository','target_version','app_server','web_server','containerization','container_tool','runtime_port','php_required_extensions','php_recommended_extensions','php_required_libraries','php_required_ini','r_required_packages','archived','archived_at'];
       if (!empty($data['id'])) {
         $sets = implode(',', array_map(fn($f)=>"$f=:$f", $fields));
         $st = $db->prepare("UPDATE systems SET $sets, tech=:tech, updated_at=datetime('now','localtime') WHERE id=:id");
@@ -2415,6 +3933,7 @@ function handleApiRequest(): void {
       $data = json_decode((string)file_get_contents('php://input'), true);
       $id = (int)($data['id'] ?? 0);
       if ($id <= 0) { echo json_encode(['ok'=>false,'error'=>'Invalid ID']); return; }
+      $systemRow = $db instanceof SQLite3 ? fetchSystemByIdSqlite3($db, $id) : fetchSystemByIdPdo($db, $id);
       if ($db instanceof SQLite3) {
         $isArchived = (int)$db->querySingle("SELECT COUNT(*) FROM systems WHERE id=$id AND IFNULL(archived,0)=1");
         if ($isArchived === 0) { echo json_encode(['ok'=>false,'error'=>'Apenas sistemas arquivados podem ser excluidos.']); return; }
@@ -2432,6 +3951,11 @@ function handleApiRequest(): void {
         $st = $db->prepare("DELETE FROM systems WHERE id=:id");
         $st->bindValue(':id', $id, PDO::PARAM_INT);
         $st->execute();
+      }
+      if (is_array($systemRow)) {
+        foreach (systemDocReferencesFromSystemRow($systemRow) as $reference) {
+          deleteSystemDocFileByReference((string)$reference);
+        }
       }
       echo json_encode(['ok'=>true]);
       return;

@@ -3,18 +3,27 @@
 require_once __DIR__ . DIRECTORY_SEPARATOR . 'constants.php';
 
 $projectRoot = __DIR__ . DIRECTORY_SEPARATOR . '..';
-$legacyDb = $projectRoot . DIRECTORY_SEPARATOR . 'sysportfolio.db';
+$dbFileName = 'bd_sei_catalogosistema.db';
+$legacyDbFileName = 'sysportfolio.db';
+$legacyDb = $projectRoot . DIRECTORY_SEPARATOR . $legacyDbFileName;
 $dir = $projectRoot . DIRECTORY_SEPARATOR . 'data';
 if (!is_dir($dir)) { @mkdir($dir, 0775, true); }
 if (!is_dir($dir)) {
-  $dir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'sysportfolio';
+  $dir = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'bd_sei_catalogosistema';
   if (!is_dir($dir)) { @mkdir($dir, 0775, true); }
 }
 
-$targetDb = $dir . DIRECTORY_SEPARATOR . 'sysportfolio.db';
-if (file_exists($legacyDb)) {
-  $needsMigration = !file_exists($targetDb) || @filemtime($legacyDb) > @filemtime($targetDb);
-  if ($needsMigration) { @copy($legacyDb, $targetDb); }
+$targetDb = $dir . DIRECTORY_SEPARATOR . $dbFileName;
+$legacyCandidates = [
+  $legacyDb,
+  $dir . DIRECTORY_SEPARATOR . $legacyDbFileName,
+];
+foreach ($legacyCandidates as $legacyCandidate) {
+  if (!file_exists($legacyCandidate)) { continue; }
+  $sameFile = realpath($legacyCandidate) === realpath($targetDb);
+  if ($sameFile) { continue; }
+  $needsMigration = !file_exists($targetDb) || @filemtime($legacyCandidate) > @filemtime($targetDb);
+  if ($needsMigration) { @copy($legacyCandidate, $targetDb); }
 }
 
 define('DB_PATH', $targetDb);
@@ -46,6 +55,25 @@ function ensureSystemColumnsSqlite3(SQLite3 $db): void {
     'directory' => "TEXT DEFAULT ''",
     'size' => "TEXT DEFAULT ''",
     'repository' => "TEXT DEFAULT ''",
+    'target_version' => "TEXT DEFAULT ''",
+    'app_server' => "TEXT DEFAULT ''",
+    'web_server' => "TEXT DEFAULT ''",
+    'containerization' => "INTEGER DEFAULT 0",
+    'container_tool' => "TEXT DEFAULT ''",
+    'runtime_port' => "TEXT DEFAULT ''",
+    'php_required_extensions' => "TEXT DEFAULT ''",
+    'php_recommended_extensions' => "TEXT DEFAULT ''",
+    'php_required_libraries' => "TEXT DEFAULT ''",
+    'php_required_ini' => "TEXT DEFAULT ''",
+    'r_required_packages' => "TEXT DEFAULT ''",
+    'doc_installation_ref' => "TEXT DEFAULT ''",
+    'doc_installation_updated_at' => "TEXT DEFAULT NULL",
+    'doc_maintenance_ref' => "TEXT DEFAULT ''",
+    'doc_maintenance_updated_at' => "TEXT DEFAULT NULL",
+    'doc_security_ref' => "TEXT DEFAULT ''",
+    'doc_security_updated_at' => "TEXT DEFAULT NULL",
+    'doc_manual_ref' => "TEXT DEFAULT ''",
+    'doc_manual_updated_at' => "TEXT DEFAULT NULL",
   ];
   $existing = [];
   $res = $db->query('PRAGMA table_info(systems)');
@@ -86,6 +114,25 @@ function ensureSystemColumnsPdo(PDO $db): void {
     'directory' => "TEXT DEFAULT ''",
     'size' => "TEXT DEFAULT ''",
     'repository' => "TEXT DEFAULT ''",
+    'target_version' => "TEXT DEFAULT ''",
+    'app_server' => "TEXT DEFAULT ''",
+    'web_server' => "TEXT DEFAULT ''",
+    'containerization' => "INTEGER DEFAULT 0",
+    'container_tool' => "TEXT DEFAULT ''",
+    'runtime_port' => "TEXT DEFAULT ''",
+    'php_required_extensions' => "TEXT DEFAULT ''",
+    'php_recommended_extensions' => "TEXT DEFAULT ''",
+    'php_required_libraries' => "TEXT DEFAULT ''",
+    'php_required_ini' => "TEXT DEFAULT ''",
+    'r_required_packages' => "TEXT DEFAULT ''",
+    'doc_installation_ref' => "TEXT DEFAULT ''",
+    'doc_installation_updated_at' => "TEXT DEFAULT NULL",
+    'doc_maintenance_ref' => "TEXT DEFAULT ''",
+    'doc_maintenance_updated_at' => "TEXT DEFAULT NULL",
+    'doc_security_ref' => "TEXT DEFAULT ''",
+    'doc_security_updated_at' => "TEXT DEFAULT NULL",
+    'doc_manual_ref' => "TEXT DEFAULT ''",
+    'doc_manual_updated_at' => "TEXT DEFAULT NULL",
   ];
   $existing = [];
   $rows = $db->query('PRAGMA table_info(systems)')->fetchAll(PDO::FETCH_ASSOC);
@@ -120,6 +167,12 @@ function ensureVmTableSqlite3(SQLite3 $db): void {
     vm_administration TEXT DEFAULT 'SEI',
     vm_instances TEXT DEFAULT '',
     vm_language TEXT DEFAULT '',
+    vm_target_version TEXT DEFAULT '',
+    vm_app_server TEXT DEFAULT '',
+    vm_web_server TEXT DEFAULT '',
+    vm_containerization INTEGER DEFAULT 0,
+    vm_container_tool TEXT DEFAULT '',
+    vm_runtime_port TEXT DEFAULT '',
     vm_tech TEXT DEFAULT '',
     diagnostic_json_ref TEXT DEFAULT '',
     diagnostic_json_updated_at TEXT DEFAULT NULL,
@@ -144,6 +197,12 @@ function ensureVmTableSqlite3(SQLite3 $db): void {
   if (!in_array('vm_administration', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_administration TEXT DEFAULT 'SEI'"); }
   if (!in_array('vm_instances', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_instances TEXT DEFAULT ''"); }
   if (!in_array('vm_language', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_language TEXT DEFAULT ''"); }
+  if (!in_array('vm_target_version', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_target_version TEXT DEFAULT ''"); }
+  if (!in_array('vm_app_server', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_app_server TEXT DEFAULT ''"); }
+  if (!in_array('vm_web_server', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_web_server TEXT DEFAULT ''"); }
+  if (!in_array('vm_containerization', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_containerization INTEGER DEFAULT 0"); }
+  if (!in_array('vm_container_tool', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_container_tool TEXT DEFAULT ''"); }
+  if (!in_array('vm_runtime_port', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_runtime_port TEXT DEFAULT ''"); }
   if (!in_array('vm_tech', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_tech TEXT DEFAULT ''"); }
   if (!in_array('diagnostic_json_ref', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN diagnostic_json_ref TEXT DEFAULT ''"); }
   if (!in_array('diagnostic_json_updated_at', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN diagnostic_json_updated_at TEXT DEFAULT NULL"); }
@@ -169,6 +228,12 @@ function ensureVmTablePdo(PDO $db): void {
     vm_administration TEXT DEFAULT 'SEI',
     vm_instances TEXT DEFAULT '',
     vm_language TEXT DEFAULT '',
+    vm_target_version TEXT DEFAULT '',
+    vm_app_server TEXT DEFAULT '',
+    vm_web_server TEXT DEFAULT '',
+    vm_containerization INTEGER DEFAULT 0,
+    vm_container_tool TEXT DEFAULT '',
+    vm_runtime_port TEXT DEFAULT '',
     vm_tech TEXT DEFAULT '',
     diagnostic_json_ref TEXT DEFAULT '',
     diagnostic_json_updated_at TEXT DEFAULT NULL,
@@ -193,6 +258,12 @@ function ensureVmTablePdo(PDO $db): void {
   if (!in_array('vm_administration', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_administration TEXT DEFAULT 'SEI'"); }
   if (!in_array('vm_instances', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_instances TEXT DEFAULT ''"); }
   if (!in_array('vm_language', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_language TEXT DEFAULT ''"); }
+  if (!in_array('vm_target_version', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_target_version TEXT DEFAULT ''"); }
+  if (!in_array('vm_app_server', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_app_server TEXT DEFAULT ''"); }
+  if (!in_array('vm_web_server', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_web_server TEXT DEFAULT ''"); }
+  if (!in_array('vm_containerization', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_containerization INTEGER DEFAULT 0"); }
+  if (!in_array('vm_container_tool', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_container_tool TEXT DEFAULT ''"); }
+  if (!in_array('vm_runtime_port', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_runtime_port TEXT DEFAULT ''"); }
   if (!in_array('vm_tech', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_tech TEXT DEFAULT ''"); }
   if (!in_array('diagnostic_json_ref', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN diagnostic_json_ref TEXT DEFAULT ''"); }
   if (!in_array('diagnostic_json_updated_at', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN diagnostic_json_updated_at TEXT DEFAULT NULL"); }
@@ -293,6 +364,68 @@ function ensureDatabaseTablePdo(PDO $db): void {
   $db->exec("CREATE INDEX IF NOT EXISTS idx_system_databases_system_id ON system_databases(system_id)");
   $db->exec("CREATE INDEX IF NOT EXISTS idx_system_databases_vm_id ON system_databases(vm_id)");
   $db->exec("CREATE INDEX IF NOT EXISTS idx_system_databases_vm_homolog_id ON system_databases(vm_homolog_id)");
+}
+
+function ensureTicketsTableSqlite3(SQLite3 $db): void {
+  $db->exec("CREATE TABLE IF NOT EXISTS tickets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    target_type TEXT NOT NULL DEFAULT 'system',
+    system_id INTEGER DEFAULT NULL,
+    vm_id INTEGER DEFAULT NULL,
+    ticket_number TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now','localtime')),
+    updated_at TEXT DEFAULT (datetime('now','localtime')),
+    FOREIGN KEY(system_id) REFERENCES systems(id) ON UPDATE CASCADE ON DELETE CASCADE,
+    FOREIGN KEY(vm_id) REFERENCES virtual_machines(id) ON UPDATE CASCADE ON DELETE CASCADE
+  )");
+
+  $res = $db->query('PRAGMA table_info(tickets)');
+  $existing = [];
+  while ($row = $res->fetchArray(SQLITE3_ASSOC)) { $existing[] = (string)($row['name'] ?? ''); }
+  if (!in_array('target_type', $existing, true)) { $db->exec("ALTER TABLE tickets ADD COLUMN target_type TEXT NOT NULL DEFAULT 'system'"); }
+  if (!in_array('system_id', $existing, true)) { $db->exec("ALTER TABLE tickets ADD COLUMN system_id INTEGER DEFAULT NULL"); }
+  if (!in_array('vm_id', $existing, true)) { $db->exec("ALTER TABLE tickets ADD COLUMN vm_id INTEGER DEFAULT NULL"); }
+  if (!in_array('ticket_number', $existing, true)) { $db->exec("ALTER TABLE tickets ADD COLUMN ticket_number TEXT NOT NULL DEFAULT ''"); }
+  if (!in_array('description', $existing, true)) { $db->exec("ALTER TABLE tickets ADD COLUMN description TEXT NOT NULL DEFAULT ''"); }
+  if (!in_array('created_at', $existing, true)) { $db->exec("ALTER TABLE tickets ADD COLUMN created_at TEXT DEFAULT (datetime('now','localtime'))"); }
+  if (!in_array('updated_at', $existing, true)) { $db->exec("ALTER TABLE tickets ADD COLUMN updated_at TEXT DEFAULT (datetime('now','localtime'))"); }
+
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_tickets_target_type ON tickets(target_type)");
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_tickets_system_id ON tickets(system_id)");
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_tickets_vm_id ON tickets(vm_id)");
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_tickets_created_at ON tickets(created_at)");
+}
+
+function ensureTicketsTablePdo(PDO $db): void {
+  $db->exec("CREATE TABLE IF NOT EXISTS tickets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    target_type TEXT NOT NULL DEFAULT 'system',
+    system_id INTEGER DEFAULT NULL,
+    vm_id INTEGER DEFAULT NULL,
+    ticket_number TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now','localtime')),
+    updated_at TEXT DEFAULT (datetime('now','localtime')),
+    FOREIGN KEY(system_id) REFERENCES systems(id) ON UPDATE CASCADE ON DELETE CASCADE,
+    FOREIGN KEY(vm_id) REFERENCES virtual_machines(id) ON UPDATE CASCADE ON DELETE CASCADE
+  )");
+
+  $rows = $db->query('PRAGMA table_info(tickets)')->fetchAll(PDO::FETCH_ASSOC);
+  $existing = [];
+  foreach ($rows as $row) { $existing[] = (string)($row['name'] ?? ''); }
+  if (!in_array('target_type', $existing, true)) { $db->exec("ALTER TABLE tickets ADD COLUMN target_type TEXT NOT NULL DEFAULT 'system'"); }
+  if (!in_array('system_id', $existing, true)) { $db->exec("ALTER TABLE tickets ADD COLUMN system_id INTEGER DEFAULT NULL"); }
+  if (!in_array('vm_id', $existing, true)) { $db->exec("ALTER TABLE tickets ADD COLUMN vm_id INTEGER DEFAULT NULL"); }
+  if (!in_array('ticket_number', $existing, true)) { $db->exec("ALTER TABLE tickets ADD COLUMN ticket_number TEXT NOT NULL DEFAULT ''"); }
+  if (!in_array('description', $existing, true)) { $db->exec("ALTER TABLE tickets ADD COLUMN description TEXT NOT NULL DEFAULT ''"); }
+  if (!in_array('created_at', $existing, true)) { $db->exec("ALTER TABLE tickets ADD COLUMN created_at TEXT DEFAULT (datetime('now','localtime'))"); }
+  if (!in_array('updated_at', $existing, true)) { $db->exec("ALTER TABLE tickets ADD COLUMN updated_at TEXT DEFAULT (datetime('now','localtime'))"); }
+
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_tickets_target_type ON tickets(target_type)");
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_tickets_system_id ON tickets(system_id)");
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_tickets_vm_id ON tickets(vm_id)");
+  $db->exec("CREATE INDEX IF NOT EXISTS idx_tickets_created_at ON tickets(created_at)");
 }
 
 function expectedSystemsForeignKeys(): array {
@@ -423,6 +556,10 @@ function systemsColumnsForRelationalMigration(): array {
     'vm_id','vm_homolog_id','vm_dev_id','archived','archived_at',
     'responsible_sector','responsible_coordinator','extension_number','email','support','support_contact',
     'analytics','ssl','waf','bundle','directory','size','repository',
+    'target_version','app_server','web_server','containerization','container_tool','runtime_port',
+    'php_required_extensions','php_recommended_extensions','php_required_libraries','php_required_ini','r_required_packages',
+    'doc_installation_ref','doc_installation_updated_at','doc_maintenance_ref','doc_maintenance_updated_at',
+    'doc_security_ref','doc_security_updated_at','doc_manual_ref','doc_manual_updated_at',
     'category','status','tech','url','description','owner','criticality','version','notes',
     'created_at','updated_at',
   ];
@@ -466,6 +603,25 @@ function createSystemsTableWithForeignKeysSql(): string {
     directory TEXT DEFAULT '',
     size TEXT DEFAULT '',
     repository TEXT DEFAULT '',
+    target_version TEXT DEFAULT '',
+    app_server TEXT DEFAULT '',
+    web_server TEXT DEFAULT '',
+    containerization INTEGER DEFAULT 0,
+    container_tool TEXT DEFAULT '',
+    runtime_port TEXT DEFAULT '',
+    php_required_extensions TEXT DEFAULT '',
+    php_recommended_extensions TEXT DEFAULT '',
+    php_required_libraries TEXT DEFAULT '',
+    php_required_ini TEXT DEFAULT '',
+    r_required_packages TEXT DEFAULT '',
+    doc_installation_ref TEXT DEFAULT '',
+    doc_installation_updated_at TEXT DEFAULT NULL,
+    doc_maintenance_ref TEXT DEFAULT '',
+    doc_maintenance_updated_at TEXT DEFAULT NULL,
+    doc_security_ref TEXT DEFAULT '',
+    doc_security_updated_at TEXT DEFAULT NULL,
+    doc_manual_ref TEXT DEFAULT '',
+    doc_manual_updated_at TEXT DEFAULT NULL,
     category TEXT DEFAULT 'Outro',
     status TEXT DEFAULT 'Ativo',
     tech TEXT DEFAULT '',
@@ -836,6 +992,25 @@ function db() {
       status TEXT DEFAULT 'Ativo',
       waf TEXT DEFAULT '',
       tech TEXT DEFAULT '',
+      target_version TEXT DEFAULT '',
+      app_server TEXT DEFAULT '',
+      web_server TEXT DEFAULT '',
+      containerization INTEGER DEFAULT 0,
+      container_tool TEXT DEFAULT '',
+      runtime_port TEXT DEFAULT '',
+      php_required_extensions TEXT DEFAULT '',
+      php_recommended_extensions TEXT DEFAULT '',
+      php_required_libraries TEXT DEFAULT '',
+      php_required_ini TEXT DEFAULT '',
+      r_required_packages TEXT DEFAULT '',
+      doc_installation_ref TEXT DEFAULT '',
+      doc_installation_updated_at TEXT DEFAULT NULL,
+      doc_maintenance_ref TEXT DEFAULT '',
+      doc_maintenance_updated_at TEXT DEFAULT NULL,
+      doc_security_ref TEXT DEFAULT '',
+      doc_security_updated_at TEXT DEFAULT NULL,
+      doc_manual_ref TEXT DEFAULT '',
+      doc_manual_updated_at TEXT DEFAULT NULL,
       url TEXT DEFAULT '',
       description TEXT DEFAULT '',
       owner TEXT DEFAULT '',
@@ -852,6 +1027,7 @@ function db() {
     ensureUsersTableSqlite3($db);
     migrateLegacyVmLinksSqlite3($db);
     ensureRelationalSchemaSqlite3($db);
+    ensureTicketsTableSqlite3($db);
     $count = (int)$db->querySingle('SELECT COUNT(*) FROM systems');
     if ($count === 0) {
       $db->exec("INSERT INTO systems(name,category,status,tech,description,owner,criticality,version) VALUES
@@ -891,6 +1067,25 @@ function db() {
       status TEXT DEFAULT 'Ativo',
       waf TEXT DEFAULT '',
       tech TEXT DEFAULT '',
+      target_version TEXT DEFAULT '',
+      app_server TEXT DEFAULT '',
+      web_server TEXT DEFAULT '',
+      containerization INTEGER DEFAULT 0,
+      container_tool TEXT DEFAULT '',
+      runtime_port TEXT DEFAULT '',
+      php_required_extensions TEXT DEFAULT '',
+      php_recommended_extensions TEXT DEFAULT '',
+      php_required_libraries TEXT DEFAULT '',
+      php_required_ini TEXT DEFAULT '',
+      r_required_packages TEXT DEFAULT '',
+      doc_installation_ref TEXT DEFAULT '',
+      doc_installation_updated_at TEXT DEFAULT NULL,
+      doc_maintenance_ref TEXT DEFAULT '',
+      doc_maintenance_updated_at TEXT DEFAULT NULL,
+      doc_security_ref TEXT DEFAULT '',
+      doc_security_updated_at TEXT DEFAULT NULL,
+      doc_manual_ref TEXT DEFAULT '',
+      doc_manual_updated_at TEXT DEFAULT NULL,
       url TEXT DEFAULT '',
       description TEXT DEFAULT '',
       owner TEXT DEFAULT '',
@@ -907,6 +1102,7 @@ function db() {
     ensureUsersTablePdo($db);
     migrateLegacyVmLinksPdo($db);
     ensureRelationalSchemaPdo($db);
+    ensureTicketsTablePdo($db);
     $count = (int)$db->query("SELECT COUNT(*) FROM systems")->fetchColumn();
     if ($count === 0) {
       $db->exec("INSERT INTO systems(name,category,status,tech,description,owner,criticality,version) VALUES

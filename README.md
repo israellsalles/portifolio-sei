@@ -1,4 +1,4 @@
-# SEI Portifolio
+# Catálogo de Sistemas SEI
 
 Aplicacao web em PHP para catalogar sistemas, maquinas virtuais (VMs), bases de dados e diagnosticos tecnicos.
 
@@ -16,7 +16,8 @@ Aplicacao web em PHP para catalogar sistemas, maquinas virtuais (VMs), bases de 
 10. [Estrutura de pastas](#estrutura-de-pastas)
 11. [Troubleshooting](#troubleshooting)
 12. [Contribuicao](#contribuicao)
-13. [Licenca](#licenca)
+13. [Guia de revisao de codigo](#guia-de-revisao-de-codigo)
+14. [Licenca](#licenca)
 
 ## Visao geral
 
@@ -144,15 +145,16 @@ Abra no navegador:
 
 ### Arquivo principal
 
-- Banco alvo: `data/sysportfolio.db`
+- Banco alvo: `data/bd_sei_catalogosistema.db`
 
 ### Comportamento de migracao automatica
 
 Ao iniciar:
 
-1. Se existir `sysportfolio.db` na raiz do projeto, ele pode ser copiado para `data/sysportfolio.db`.
-2. Se `data/` nao puder ser criado/usado, o sistema tenta usar um diretorio temporario em `sys_get_temp_dir()/sysportfolio`.
-3. Tabelas e colunas necessarias sao criadas/atualizadas automaticamente.
+1. O sistema usa como alvo `data/bd_sei_catalogosistema.db`.
+2. Se existir banco legado `sysportfolio.db` (na raiz ou em `data/`), ele pode ser migrado automaticamente para o novo nome.
+3. Se `data/` nao puder ser criado/usado, o sistema tenta usar um diretorio temporario em `sys_get_temp_dir()/bd_sei_catalogosistema`.
+4. Tabelas e colunas necessarias sao criadas/atualizadas automaticamente.
 
 ### Seed inicial
 
@@ -176,8 +178,13 @@ Se nao houver sistemas cadastrados, o app insere 3 exemplos iniciais automaticam
 
 Na primeira inicializacao, se a tabela `users` estiver vazia, o sistema cria:
 
-- `admin` / `admin123` (perfil `admin`)
-- `editor` / `editor123` (perfil `edicao`)
+- `admin` (perfil `admin`)
+- `editor` (perfil `edicao`)
+
+Senha inicial:
+
+- se `SEI_ADMIN_PASSWORD` e `SEI_EDITOR_PASSWORD` estiverem definidas, esses valores sao usados;
+- caso contrario, o sistema gera senhas aleatorias e registra no log do PHP no bootstrap.
 
 Recomendacao: alterar as senhas iniciais no ambiente de producao.
 
@@ -226,7 +233,7 @@ ou
 - `archive` - arquiva sistema
 - `restore` - restaura sistema
 - `delete` - exclui sistema definitivamente (somente arquivado)
-- `vm-save` - cria/atualiza VM (inclui `vm_language` e `vm_tech`)
+- `vm-save` - cria/atualiza VM (inclui `vm_language`, `vm_target_version`, `vm_app_server`, `vm_web_server`, `vm_containerization`, `vm_container_tool`, `vm_runtime_port` e `vm_tech`)
 - `vm-archive` - arquiva VM
 - `vm-restore` - restaura VM
 - `vm-delete` - exclui VM definitivamente (somente arquivada)
@@ -305,7 +312,7 @@ Arquivos validados sao salvos em:
 |  |- style.css
 |  |- app.js
 |- data/
-|  |- (sysportfolio.db e vm_diagnostics/ em runtime)
+|  |- (bd_sei_catalogosistema.db e vm_diagnostics/ em runtime)
 ```
 
 ## Troubleshooting
@@ -344,6 +351,12 @@ Sugestao de fluxo:
 2. Implementar alteracoes
 3. Testar fluxos principais (sistemas, VMs, bases e diagnostico)
 4. Abrir PR com descricao objetiva
+
+## Guia de revisao de codigo
+
+Para revisao tecnica detalhada (mapa de codigo, fluxo de dados, seguranca, integridade e checklist manual), consulte:
+
+- `docs/code-review-guide.md`
 
 ## Licenca
 

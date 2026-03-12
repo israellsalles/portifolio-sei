@@ -19,7 +19,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="csrf-token" content="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
-<title>SEI Portifólio</title>
+<title>Catálogo de Sistemas SEI</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/style.css?v=<?= filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'style.css') ?>">
@@ -27,15 +27,15 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
 <body>
 <header>
   <a href="index.php" class="logo">
-    <div class="logo-icon">&#9889;</div>
-    <div class="logo-name">SEI Portifólio</div>
+    <div class="logo-name">Catálogo de Sistemas<br>SEI</div>
   </a>
   <div class="tabs">
-    <button id="tab-cards" class="tab active" onclick="setView('cards')">&#128451; Sistemas</button>
-    <button id="tab-lista" class="tab" onclick="setView('lista')">&#9776; Lista</button>
+    <button id="tab-lista" class="tab active" onclick="setView('lista')">&#9776; Sistemas</button>
+    <button id="tab-cards" class="tab" onclick="setView('cards')">&#128451; Card</button>
     <button id="tab-dns" class="tab" onclick="setView('dns')">&#127760; DNS</button>
     <button id="tab-maquinas" class="tab" onclick="setView('maquinas')">&#128187; Maquinas</button>
     <button id="tab-bases" class="tab" onclick="setView('bases')">&#128187; Bases</button>
+    <button id="tab-chamados" class="tab" onclick="setView('chamados')">&#128221; Chamados</button>
     <button id="tab-vm-relatorio" class="tab" onclick="setView('vm-relatorio')">&#128202; Relatório VM</button>
     <button id="tab-arquivados" class="tab" onclick="setView('arquivados')">&#128230; Arquivados</button>
     <button id="tab-dashboard" class="tab" onclick="setView('dashboard')">&#128202; Dashboard</button>
@@ -88,7 +88,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         <div class="list-section-title">1. Sistemas</div>
         <div class="table-wrap">
           <table class="list-desc-table">
-            <thead><tr><th>Nome</th><th>Descricao</th><th>Observacoes</th><th>Status</th></tr></thead>
+            <thead><tr><th>Nome</th><th>Categoria</th><th>Grupo</th><th>Criticidade</th><th>Descricao</th><th>Observacoes</th><th>Status</th></tr></thead>
             <tbody id="list-desc-body"></tbody>
           </table>
         </div>
@@ -97,7 +97,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         <div class="list-section-title">2. Informações Técnicas</div>
         <div class="table-wrap">
           <table class="list-main-table list-compact-table">
-            <thead><tr><th>Nome</th><th>Sistema</th><th>Versão</th><th>Categoria</th><th>Grupo</th><th>Criticidade</th><th>Linguagem</th></tr></thead>
+            <thead><tr><th>Nome</th><th>Sistema</th><th>Versão</th><th>Linguagem</th><th>Versão Alvo</th><th>Servidor Aplicação</th><th>Web Server</th><th>Containerização</th><th>Ferramenta Container</th><th>Porta Execução</th><th>Compatibilidade</th></tr></thead>
             <tbody id="list-main-body"></tbody>
           </table>
         </div>
@@ -135,6 +135,15 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
           <table class="list-ops-table list-compact-table">
             <thead><tr><th>Nome</th><th>Analytics</th><th>SSL</th><th>WAF</th><th>Bundle</th><th>Diretorio</th><th>Tamanho</th><th>Repositorio</th></tr></thead>
             <tbody id="list-ops-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="list-section">
+        <div class="list-section-title">7. Documentação</div>
+        <div class="table-wrap">
+          <table class="list-docs-table list-compact-table">
+            <thead><tr><th>Nome</th><th>Instalação</th><th>Manutenção</th><th>Segurança</th><th>Manual/Procedimentos</th></tr></thead>
+            <tbody id="list-docs-body"></tbody>
           </table>
         </div>
       </div>
@@ -182,6 +191,64 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         </table>
       </div>
       <div id="db-cards" class="db-mobile-cards"></div>
+    </div>
+  </section>
+  <section id="view-chamados" class="view">
+    <div class="panel">
+      <div class="panel-head">
+        <h3>Cadastro de Chamados</h3>
+      </div>
+      <div class="calls-form-grid">
+        <div class="field">
+          <label>Tipo *</label>
+          <select id="fcall_target_type" onchange="syncCallTargetFields()">
+            <option value="system" selected>Sistema</option>
+            <option value="vm">Maquina</option>
+          </select>
+        </div>
+        <div id="call-system-field" class="field">
+          <label>Sistema *</label>
+          <select id="fcall_system_id"></select>
+        </div>
+        <div id="call-vm-field" class="field hidden">
+          <label>Maquina *</label>
+          <select id="fcall_vm_id"></select>
+        </div>
+        <div class="field">
+          <label>Numero do Chamado *</label>
+          <input id="fcall_number" placeholder="Ex: 2026-12345">
+        </div>
+        <div class="field calls-desc">
+          <label>Descricao *</label>
+          <textarea id="fcall_description" placeholder="Descreva a solicitacao"></textarea>
+        </div>
+        <div class="form-actions calls-actions">
+          <input id="fcall_id" type="hidden" value="">
+          <button id="bcall-save" class="btn btn-save" type="button">Registrar Chamado</button>
+          <button id="bcall-cancel" class="btn hidden" type="button">Cancelar Edicao</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="dash-grid calls-history-grid">
+      <div class="panel">
+        <h3>Histórico de Chamados - Sistemas</h3>
+        <div class="table-wrap">
+          <table class="calls-table compact-table">
+            <thead><tr><th>Sistema</th><th>Numero</th><th>Descricao</th><th>Registrado em</th><th>Acoes</th></tr></thead>
+            <tbody id="calls-system-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>Histórico de Chamados - Maquinas</h3>
+        <div class="table-wrap">
+          <table class="calls-table compact-table">
+            <thead><tr><th>Maquina</th><th>Numero</th><th>Descricao</th><th>Registrado em</th><th>Acoes</th></tr></thead>
+            <tbody id="calls-vm-body"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
   </section>
   <section id="view-maquinas" class="view">
@@ -304,9 +371,9 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         <div class="field"><label>URLs (uma por linha)</label><textarea id="furl" placeholder="https://site-a...&#10;https://site-b..."></textarea></div>
       </div>
       <div class="row3">
-        <div class="field"><label>Maquina (Producao)</label><select id="fvm_id"></select></div>
-        <div class="field"><label>Maquina (Homologacao)</label><select id="fvm_homolog_id"></select></div>
-        <div class="field"><label>Maquina (Desenvolvimento)</label><select id="fvm_dev_id"></select></div>
+        <div class="field"><label>Maquina (Producao)</label><select id="fvm_id" onchange="syncSystemTechFromVms()"></select></div>
+        <div class="field"><label>Maquina (Homologacao)</label><select id="fvm_homolog_id" onchange="syncSystemTechFromVms()"></select></div>
+        <div class="field"><label>Maquina (Desenvolvimento)</label><select id="fvm_dev_id" onchange="syncSystemTechFromVms()"></select></div>
       </div>
       <div class="row2">
         <div class="field"><label>URLs de Homologacao (uma por linha)</label><textarea id="furl_homolog" placeholder="https://hml-a...&#10;https://hml-b..."></textarea></div>
@@ -338,7 +405,93 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         <div class="field"><label>&nbsp;</label></div>
         <div class="field"><label>&nbsp;</label></div>
       </div>
-      <div class="field"><label>Linguagem (virgula)</label><input id="ftech" placeholder="PHP, JavaScript, Python"></div>
+      <div class="row3">
+        <div class="field"><label>Linguagem</label><input id="ftech" list="ftech-options" placeholder="PHP, JavaScript, Python"></div>
+        <div class="field"><label>Versao Alvo</label><input id="ftarget_version" placeholder="Ex: PHP 8.2, Java 21, Python 3.12"></div>
+        <div class="field"><label>Servidor da Aplicacao</label><input id="fapp_server" list="fapp-server-options" placeholder="Ex: PHP-FPM, Tomcat, Shiny Server, Gunicorn"></div>
+      </div>
+      <div class="row3">
+        <div class="field"><label>Reverse Proxy / Web Server</label><input id="fweb_server" list="fweb-server-options" placeholder="Ex: Nginx, Apache HTTP Server, Caddy"></div>
+        <div class="field">
+          <label>Containerizacao</label>
+          <select id="fcontainerization" onchange="syncSystemContainerFields()">
+            <option value="0" selected>Nao</option>
+            <option value="1">Sim</option>
+          </select>
+        </div>
+        <div class="field"><label>Ferramenta de Container</label><input id="fcontainer_tool" list="fcontainer-tool-options" placeholder="Ex: Docker, Podman"></div>
+      </div>
+      <div class="row3">
+        <div class="field"><label>Porta de Execucao</label><input id="fruntime_port" list="fruntime-port-options" placeholder="Ex: 80, 443, 8080, 3838"></div>
+        <div class="field"><label>&nbsp;</label></div>
+        <div class="field"><label>&nbsp;</label></div>
+      </div>
+      <div class="row3">
+        <div class="field"><label>PHP: Extensões Necessárias (vírgula)</label><textarea id="fphp_required_extensions" placeholder="Ex: curl, mbstring, xml, pdo_mysql"></textarea></div>
+        <div class="field"><label>&nbsp;</label></div>
+        <div class="field"><label>&nbsp;</label></div>
+      </div>
+      <div class="field"><label>PHP: Diretivas Requeridas (uma por linha)</label><textarea id="fphp_required_ini" placeholder="memory_limit >= 512M&#10;max_execution_time >= 300&#10;upload_max_filesize >= 500M"></textarea></div>
+      <div class="field"><label>R: Pacotes Requeridos (vírgula)</label><textarea id="fr_required_packages" placeholder="Ex: shiny, dplyr, ggplot2, httr"></textarea></div>
+      <div class="field">
+        <label>Documentação do Sistema (PDF)</label>
+        <div class="system-doc-grid">
+          <div class="system-doc-card">
+            <div class="system-doc-title">Instalação</div>
+            <div id="fdoc_installation_status" class="system-doc-status">Nenhum arquivo enviado.</div>
+            <input id="fdoc_installation_ref" type="hidden">
+            <input id="fdoc_installation_updated_at" type="hidden">
+            <input id="fdoc_installation_file" type="file" accept=".pdf,application/pdf">
+            <div class="actions">
+              <button id="fdoc_installation_view" type="button" class="btn" onclick="openSystemDocByType('installation')">Visualizar</button>
+              <button id="fdoc_installation_upload" type="button" class="btn btn-save" onclick="uploadSystemDocByType('installation')">Enviar/Atualizar</button>
+              <button id="fdoc_installation_remove" type="button" class="btn btn-danger" onclick="removeSystemDocByType('installation')">Remover</button>
+            </div>
+          </div>
+          <div class="system-doc-card">
+            <div class="system-doc-title">Manutenção / Atualização</div>
+            <div id="fdoc_maintenance_status" class="system-doc-status">Nenhum arquivo enviado.</div>
+            <input id="fdoc_maintenance_ref" type="hidden">
+            <input id="fdoc_maintenance_updated_at" type="hidden">
+            <input id="fdoc_maintenance_file" type="file" accept=".pdf,application/pdf">
+            <div class="actions">
+              <button id="fdoc_maintenance_view" type="button" class="btn" onclick="openSystemDocByType('maintenance')">Visualizar</button>
+              <button id="fdoc_maintenance_upload" type="button" class="btn btn-save" onclick="uploadSystemDocByType('maintenance')">Enviar/Atualizar</button>
+              <button id="fdoc_maintenance_remove" type="button" class="btn btn-danger" onclick="removeSystemDocByType('maintenance')">Remover</button>
+            </div>
+          </div>
+          <div class="system-doc-card">
+            <div class="system-doc-title">Segurança</div>
+            <div id="fdoc_security_status" class="system-doc-status">Nenhum arquivo enviado.</div>
+            <input id="fdoc_security_ref" type="hidden">
+            <input id="fdoc_security_updated_at" type="hidden">
+            <input id="fdoc_security_file" type="file" accept=".pdf,application/pdf">
+            <div class="actions">
+              <button id="fdoc_security_view" type="button" class="btn" onclick="openSystemDocByType('security')">Visualizar</button>
+              <button id="fdoc_security_upload" type="button" class="btn btn-save" onclick="uploadSystemDocByType('security')">Enviar/Atualizar</button>
+              <button id="fdoc_security_remove" type="button" class="btn btn-danger" onclick="removeSystemDocByType('security')">Remover</button>
+            </div>
+          </div>
+          <div class="system-doc-card">
+            <div class="system-doc-title">Manual de Uso / Procedimentos</div>
+            <div id="fdoc_manual_status" class="system-doc-status">Nenhum arquivo enviado.</div>
+            <input id="fdoc_manual_ref" type="hidden">
+            <input id="fdoc_manual_updated_at" type="hidden">
+            <input id="fdoc_manual_file" type="file" accept=".pdf,application/pdf">
+            <div class="actions">
+              <button id="fdoc_manual_view" type="button" class="btn" onclick="openSystemDocByType('manual')">Visualizar</button>
+              <button id="fdoc_manual_upload" type="button" class="btn btn-save" onclick="uploadSystemDocByType('manual')">Enviar/Atualizar</button>
+              <button id="fdoc_manual_remove" type="button" class="btn btn-danger" onclick="removeSystemDocByType('manual')">Remover</button>
+            </div>
+          </div>
+        </div>
+        <div id="fdoc_hint" class="auth-hint">Salve o sistema para habilitar envio de PDFs.</div>
+      </div>
+      <datalist id="ftech-options"></datalist>
+      <datalist id="fapp-server-options"></datalist>
+      <datalist id="fweb-server-options"></datalist>
+      <datalist id="fcontainer-tool-options"></datalist>
+      <datalist id="fruntime-port-options"></datalist>
       <div class="field"><label>Observacoes</label><textarea id="fnotes"></textarea></div>
       <div class="form-actions">
         <button class="btn" onclick="closeModal('mform')">Cancelar</button>
@@ -385,8 +538,16 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         <div class="field"><label>Disco</label><input id="fvmdisk" placeholder="Ex: 200 GB SSD"></div>
       </div>
       <div class="row2">
-        <div class="field"><label>Linguagem (virgula)</label><input id="fvmlanguage" placeholder="Ex: PHP, R"></div>
-        <div class="field"><label>Tecnologias (virgula)</label><input id="fvmtech" placeholder="Ex: Apache 2.4, Shiny Server"></div>
+        <div class="field"><label>Linguagem (virgula)</label><input id="fvmlanguage" placeholder="Ex: PHP, R, Java, Python, Node.js"></div>
+        <div class="field"><label>Servidor da Aplicacao (virgula)</label><input id="fvmtech" placeholder="Ex: PHP-FPM, Tomcat, Shiny Server, Gunicorn"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Reverse Proxy / Web Server (virgula)</label><input id="fvmwebserver" placeholder="Ex: Nginx, Apache HTTP Server, Caddy"></div>
+        <div class="field"><label>Ferramenta de Container</label><input id="fvmcontainertool" placeholder="Ex: Docker, Podman"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Porta de Execucao</label><input id="fvmruntimeport" placeholder="Ex: 80, 443, 8080, 3838"></div>
+        <div class="field"><label>&nbsp;</label></div>
       </div>
       <div class="field"><label>Instancias SGBD (uma por linha: Tecnologia - IP)</label><textarea id="fvminstances" placeholder="MySQL - 10.28.246.82&#10;PostgreSQL - 10.28.246.81"></textarea></div>
       <div class="form-actions">

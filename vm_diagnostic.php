@@ -240,15 +240,62 @@ $vmId = (int)($_GET['id'] ?? 0);
     margin:0;
     border:1px solid var(--line);
     border-radius:10px;
-    background:#f9fbff;
+    background:#f7faff;
     color:var(--txt);
-    padding:10px;
-    font-family:var(--mono);
-    font-size:12px;
-    white-space:pre-wrap;
-    word-break:break-word;
+    padding:12px;
+    font-size:13px;
+    white-space:normal;
+    word-break:normal;
     max-height:460px;
     overflow:auto
+  }
+  .cmp-empty{
+    color:var(--muted);
+    font-style:italic
+  }
+  .cmp-head{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    margin-bottom:10px
+  }
+  .cmp-pill{
+    border:1px solid #c6d8fb;
+    border-radius:999px;
+    background:#edf4ff;
+    color:#2f5aa3;
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:.4px;
+    padding:4px 9px;
+    font-weight:700
+  }
+  .cmp-section{
+    border:1px solid #dbe7ff;
+    border-radius:10px;
+    background:#fff;
+    padding:9px 10px;
+    margin-top:8px
+  }
+  .cmp-title{
+    font-weight:800;
+    color:#2b4f90;
+    margin-bottom:6px
+  }
+  .cmp-list{
+    margin:0;
+    padding-left:18px
+  }
+  .cmp-list li{
+    margin:3px 0;
+    line-height:1.35
+  }
+  .cmp-code{
+    font-family:var(--mono);
+    background:#f2f6ff;
+    border:1px solid #dce7ff;
+    border-radius:6px;
+    padding:1px 5px
   }
   .empty{
     color:var(--muted);
@@ -345,7 +392,7 @@ $vmId = (int)($_GET['id'] ?? 0);
           <select id="vm-compare-select-php" class="search" style="min-width:280px"></select>
           <button id="btn-compare-vm-php" class="btn">Comparar com outra VM</button>
         </div>
-        <pre id="compare-output-php" class="pre">Sem comparacao executada.</pre>
+        <div id="compare-output-php" class="pre"><div class="cmp-empty">Sem comparacao executada.</div></div>
       </section>
 
       <section class="panel" style="margin-top:12px">
@@ -398,7 +445,7 @@ $vmId = (int)($_GET['id'] ?? 0);
           <select id="vm-compare-select-r" class="search" style="min-width:280px"></select>
           <button id="btn-compare-vm-r" class="btn">Comparar com outra VM</button>
         </div>
-        <pre id="compare-output-r" class="pre">Sem comparacao executada.</pre>
+        <div id="compare-output-r" class="pre"><div class="cmp-empty">Sem comparacao executada.</div></div>
       </section>
 
       <section class="panel" style="margin-top:12px;margin-bottom:0">
@@ -787,31 +834,58 @@ async function listVms(){
   return Array.isArray(data.data) ? data.data : [];
 }
 
+function compactDiffValue(value, max=180){
+  const normalized = String(value ?? '').replace(/\s+/g, ' ').trim();
+  if (normalized.length <= max) return normalized || '-';
+  return normalized.slice(0, max) + '...';
+}
+
+function emptyComparisonHtml(message='Sem comparacao executada.'){
+  return `<div class="cmp-empty">${escHtml(message)}</div>`;
+}
+
 function comparePhpPayload(basePayload, targetPayload){
   if (!isValidPhpPayload(basePayload) || !isValidPhpPayload(targetPayload)) {
-    return 'Comparacao indisponivel: um dos JSONs esta fora do modelo esperado.';
+    return emptyComparisonHtml('Comparacao indisponivel: um dos JSONs esta fora do modelo esperado.');
   }
 
-  const lines = [];
+  const sections = [];
+  let totalChanges = 0;
   const basePhp = basePayload.php || {};
   const targetPhp = targetPayload.php || {};
   const phpKeys = [...new Set([...Object.keys(basePhp), ...Object.keys(targetPhp)])].sort();
   const phpChanges = phpKeys.filter((key) => String(basePhp[key] ?? '') !== String(targetPhp[key] ?? ''));
   if (phpChanges.length) {
-    lines.push('PHP');
-    phpChanges.forEach((key) => {
-      lines.push(`- ${key}: "${String(basePhp[key] ?? '')}" -> "${String(targetPhp[key] ?? '')}"`);
-    });
+    totalChanges += phpChanges.length;
+    const items = phpChanges.map((key) => `
+      <li>
+        <span class="cmp-code">${escHtml(key)}</span>:
+        <span class="cmp-code">${escHtml(compactDiffValue(basePhp[key]))}</span>
+        ->
+        <span class="cmp-code">${escHtml(compactDiffValue(targetPhp[key]))}</span>
+      </li>
+    `).join('');
+    sections.push(`
+      <div class="cmp-section">
+        <div class="cmp-title">Metadados PHP (${phpChanges.length})</div>
+        <ul class="cmp-list">${items}</ul>
+      </div>
+    `);
   }
 
   const baseExt = mapExtensions(basePayload);
   const targetExt = mapExtensions(targetPayload);
-  const extAdded = [...targetExt.keys()].filter((k) => !baseExt.has(k)).map((k) => targetExt.get(k));
-  const extRemoved = [...baseExt.keys()].filter((k) => !targetExt.has(k)).map((k) => baseExt.get(k));
+  const extAdded = [...targetExt.keys()].filter((k) => !baseExt.has(k)).map((k) => targetExt.get(k)).filter(Boolean).sort();
+  const extRemoved = [...baseExt.keys()].filter((k) => !targetExt.has(k)).map((k) => baseExt.get(k)).filter(Boolean).sort();
   if (extAdded.length || extRemoved.length) {
-    lines.push('Extensions');
-    if (extAdded.length) lines.push(`- Adicionadas: ${extAdded.join(', ')}`);
-    if (extRemoved.length) lines.push(`- Removidas: ${extRemoved.join(', ')}`);
+    totalChanges += extAdded.length + extRemoved.length;
+    sections.push(`
+      <div class="cmp-section">
+        <div class="cmp-title">Extensoes</div>
+        ${extAdded.length ? `<div><strong>Adicionadas (${extAdded.length}):</strong> ${escHtml(extAdded.join(', '))}</div>` : ''}
+        ${extRemoved.length ? `<div><strong>Removidas (${extRemoved.length}):</strong> ${escHtml(extRemoved.join(', '))}</div>` : ''}
+      </div>
+    `);
   }
 
   const baseIni = mapIni(basePayload);
@@ -820,26 +894,48 @@ function comparePhpPayload(basePayload, targetPayload){
   const iniRemoved = [...baseIni.keys()].filter((k) => !targetIni.has(k));
   const iniChanged = [...baseIni.keys()].filter((k) => targetIni.has(k) && baseIni.get(k) !== targetIni.get(k));
   if (iniAdded.length || iniRemoved.length || iniChanged.length) {
-    lines.push('INI');
-    if (iniAdded.length) lines.push(`- Adicionadas: ${iniAdded.length}`);
-    if (iniRemoved.length) lines.push(`- Removidas: ${iniRemoved.length}`);
+    totalChanges += iniAdded.length + iniRemoved.length + iniChanged.length;
+    let details = '';
     if (iniChanged.length) {
-      lines.push(`- Alteradas: ${iniChanged.length}`);
-      iniChanged.slice(0, 60).forEach((key) => {
-        lines.push(`  * ${key}: "${baseIni.get(key)}" -> "${targetIni.get(key)}"`);
-      });
-      if (iniChanged.length > 60) lines.push(`  * ... mais ${iniChanged.length - 60} alteracao(oes)`);
+      const changedItems = iniChanged.slice(0, 60).map((key) => `
+        <li>
+          <span class="cmp-code">${escHtml(key)}</span>:
+          <span class="cmp-code">${escHtml(compactDiffValue(baseIni.get(key)))}</span>
+          ->
+          <span class="cmp-code">${escHtml(compactDiffValue(targetIni.get(key)))}</span>
+        </li>
+      `).join('');
+      details = `<ul class="cmp-list">${changedItems}</ul>`;
+      if (iniChanged.length > 60) {
+        details += `<div class="cmp-empty">... mais ${iniChanged.length - 60} alteracao(oes)</div>`;
+      }
     }
+    sections.push(`
+      <div class="cmp-section">
+        <div class="cmp-title">Diretivas INI</div>
+        <div><strong>Adicionadas:</strong> ${iniAdded.length}</div>
+        <div><strong>Removidas:</strong> ${iniRemoved.length}</div>
+        <div><strong>Alteradas:</strong> ${iniChanged.length}</div>
+        ${details}
+      </div>
+    `);
   }
 
-  return lines.length ? lines.join('\n') : 'Nenhuma diferenca encontrada entre os JSONs.';
+  if (!sections.length) return emptyComparisonHtml('Nenhuma diferenca encontrada entre os JSONs.');
+  return `
+    <div class="cmp-head">
+      <span class="cmp-pill">PHP</span>
+      <span class="cmp-pill">Diferencas: ${totalChanges}</span>
+    </div>
+    ${sections.join('')}
+  `;
 }
 
 function compareRPayload(basePayload, targetPayload){
   const baseRows = normalizeRPackages(basePayload);
   const targetRows = normalizeRPackages(targetPayload);
   if (!baseRows.length || !targetRows.length) {
-    return 'Comparacao indisponivel: um dos JSONs de R esta fora do modelo esperado.';
+    return emptyComparisonHtml('Comparacao indisponivel: um dos JSONs de R esta fora do modelo esperado.');
   }
 
   const baseVersion = extractRVersion(basePayload, baseRows);
@@ -862,7 +958,7 @@ function compareRPayload(basePayload, targetPayload){
 
   const baseMap = toMap(baseRows);
   const targetMap = toMap(targetRows);
-  const lines = [];
+  const sections = [];
 
   const added = [...targetMap.keys()]
     .filter((key) => !baseMap.has(key))
@@ -884,33 +980,39 @@ function compareRPayload(basePayload, targetPayload){
     .sort((a,b)=>a.name.localeCompare(b.name));
 
   if ((baseVersion || targetVersion) && baseVersionKey !== targetVersionKey) {
-    lines.push('Versao do R');
-    lines.push(`- "${baseVersion || '-'}" -> "${targetVersion || '-'}"`);
+    sections.push(`
+      <div class="cmp-section">
+        <div class="cmp-title">Versao do R</div>
+        <div><span class="cmp-code">${escHtml(baseVersion || '-')}</span> -> <span class="cmp-code">${escHtml(targetVersion || '-')}</span></div>
+      </div>
+    `);
   }
 
+  let detailBlocks = '';
   if (added.length) {
-    lines.push(`Pacotes adicionados (${added.length})`);
-    added.slice(0, 120).forEach((pkg) => {
-      lines.push(`- ${pkg.name}${pkg.version ? ` (${pkg.version})` : ''}`);
-    });
-    if (added.length > 120) lines.push(`- ... mais ${added.length - 120}`);
+    const items = added.slice(0, 120).map((pkg) => `<li><span class="cmp-code">${escHtml(pkg.name)}</span>${pkg.version ? ` (${escHtml(pkg.version)})` : ''}</li>`).join('');
+    detailBlocks += `<div class="cmp-section"><div class="cmp-title">Pacotes adicionados (${added.length})</div><ul class="cmp-list">${items}</ul>${added.length > 120 ? `<div class="cmp-empty">... mais ${added.length - 120}</div>` : ''}</div>`;
   }
   if (removed.length) {
-    lines.push(`Pacotes removidos (${removed.length})`);
-    removed.slice(0, 120).forEach((pkg) => {
-      lines.push(`- ${pkg.name}${pkg.version ? ` (${pkg.version})` : ''}`);
-    });
-    if (removed.length > 120) lines.push(`- ... mais ${removed.length - 120}`);
+    const items = removed.slice(0, 120).map((pkg) => `<li><span class="cmp-code">${escHtml(pkg.name)}</span>${pkg.version ? ` (${escHtml(pkg.version)})` : ''}</li>`).join('');
+    detailBlocks += `<div class="cmp-section"><div class="cmp-title">Pacotes removidos (${removed.length})</div><ul class="cmp-list">${items}</ul>${removed.length > 120 ? `<div class="cmp-empty">... mais ${removed.length - 120}</div>` : ''}</div>`;
   }
   if (changed.length) {
-    lines.push(`Pacotes com versao alterada (${changed.length})`);
-    changed.slice(0, 120).forEach((pkg) => {
-      lines.push(`- ${pkg.name}: \"${pkg.from}\" -> \"${pkg.to}\"`);
-    });
-    if (changed.length > 120) lines.push(`- ... mais ${changed.length - 120}`);
+    const items = changed.slice(0, 120).map((pkg) => `<li><span class="cmp-code">${escHtml(pkg.name)}</span>: <span class="cmp-code">${escHtml(compactDiffValue(pkg.from))}</span> -> <span class="cmp-code">${escHtml(compactDiffValue(pkg.to))}</span></li>`).join('');
+    detailBlocks += `<div class="cmp-section"><div class="cmp-title">Pacotes com versao alterada (${changed.length})</div><ul class="cmp-list">${items}</ul>${changed.length > 120 ? `<div class="cmp-empty">... mais ${changed.length - 120}</div>` : ''}</div>`;
   }
 
-  return lines.length ? lines.join('\n') : 'Nenhuma diferenca encontrada entre os JSONs de R.';
+  if (!detailBlocks && !sections.length) return emptyComparisonHtml('Nenhuma diferenca encontrada entre os JSONs de R.');
+  return `
+    <div class="cmp-head">
+      <span class="cmp-pill">R</span>
+      <span class="cmp-pill">Adicionados: ${added.length}</span>
+      <span class="cmp-pill">Removidos: ${removed.length}</span>
+      <span class="cmp-pill">Alterados: ${changed.length}</span>
+    </div>
+    ${sections.join('')}
+    ${detailBlocks}
+  `;
 }
 
 function readFileInput(inputId){
@@ -928,12 +1030,12 @@ function clearTechView(tech){
   if (tech === 'php') {
     renderPhpPayload(null);
     document.getElementById('vm-updated-php').value = '';
-    document.getElementById('compare-output-php').textContent = 'Sem comparacao executada.';
+    document.getElementById('compare-output-php').innerHTML = emptyComparisonHtml();
     return;
   }
   renderRPayload(null);
   document.getElementById('vm-updated-r').value = '';
-  document.getElementById('compare-output-r').textContent = 'Sem comparacao executada.';
+  document.getElementById('compare-output-r').innerHTML = emptyComparisonHtml();
 }
 
 function compareSelectIdByTech(tech){
@@ -1017,7 +1119,7 @@ async function loadReference(){
       } else {
         renderPhpPayload(null);
       }
-      document.getElementById(compareOutputIdByTech('php')).textContent = 'Sem comparacao executada.';
+      document.getElementById(compareOutputIdByTech('php')).innerHTML = emptyComparisonHtml();
     } else {
       renderPhpPayload(null);
     }
@@ -1028,7 +1130,7 @@ async function loadReference(){
       } else {
         renderRPayload(null);
       }
-      document.getElementById(compareOutputIdByTech('r')).textContent = 'Sem comparacao executada.';
+      document.getElementById(compareOutputIdByTech('r')).innerHTML = emptyComparisonHtml();
     } else {
       renderRPayload(null);
     }
@@ -1084,11 +1186,11 @@ async function saveReference(tech, successMessage){
     if (tech === 'php') {
       document.getElementById('vm-updated-php').value = String(saved?.updated_at || '');
       renderPhpPayload(saved?.json || payload);
-      document.getElementById(compareOutputIdByTech('php')).textContent = 'Sem comparacao executada.';
+      document.getElementById(compareOutputIdByTech('php')).innerHTML = emptyComparisonHtml();
     } else {
       document.getElementById('vm-updated-r').value = String(saved?.updated_at || '');
       renderRPayload(saved?.json || payload);
-      document.getElementById(compareOutputIdByTech('r')).textContent = 'Sem comparacao executada.';
+      document.getElementById(compareOutputIdByTech('r')).innerHTML = emptyComparisonHtml();
     }
 
     document.getElementById(inputId).value = '';
@@ -1155,7 +1257,7 @@ async function compareWithVm(tech){
       if (!targetPhp?.has_file || !isValidPhpPayload(targetPhp?.json)) {
         throw new Error('A VM selecionada nao possui JSON PHP valido referenciado.');
       }
-      if (output) output.textContent = comparePhpPayload(currentPhpPayload, targetPhp.json);
+      if (output) output.innerHTML = comparePhpPayload(currentPhpPayload, targetPhp.json);
       setStatus(`Comparacao PHP executada com a VM: ${data?.vm_label || `#${vmId}`}.`, 'ok');
       return;
     }
@@ -1167,7 +1269,7 @@ async function compareWithVm(tech){
     if (!targetR?.has_file || !isValidRPayload(targetR?.json)) {
       throw new Error('A VM selecionada nao possui JSON R valido referenciado.');
     }
-    if (output) output.textContent = compareRPayload(currentRPayload, targetR.json);
+    if (output) output.innerHTML = compareRPayload(currentRPayload, targetR.json);
     setStatus(`Comparacao R executada com a VM: ${data?.vm_label || `#${vmId}`}.`, 'ok');
   } catch (error) {
     setStatus(`Erro na comparacao de ${tech.toUpperCase()}: ` + (error.message || '?'), 'err');

@@ -2,8 +2,10 @@ const App = {
   items: [],
   vms: [],
   databases: [],
+  tickets: [],
+  ticketGroupsExpanded: {},
   archived: { systems: [], vms: [] },
-  view: 'cards',
+  view: 'lista',
   auth: {
     authenticated: false,
     user: null
@@ -58,6 +60,32 @@ const parseUrlList = (raw) => {
   });
 };
 const joinUrlList = (raw) => parseUrlList(raw).join('\n');
+const normalizePortInput = (raw) => {
+  const source = Array.isArray(raw)
+    ? raw.map((entry) => String(entry ?? '')).join(',')
+    : String(raw ?? '');
+  const tokens = source
+    .replace(/\r/g, '\n')
+    .split(/[\n,;\s]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  const seen = new Set();
+  const ports = [];
+  for (const token of tokens) {
+    if (!/^\d+$/.test(token)) {
+      return { ok: false, value: '', error: `Porta de execucao invalida: ${token}.` };
+    }
+    const port = Number(token);
+    if (port < 1 || port > 65535) {
+      return { ok: false, value: '', error: `Porta de execucao fora da faixa: ${token}.` };
+    }
+    const normalized = String(port);
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    ports.push(normalized);
+  }
+  return { ok: true, value: ports.join(','), ports };
+};
 const systemUrlList = (item, homolog=false) => {
   const listKey = homolog ? 'url_homolog_list' : 'url_list';
   if (Array.isArray(item?.[listKey])) return parseUrlList(item[listKey]);
@@ -170,10 +198,8 @@ function applyAuthState(){
 
   if (authenticated) {
     if (authLabel) {
-      const role = String(App.auth.user.role || 'leitura');
-      const roleLabel = role === 'admin' ? 'Admin' : role === 'edicao' ? 'Edicao' : 'Leitura';
-      const name = String(App.auth.user.full_name || App.auth.user.username || '').trim() || 'Usuario';
-      authLabel.textContent = `${name} (${roleLabel})`;
+      const login = String(App.auth.user.username || '').trim() || 'usuario';
+      authLabel.textContent = login;
     }
     authBox?.classList.remove('hidden');
     loginOpenBtn?.classList.add('hidden');
@@ -426,6 +452,28 @@ function relationVmText(item, kind){
   return `Prod: ${prodText || '-'} | Hml: ${hmlText || '-'} | Dev: ${devText || '-'}`;
 }
 
+function normalizeVmSummaryValue(value){
+  if (Array.isArray(value)) {
+    const list = [...new Set(value.map((x) => String(x || '').trim()).filter(Boolean))];
+    return list.join(', ');
+  }
+  if (typeof value === 'boolean') return value ? 'Sim' : 'Nao';
+  return String(value || '').trim();
+}
+
+function relationVmSummary(item, resolver){
+  const prod = vmById(item?.vm_id);
+  const hml = vmById(item?.vm_homolog_id);
+  const dev = vmById(item?.vm_dev_id);
+  const prodText = prod ? normalizeVmSummaryValue(resolver(prod)) : '';
+  const hmlText = hml ? normalizeVmSummaryValue(resolver(hml)) : '';
+  const devText = dev ? normalizeVmSummaryValue(resolver(dev)) : '';
+  const unique = [...new Set([prodText, hmlText, devText].filter(Boolean))];
+  if (!unique.length) return '-';
+  if (unique.length === 1) return unique[0];
+  return `Prod: ${prodText || '-'} | Hml: ${hmlText || '-'} | Dev: ${devText || '-'}`;
+}
+
 function vmLabel(vm){
   const name = String(vm?.name || '').trim();
   const ip = String(vm?.ip || '').trim();
@@ -435,9 +483,69 @@ function vmLabel(vm){
 }
 
 function vmTechList(vm){
+  if (Array.isArray(vm?.vm_app_server_list)) return vm.vm_app_server_list;
+  const appRaw = String(vm?.vm_app_server || '').trim();
+  if (appRaw) return appRaw.split(',').map((x)=>x.trim()).filter(Boolean);
+
+  // Compatibilidade com payloads antigos.
   if (Array.isArray(vm?.vm_tech_list)) return vm.vm_tech_list;
   const raw = String(vm?.vm_tech || '').trim();
   return raw ? raw.split(',').map((x)=>x.trim()).filter(Boolean) : [];
+}
+
+function vmWebServerList(vm){
+  if (Array.isArray(vm?.vm_web_server_list)) return vm.vm_web_server_list;
+  const raw = String(vm?.vm_web_server || '').trim();
+  return raw ? raw.split(',').map((x)=>x.trim()).filter(Boolean) : [];
+}
+
+function vmContainerToolList(vm){
+  if (Array.isArray(vm?.vm_container_tool_list)) return vm.vm_container_tool_list;
+  const raw = String(vm?.vm_container_tool || '').trim();
+  return raw ? raw.split(',').map((x)=>x.trim()).filter(Boolean) : [];
+}
+
+function vmContainerizationEnabled(vm){
+  const value = vm?.vm_containerization;
+  if (typeof value === 'boolean') return value;
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'sim' || normalized === 'yes';
+}
+
+function vmTargetVersionText(vm){
+  return String(vm?.vm_target_version || '').trim();
+}
+
+function vmRuntimePortText(vm){
+  return String(vm?.vm_runtime_port || '').trim();
+}
+
+function vmRuntimePortList(vm){
+  const normalized = normalizePortInput(vmRuntimePortText(vm));
+  return normalized.ok ? normalized.ports : [];
+}
+
+function vmDeploymentTags(vm){
+  const tags = [];
+  const appServers = vmTechList(vm);
+  const webServers = vmWebServerList(vm);
+  const containerTools = vmContainerToolList(vm);
+  const containerized = vmContainerizationEnabled(vm) || containerTools.length > 0;
+  const runtimePort = vmRuntimePortText(vm);
+  const runtimePorts = vmRuntimePortList(vm);
+  const targetVersion = vmTargetVersionText(vm);
+
+  appServers.forEach((item) => tags.push(`App: ${item}`));
+  webServers.forEach((item) => tags.push(`Web: ${item}`));
+  if (containerized) {
+    if (containerTools.length) containerTools.forEach((item) => tags.push(`Container: ${item}`));
+    else tags.push('Containerizado');
+  }
+  if (runtimePorts.length) runtimePorts.forEach((item) => tags.push(`Porta: ${item}`));
+  else if (runtimePort) tags.push(`Porta: ${runtimePort}`);
+  if (targetVersion) tags.push(`Alvo: ${targetVersion}`);
+
+  return tags;
 }
 
 function vmLanguageList(vm){
@@ -507,6 +615,147 @@ function vmDiagnosticTechs(vm){
 function vmSupportsDiagnostics(vm){
   if (!vm || vmTypeLabel(vm) !== 'Sistemas') return false;
   return vmHasPhpTech(vm) || vmHasRTech(vm);
+}
+
+function systemPhpCompatibility(item){
+  const fallback = { has_requirements: false, status: 'not_applicable', label: 'N/A', issues: 0, environments: [] };
+  if (!item || typeof item !== 'object') return fallback;
+  const payload = item.php_compatibility;
+  if (!payload || typeof payload !== 'object') return fallback;
+  return {
+    has_requirements: Boolean(payload.has_requirements),
+    status: String(payload.status || 'not_applicable'),
+    label: String(payload.label || 'N/A'),
+    issues: Number(payload.issues || 0),
+    environments: Array.isArray(payload.environments) ? payload.environments : []
+  };
+}
+
+function systemHasPhpRequirements(item){
+  const compat = systemPhpCompatibility(item);
+  if (compat.has_requirements) return true;
+  const req = item?.php_requirements;
+  return Boolean(req && typeof req === 'object' && req.has_requirements);
+}
+
+function systemPhpCompatTag(item){
+  const compat = systemPhpCompatibility(item);
+  if (!systemHasPhpRequirements(item)) return { status: 'not_applicable', label: 'N/A', issues: 0 };
+  const status = String(compat.status || 'warning');
+  const label = String(compat.label || 'Parcial');
+  const issues = Number(compat.issues || 0);
+  return { status, label, issues };
+}
+
+function systemRCompatibility(item){
+  const fallback = { has_requirements: false, status: 'not_applicable', label: 'N/A', issues: 0, environments: [] };
+  if (!item || typeof item !== 'object') return fallback;
+  const payload = item.r_compatibility;
+  if (!payload || typeof payload !== 'object') return fallback;
+  return {
+    has_requirements: Boolean(payload.has_requirements),
+    status: String(payload.status || 'not_applicable'),
+    label: String(payload.label || 'N/A'),
+    issues: Number(payload.issues || 0),
+    environments: Array.isArray(payload.environments) ? payload.environments : []
+  };
+}
+
+function systemHasRRequirements(item){
+  const compat = systemRCompatibility(item);
+  if (compat.has_requirements) return true;
+  const req = item?.r_requirements;
+  return Boolean(req && typeof req === 'object' && req.has_requirements);
+}
+
+function systemRCompatTag(item){
+  const compat = systemRCompatibility(item);
+  if (!systemHasRRequirements(item)) return { status: 'not_applicable', label: 'N/A', issues: 0 };
+  const status = String(compat.status || 'warning');
+  const label = String(compat.label || 'Parcial');
+  const issues = Number(compat.issues || 0);
+  return { status, label, issues };
+}
+
+function systemLanguageKeys(item){
+  const out = [];
+  const seen = new Set();
+  const techList = Array.isArray(item?.tech) ? item.tech : [];
+
+  techList.forEach((entry) => {
+    const value = String(entry || '').trim().toLowerCase();
+    if (!value) return;
+
+    if (value.includes('php')) {
+      if (!seen.has('php')) {
+        seen.add('php');
+        out.push('php');
+      }
+      return;
+    }
+
+    if (value === 'r' || /^r(?:[\s\-\/_.]|\d)/.test(value)) {
+      if (!seen.has('r')) {
+        seen.add('r');
+        out.push('r');
+      }
+    }
+  });
+
+  if (!seen.has('php') && systemHasPhpRequirements(item)) {
+    seen.add('php');
+    out.push('php');
+  }
+  if (!seen.has('r') && systemHasRRequirements(item)) {
+    seen.add('r');
+    out.push('r');
+  }
+
+  return out;
+}
+
+function systemPrimaryCompatibility(item){
+  const languages = systemLanguageKeys(item);
+  if (!languages.length) return { language: '', status: 'not_applicable', label: 'N/A', issues: 0 };
+
+  const entries = languages.map((language) => {
+    const compat = language === 'r' ? systemRCompatTag(item) : systemPhpCompatTag(item);
+    return { language, status: compat.status, label: compat.label, issues: compat.issues };
+  });
+
+  return entries.find((entry) => entry.status !== 'not_applicable') || entries[0];
+}
+
+function systemCompatibilityDisplayLabel(item){
+  const compat = systemPrimaryCompatibility(item);
+  if (!compat.language || compat.status === 'not_applicable') return 'N/A';
+  const suffix = compat.issues > 0 ? ` (${compat.issues})` : '';
+  return `${compat.label}${suffix}`;
+}
+
+function systemCompatibilityMarkup(item, options = {}){
+  const withAction = Boolean(options?.withAction);
+  const compat = systemPrimaryCompatibility(item);
+  if (!compat.language || compat.status === 'not_applicable') return '<span class="compat-empty">N/A</span>';
+
+  const suffix = compat.issues > 0 ? ` (${compat.issues})` : '';
+  const pill = `<span class="compat-pill compat-${esc(compat.status)}">${esc(compat.label)}${esc(suffix)}</span>`;
+  if (!withAction) return pill;
+
+  const systemId = Number(item?.id || 0);
+  const openFn = compat.language === 'r'
+    ? `openSystemRCompatibilityPageById(${systemId})`
+    : `openSystemPhpCompatibilityPageById(${systemId})`;
+  const title = compat.language === 'r'
+    ? 'Abrir validacao de compatibilidade R'
+    : 'Abrir validacao de compatibilidade PHP';
+
+  return `
+    <div class="compat-cell">
+      <button class="compat-icon compat-${esc(compat.status)}" onclick="event.stopPropagation();${openFn}" title="${title}">&#9432;</button>
+      ${pill}
+    </div>
+  `;
 }
 
 function vmInstances(vm){
@@ -651,6 +900,10 @@ function vmCategoryOrder(vm){
 
 function runPrimaryAction(){
   if (!ensureCanEdit()) return;
+  if (App.view === 'chamados') {
+    saveTicket();
+    return;
+  }
   if (App.view === 'bases') {
     openDbForm();
     return;
@@ -666,6 +919,11 @@ function syncPrimaryAction(){
   const btn = $('top-action');
   if (!btn) return;
   btn.disabled = !canEdit();
+
+  if (App.view === 'chamados') {
+    btn.textContent = '+ Registrar Chamado';
+    return;
+  }
 
   if (App.view === 'bases') {
     btn.textContent = '+ Nova Base';
@@ -688,7 +946,7 @@ function openDiagramExternal(){
 function setView(view){
   const nextView = view === 'grid' ? 'lista' : view;
   App.view = nextView;
-  ['dashboard','lista','cards','dns','bases','maquinas','vm-relatorio','arquivados'].forEach((v) => {
+  ['dashboard','lista','cards','dns','bases','chamados','maquinas','vm-relatorio','arquivados'].forEach((v) => {
     const viewEl = $('view-' + v);
     const tabEl = $('tab-' + v);
     if (viewEl) viewEl.classList.toggle('active', v === nextView);
@@ -747,6 +1005,61 @@ function populateVmSelects(){
   fillVm('fvm_dev_id','Selecionar...','Desenvolvimento');
 }
 
+function setDataListOptions(listId, values){
+  const el = $(listId);
+  if (!el) return;
+  const normalized = [...new Set((values || []).map((x) => String(x || '').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  el.innerHTML = normalized.map((value) => `<option value="${esc(value)}"></option>`).join('');
+}
+
+function selectedSystemVms(){
+  const ids = [
+    Number($('fvm_id')?.value || 0),
+    Number($('fvm_homolog_id')?.value || 0),
+    Number($('fvm_dev_id')?.value || 0),
+  ].filter((id) => id > 0);
+  const seen = new Set();
+  const out = [];
+  ids.forEach((id) => {
+    if (seen.has(id)) return;
+    seen.add(id);
+    const vm = vmById(id);
+    if (vm) out.push(vm);
+  });
+  return out;
+}
+
+function syncSystemContainerFields(){
+  const enabled = String($('fcontainerization')?.value || '0') === '1';
+  const input = $('fcontainer_tool');
+  if (!input) return;
+  input.disabled = !enabled;
+  if (!enabled) input.value = '';
+}
+
+function syncSystemTechFromVms(){
+  const vms = selectedSystemVms();
+  const languages = [];
+  const appServers = [];
+  const webServers = [];
+  const containerTools = [];
+  const ports = [];
+
+  vms.forEach((vm) => {
+    vmLanguageList(vm).forEach((item) => languages.push(item));
+    vmTechList(vm).forEach((item) => appServers.push(item));
+    vmWebServerList(vm).forEach((item) => webServers.push(item));
+    vmContainerToolList(vm).forEach((item) => containerTools.push(item));
+    vmRuntimePortList(vm).forEach((item) => ports.push(item));
+  });
+
+  setDataListOptions('ftech-options', languages);
+  setDataListOptions('fapp-server-options', appServers);
+  setDataListOptions('fweb-server-options', webServers);
+  setDataListOptions('fcontainer-tool-options', containerTools);
+  setDataListOptions('fruntime-port-options', ports);
+}
+
 function populateVmTabFilters(){
   const fill = (id, first, list) => {
     const el = $(id);
@@ -797,6 +1110,258 @@ function populateDbSelects(){
   }
 
   syncDbInstanceOptions();
+}
+
+function populateTicketSelects(){
+  const systemEl = $('fcall_system_id');
+  if (systemEl) {
+    const prev = systemEl.value;
+    const systems = [...App.items].sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')));
+    systemEl.innerHTML = '<option value="">Selecionar sistema...</option>' + systems.map((item)=>`<option value="${item.id}">${esc(item.name || '-')}</option>`).join('');
+    if (prev && systems.some((item)=>String(item.id) === String(prev))) systemEl.value = prev;
+  }
+
+  const vmEl = $('fcall_vm_id');
+  if (vmEl) {
+    const prev = vmEl.value;
+    const vms = [...App.vms].sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')));
+    vmEl.innerHTML = '<option value="">Selecionar maquina...</option>' + vms.map((vm)=>`<option value="${vm.id}">${esc(vmLabel(vm))}</option>`).join('');
+    if (prev && vms.some((vm)=>String(vm.id) === String(prev))) vmEl.value = prev;
+  }
+}
+
+function syncCallTargetFields(){
+  const target = String($('fcall_target_type')?.value || 'system').trim().toLowerCase();
+  const systemField = $('call-system-field');
+  const vmField = $('call-vm-field');
+  const systemEl = $('fcall_system_id');
+  const vmEl = $('fcall_vm_id');
+  const useVm = target === 'vm';
+  systemField?.classList.toggle('hidden', useVm);
+  vmField?.classList.toggle('hidden', !useVm);
+  if (systemEl) systemEl.disabled = useVm;
+  if (vmEl) vmEl.disabled = !useVm;
+}
+
+function resetTicketForm(){
+  if ($('fcall_id')) $('fcall_id').value = '';
+  if ($('fcall_target_type')) $('fcall_target_type').value = 'system';
+  if ($('fcall_system_id')) $('fcall_system_id').value = '';
+  if ($('fcall_vm_id')) $('fcall_vm_id').value = '';
+  if ($('fcall_number')) $('fcall_number').value = '';
+  if ($('fcall_description')) $('fcall_description').value = '';
+  syncCallTargetFields();
+  if ($('bcall-save')) $('bcall-save').textContent = 'Registrar Chamado';
+  $('bcall-cancel')?.classList.add('hidden');
+}
+
+function editTicketById(id){
+  if (!ensureCanEdit()) return;
+  const ticketId = Number(id || 0);
+  if (ticketId <= 0) return;
+  const ticket = App.tickets.find((item) => Number(item.id) === ticketId);
+  if (!ticket) {
+    toast('Chamado nao encontrado.', true);
+    return;
+  }
+
+  populateTicketSelects();
+  if ($('fcall_id')) $('fcall_id').value = String(ticket.id || '');
+  if ($('fcall_target_type')) $('fcall_target_type').value = String(ticket.target_type || 'system') === 'vm' ? 'vm' : 'system';
+  syncCallTargetFields();
+  if ($('fcall_system_id')) $('fcall_system_id').value = String(ticket.system_id || '');
+  if ($('fcall_vm_id')) $('fcall_vm_id').value = String(ticket.vm_id || '');
+  if ($('fcall_number')) $('fcall_number').value = String(ticket.ticket_number || '');
+  if ($('fcall_description')) $('fcall_description').value = String(ticket.description || '');
+  if ($('bcall-save')) $('bcall-save').textContent = 'Salvar Edicao';
+  $('bcall-cancel')?.classList.remove('hidden');
+  $('fcall_number')?.focus();
+}
+
+async function deleteTicketById(id){
+  if (!ensureCanEdit()) return;
+  const ticketId = Number(id || 0);
+  if (ticketId <= 0) return;
+  if (!confirm('Excluir este chamado?')) return;
+  try {
+    const result = await api('ticket-delete', { id: ticketId });
+    if (!result.ok) throw new Error(result.error || 'Erro ao excluir chamado');
+    App.tickets = App.tickets.filter((item) => Number(item.id) !== ticketId);
+    if (Number($('fcall_id')?.value || 0) === ticketId) resetTicketForm();
+    renderCalls();
+    toast('Chamado excluido com sucesso.');
+  } catch (e) {
+    toast('Erro ao excluir chamado: ' + (e.message || '?'), true);
+  }
+}
+
+function ticketGroupStateKey(scope, groupKey){
+  return `${String(scope || '').trim()}::${String(groupKey || '').trim()}`;
+}
+
+function isTicketGroupExpanded(scope, groupKey){
+  const key = ticketGroupStateKey(scope, groupKey);
+  if (!key) return false;
+  if (!(key in App.ticketGroupsExpanded)) return false;
+  return Boolean(App.ticketGroupsExpanded[key]);
+}
+
+function toggleTicketGroupFromRow(row){
+  const scope = String(row?.dataset?.groupScope || '').trim();
+  const groupKey = String(row?.dataset?.groupKey || '').trim();
+  if (!scope || !groupKey) return;
+  const key = ticketGroupStateKey(scope, groupKey);
+  App.ticketGroupsExpanded[key] = !isTicketGroupExpanded(scope, groupKey);
+  renderCalls();
+}
+
+function groupedTickets(tickets, scope){
+  const groups = new Map();
+  tickets.forEach((ticket) => {
+    const targetId = scope === 'vm'
+      ? Number(ticket.vm_id || 0)
+      : Number(ticket.system_id || 0);
+    const targetName = String(ticket.target_name || '-').trim() || '-';
+    const key = targetId > 0 ? `id:${targetId}` : `name:${targetName.toLowerCase()}`;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        key,
+        targetId,
+        targetName,
+        tickets: []
+      });
+    }
+    groups.get(key).tickets.push(ticket);
+  });
+  return [...groups.values()];
+}
+
+function ticketGroupCountLabel(total){
+  const value = Number(total || 0);
+  return value === 1 ? '1 chamado' : `${value} chamados`;
+}
+
+function groupedTicketRows(tickets, scope, editable){
+  const groups = groupedTickets(tickets, scope);
+  if (!groups.length) return '';
+
+  return groups.map((group) => {
+    const expanded = isTicketGroupExpanded(scope, group.key);
+    const arrow = expanded ? '&#9662;' : '&#9656;';
+    const groupRow = `
+      <tr
+        class="calls-group-row"
+        data-group-scope="${esc(scope)}"
+        data-group-key="${esc(group.key)}"
+        onclick="toggleTicketGroupFromRow(this)"
+      >
+        <td class="calls-group-cell" colspan="5">
+          <span class="calls-group-toggle">${arrow}</span>
+          <span class="calls-group-name">${esc(group.targetName)}</span>
+          <span class="calls-group-count">${esc(ticketGroupCountLabel(group.tickets.length))}</span>
+          <span class="calls-group-hint">${expanded ? 'Recolher' : 'Expandir'}</span>
+        </td>
+      </tr>
+    `;
+
+    const ticketRows = group.tickets.map((ticket) => {
+      const targetId = scope === 'vm'
+        ? Number(ticket.vm_id || 0)
+        : Number(ticket.system_id || 0);
+      const clickable = targetId > 0;
+      const openFn = scope === 'vm'
+        ? `openVmReadOnlyById(${targetId})`
+        : `openDetail(${targetId})`;
+      const rowClass = expanded ? 'calls-ticket-row' : 'calls-ticket-row calls-ticket-row-hidden';
+      return `
+        <tr class="${rowClass}"${clickable ? ` onclick="${openFn}"` : ''}>
+          <td class="calls-ticket-target"><span class="calls-ticket-indent">&#8627;</span>${esc(ticket.target_name || '-')}</td>
+          <td>${esc(ticket.ticket_number || '-')}</td>
+          <td>${esc(ticket.description || '-')}</td>
+          <td>${esc(ticket.created_at || '-')}</td>
+          <td>${editable ? `<div class="actions" onclick="event.stopPropagation()"><button class="act" onclick="editTicketById(${Number(ticket.id)})">&#9998;</button><button class="act del" onclick="deleteTicketById(${Number(ticket.id)})">&#128465;</button></div>` : '-'}</td>
+        </tr>
+      `;
+    }).join('');
+
+    return `${groupRow}${ticketRows}`;
+  }).join('');
+}
+
+function renderCalls(){
+  const systemBody = $('calls-system-body');
+  const vmBody = $('calls-vm-body');
+  if (!systemBody || !vmBody) return;
+  const editable = canEdit();
+
+  const systemTickets = App.tickets.filter((item) => String(item.target_type || '') !== 'vm');
+  const vmTickets = App.tickets.filter((item) => String(item.target_type || '') === 'vm');
+
+  if (!systemTickets.length) {
+    systemBody.innerHTML = '<tr><td colspan="5" style="color:var(--muted)">Nenhum chamado cadastrado para sistemas.</td></tr>';
+  } else {
+    systemBody.innerHTML = groupedTicketRows(systemTickets, 'system', editable);
+  }
+
+  if (!vmTickets.length) {
+    vmBody.innerHTML = '<tr><td colspan="5" style="color:var(--muted)">Nenhum chamado cadastrado para maquinas.</td></tr>';
+  } else {
+    vmBody.innerHTML = groupedTicketRows(vmTickets, 'vm', editable);
+  }
+}
+
+async function saveTicket(){
+  if (!ensureCanEdit()) return;
+  const editingId = Number($('fcall_id')?.value || 0);
+  const isEditing = editingId > 0;
+  const targetType = String($('fcall_target_type')?.value || 'system').trim().toLowerCase() === 'vm' ? 'vm' : 'system';
+  const systemId = Number($('fcall_system_id')?.value || 0);
+  const vmId = Number($('fcall_vm_id')?.value || 0);
+  const ticketNumber = String($('fcall_number')?.value || '').trim();
+  const description = String($('fcall_description')?.value || '').trim();
+
+  if (targetType === 'system' && systemId <= 0) {
+    toast('Selecione um sistema para registrar o chamado.', true);
+    return;
+  }
+  if (targetType === 'vm' && vmId <= 0) {
+    toast('Selecione uma maquina para registrar o chamado.', true);
+    return;
+  }
+  if (!ticketNumber) {
+    toast('Informe o numero do chamado.', true);
+    return;
+  }
+  if (!description) {
+    toast('Informe a descricao do chamado.', true);
+    return;
+  }
+
+  const payload = {
+    id: isEditing ? editingId : undefined,
+    target_type: targetType,
+    system_id: targetType === 'system' ? systemId : null,
+    vm_id: targetType === 'vm' ? vmId : null,
+    ticket_number: ticketNumber,
+    description,
+  };
+
+  try {
+    const result = await api(isEditing ? 'ticket-update' : 'ticket-save', payload);
+    if (!result.ok) throw new Error(result.error || (isEditing ? 'Erro ao editar chamado' : 'Erro ao registrar chamado'));
+    const saved = result.data || null;
+    if (saved) {
+      App.tickets = [saved, ...App.tickets.filter((item) => Number(item.id) !== Number(saved.id))];
+    } else {
+      const listRes = await api('ticket-list');
+      App.tickets = listRes.ok ? (listRes.data || []) : App.tickets;
+    }
+    resetTicketForm();
+    renderCalls();
+    toast(isEditing ? 'Chamado atualizado com sucesso.' : 'Chamado registrado com sucesso.');
+  } catch (e) {
+    toast((isEditing ? 'Erro ao atualizar chamado: ' : 'Erro ao registrar chamado: ') + (e.message || '?'), true);
+  }
 }
 
 function vmInstanceOptionsByVmId(vmId){
@@ -948,6 +1513,17 @@ function filteredItems(){
       i.directory,
       i.size,
       i.repository,
+      i.target_version,
+      i.app_server,
+      i.web_server,
+      Number(i.containerization || 0) > 0 ? 'sim' : 'nao',
+      i.container_tool,
+      i.runtime_port,
+      i.php_required_extensions,
+      i.php_required_ini,
+      i.r_required_packages,
+      systemPhpCompatibility(i).label,
+      systemRCompatibility(i).label,
       i.owner,
       i.category,
       i.system_group,
@@ -990,7 +1566,7 @@ function renderDashboard(){
     ['Em Manutenção', maintenance, '#ff9d4f'],
     ['Depreciados', deprecated, '#ff7070'],
     ['Categorias', categories, '#b08cff'],
-    ['Tecnologias em VMs', vmTechTotal, '#6e9bff'],
+    ['Servidores de Aplicacao em VMs', vmTechTotal, '#6e9bff'],
   ].map(([label,val,color]) => `<div class="stat"><div class="stat-v" style="color:${color}">${val}</div><div class="stat-l">${label}</div></div>`).join('');
 
   const renderBars = (targetId, entries, total, colorFn, iconFn=null) => {
@@ -1159,31 +1735,44 @@ function renderDashboard(){
 function renderList(list){
   $('result-count').textContent = `${list.length} resultado(s)`;
   if (!list.length) {
-    $('list-main-body').innerHTML = '<tr><td colspan="7" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
-    $('list-desc-body').innerHTML = '<tr><td colspan="4" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
+    $('list-main-body').innerHTML = '<tr><td colspan="11" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
+    $('list-desc-body').innerHTML = '<tr><td colspan="7" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
     $('list-infra-body').innerHTML = '<tr><td colspan="11" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
     $('list-db-body').innerHTML = '<tr><td colspan="10" style="color:var(--muted)">Nenhuma base de dados encontrada.</td></tr>';
     $('list-support-body').innerHTML = '<tr><td colspan="8" style="color:var(--muted)">Nenhum contato cadastrado.</td></tr>';
     $('list-ops-body').innerHTML = '<tr><td colspan="8" style="color:var(--muted)">Nenhum dado de deploy cadastrado.</td></tr>';
+    $('list-docs-body').innerHTML = '<tr><td colspan="5" style="color:var(--muted)">Nenhuma documentação cadastrada.</td></tr>';
     $('list-cards').innerHTML = '<div class="list-mobile-card"><div class="list-mobile-value" style="color:var(--muted)">Nenhum sistema encontrado.</div></div>';
     return;
   }
 
-  $('list-main-body').innerHTML = list.map((i) => `
-    <tr onclick="openDetail(${i.id})">
-      <td><div class="list-name">${esc(i.name)}</div></td>
-      <td>${esc(i.system_name || '-')}</td>
-      <td>${esc(i.version || '-')}</td>
-      <td>${esc(i.category || '-')}</td>
-      <td>${esc(i.system_group || '-')}</td>
-      <td class="crit-${critKind(i.criticality)}">${esc(i.criticality || '-')}</td>
-      <td>${(i.tech || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</td>
-    </tr>
-  `).join('');
+  $('list-main-body').innerHTML = list.map((i) => {
+    const cells = [
+      `<td><div class="list-name">${esc(i.name)}</div></td>`,
+      `<td>${esc(i.system_name || '-')}</td>`,
+      `<td>${esc(i.version || '-')}</td>`,
+      `<td>${esc((i.tech || []).map((x) => String(x || '').trim()).filter(Boolean).join(', ') || '-')}</td>`,
+      `<td>${esc(String(i.target_version || '').trim() || '-')}</td>`,
+      `<td>${esc(String(i.app_server || '').trim() || '-')}</td>`,
+      `<td>${esc(String(i.web_server || '').trim() || '-')}</td>`,
+      `<td>${esc(Number(i.containerization || 0) > 0 ? 'Sim' : 'Nao')}</td>`,
+      `<td>${esc(String(i.container_tool || '').trim() || '-')}</td>`,
+      `<td>${esc(String(i.runtime_port || '').trim() || '-')}</td>`,
+      `<td>${systemCompatibilityMarkup(i, { withAction: true })}</td>`,
+    ];
+    return `
+      <tr onclick="openDetail(${i.id})">
+        ${cells.join('')}
+      </tr>
+    `;
+  }).join('');
 
   $('list-desc-body').innerHTML = list.map((i) => `
     <tr onclick="openDetail(${i.id})">
       <td><div class="list-name">${esc(i.name)}</div></td>
+      <td>${esc(i.category || '-')}</td>
+      <td>${esc(i.system_group || '-')}</td>
+      <td class="crit-${critKind(i.criticality)}">${esc(i.criticality || '-')}</td>
       <td>${esc(i.description || '-')}</td>
       <td>${esc(i.notes || '-')}</td>
       <td>${badge(i.status)}</td>
@@ -1263,6 +1852,22 @@ function renderList(list){
     </tr>
   `).join('');
 
+  const docsCell = (i, type) => {
+    const ref = String(i?.[`doc_${type}_ref`] || '').trim();
+    if (!ref) return '<span class="compat-empty">N/A</span>';
+    return `<button class="btn" onclick="event.stopPropagation();openSystemDocFromList(${Number(i.id)},'${esc(type)}')">Visualizar</button>`;
+  };
+
+  $('list-docs-body').innerHTML = list.map((i) => `
+    <tr onclick="openDetail(${i.id})">
+      <td><div class="list-name">${esc(i.name)}</div></td>
+      <td>${docsCell(i, 'installation')}</td>
+      <td>${docsCell(i, 'maintenance')}</td>
+      <td>${docsCell(i, 'security')}</td>
+      <td>${docsCell(i, 'manual')}</td>
+    </tr>
+  `).join('');
+
   $('list-cards').innerHTML = list.map((i) => `
     <div class="list-mobile-card" onclick="openDetail(${i.id})">
       <div class="list-mobile-head">
@@ -1276,6 +1881,14 @@ function renderList(list){
         <div class="list-mobile-item"><span class="list-mobile-label">Criticidade</span><span class="list-mobile-value crit-${critKind(i.criticality)}">${esc(i.criticality || '-')}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Responsavel Tecnico</span><span class="list-mobile-value">${esc(i.owner || '-')}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Versao</span><span class="list-mobile-value">${esc(i.version || '-')}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">Linguagem</span><span class="list-mobile-value">${esc((i.tech || []).map((x) => String(x || '').trim()).filter(Boolean).join(', ') || '-')}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">Versao Alvo</span><span class="list-mobile-value">${esc(String(i.target_version || '').trim() || '-')}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">Servidor Aplicacao</span><span class="list-mobile-value">${esc(String(i.app_server || '').trim() || '-')}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">Web Server</span><span class="list-mobile-value">${esc(String(i.web_server || '').trim() || '-')}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">Containerizacao</span><span class="list-mobile-value">${esc(Number(i.containerization || 0) > 0 ? 'Sim' : 'Nao')}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">Ferramenta Container</span><span class="list-mobile-value">${esc(String(i.container_tool || '').trim() || '-')}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">Porta Execucao</span><span class="list-mobile-value">${esc(String(i.runtime_port || '').trim() || '-')}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">Compatibilidade</span><span class="list-mobile-value">${esc(systemCompatibilityDisplayLabel(i))}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">VM Producao</span><span class="list-mobile-value">${esc(vmName(i, false))} | ${esc(vmIp(i, false))}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">VM Homologacao</span><span class="list-mobile-value">${esc(vmName(i, true))} | ${esc(vmIp(i, true))}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">VM Desenvolvimento</span><span class="list-mobile-value">${esc(vmName(i, 'dev'))} | ${esc(vmIp(i, 'dev'))}</span></div>
@@ -1299,6 +1912,14 @@ function renderList(list){
   `).join('');
 }
 
+function openSystemDocFromList(systemId, docType){
+  const id = Number(systemId || 0);
+  if (id <= 0) return;
+  const type = String(docType || '').trim().toLowerCase();
+  if (!type) return;
+  window.open(`?api=system-doc-view&id=${encodeURIComponent(String(id))}&doc_type=${encodeURIComponent(type)}`, '_blank');
+}
+
 function renderSystemsCards(list){
   $('result-count').textContent = `${list.length} resultado(s)`;
   const box = $('systems-cards');
@@ -1313,9 +1934,22 @@ function renderSystemsCards(list){
     const cardStatusClass = `status-${statusKind(i.status)}`;
     const dbs = systemDatabases(i.id)
       .sort((a,b)=>String(a.db_name || '').localeCompare(String(b.db_name || '')));
+    const compatMarkup = systemCompatibilityMarkup(i, { withAction: true });
     const techMarkup = (i.tech || []).length
       ? (i.tech || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('')
       : '<span class="system-info-empty">Sem linguagens cadastradas.</span>';
+    const docField = (type, label) => {
+      const ref = String(i?.[`doc_${type}_ref`] || '').trim();
+      if (!ref) {
+        return `<div class="system-info-field"><span>${esc(label)}</span><strong>N/A</strong></div>`;
+      }
+      return `
+        <div class="system-info-field" onclick="event.stopPropagation()">
+          <span>${esc(label)}</span>
+          <button class="btn" onclick="event.stopPropagation();openSystemDocFromList(${Number(i.id)},'${esc(type)}')">Visualizar PDF</button>
+        </div>
+      `;
+    };
 
     const dbMarkup = dbs.map((d) => {
       return `
@@ -1360,6 +1994,13 @@ function renderSystemsCards(list){
             <div class="system-info-field"><span>Categoria</span><strong>${esc(i.category || '-')}</strong></div>
             <div class="system-info-field"><span>Grupo</span><strong>${esc(i.system_group || '-')}</strong></div>
             <div class="system-info-field"><span>Criticidade</span><strong class="crit-${critKind(i.criticality)}">${esc(i.criticality || '-')}</strong></div>
+            <div class="system-info-field"><span>Compatibilidade</span>${compatMarkup}</div>
+            <div class="system-info-field"><span>Versao Alvo</span><strong>${esc(String(i.target_version || '').trim() || '-')}</strong></div>
+            <div class="system-info-field"><span>Servidor Aplicacao</span><strong>${esc(String(i.app_server || '').trim() || '-')}</strong></div>
+            <div class="system-info-field"><span>Web Server</span><strong>${esc(String(i.web_server || '').trim() || '-')}</strong></div>
+            <div class="system-info-field"><span>Containerizacao</span><strong>${esc(Number(i.containerization || 0) > 0 ? 'Sim' : 'Nao')}</strong></div>
+            <div class="system-info-field"><span>Ferramenta Container</span><strong>${esc(String(i.container_tool || '').trim() || '-')}</strong></div>
+            <div class="system-info-field"><span>Porta Execucao</span><strong>${esc(String(i.runtime_port || '').trim() || '-')}</strong></div>
             <div class="system-info-field system-info-field-full"><span>Observacoes</span><strong>${esc(i.notes || '-')}</strong></div>
           </div>
         </section>
@@ -1408,6 +2049,16 @@ function renderSystemsCards(list){
             <div class="system-info-field"><span>Diretorio</span><strong>${esc(i.directory || '-')}</strong></div>
             <div class="system-info-field"><span>Tamanho</span><strong>${esc(i.size || '-')}</strong></div>
             <div class="system-info-field"><span>Repositorio</span><strong>${esc(i.repository || '-')}</strong></div>
+          </div>
+        </section>
+
+        <section class="system-info-section">
+          <div class="system-info-title">Documentacao</div>
+          <div class="system-info-grid">
+            ${docField('installation', 'Instalacao')}
+            ${docField('maintenance', 'Manutencao/Atualizacao')}
+            ${docField('security', 'Seguranca')}
+            ${docField('manual', 'Manual/Procedimentos')}
           </div>
         </section>
 
@@ -1589,10 +2240,10 @@ function renderVmReport(sourceVms = null){
             const osLabel = String(vm.os_name || '').trim();
             const languages = vmLanguageList(vm);
             const languageTags = languages.map((item) => vmLanguageTagText(vm, item)).filter(Boolean);
-            const tech = vmTechList(vm);
+            const deployTags = vmDeploymentTags(vm);
             const instances = vmInstances(vm);
             const instanceTags = instances.map((inst) => `${inst.name || 'Instancia'}`);
-            const stackTags = [...languageTags, ...tech];
+            const stackTags = [...languageTags, ...deployTags];
             const specs = [
               vm.vcpus ? `${vm.vcpus} vCPU` : '',
               vm.ram ? `RAM ${vm.ram}` : '',
@@ -1695,6 +2346,7 @@ function filterVmsByCriteria(vms, criteria={}){
     const instancesText = vmInstances(vm).map((inst) => `${inst.name || ''} ${inst.ip || ''}`).join(' ');
     const languageText = vmLanguageList(vm).join(' ');
     const languageVersionText = Object.values(vmLanguageVersions(vm)).map((v) => String(v || '').trim()).filter(Boolean).join(' ');
+    const deploymentText = vmDeploymentTags(vm).join(' ');
     return [
       vm.name,
       vm.ip,
@@ -1709,6 +2361,11 @@ function filterVmsByCriteria(vms, criteria={}){
       languageText,
       languageVersionText,
       vmTechList(vm).join(' '),
+      vmWebServerList(vm).join(' '),
+      vmContainerToolList(vm).join(' '),
+      vmTargetVersionText(vm),
+      vmRuntimePortText(vm),
+      deploymentText,
       instancesText,
       linkedSystems
     ].join(' ').toLowerCase().includes(vmq);
@@ -1764,9 +2421,8 @@ function renderMachines(){
         const use = vmUsage(vm.id);
         const dbs = vmDatabases(vm.id);
         const languages = vmLanguageList(vm);
-        const tech = vmTechList(vm);
         const languageTags = languages.map((item) => vmLanguageTagText(vm, item)).filter(Boolean);
-        const techTags = [...tech];
+        const techTags = vmDeploymentTags(vm);
         const specs = [vm.vcpus ? `${vm.vcpus} vCPU` : '', vm.ram || '', vm.disk || ''].filter(Boolean).join(' | ');
         const relationCount = category === 'Producao'
           ? use.prod.length
@@ -1800,7 +2456,7 @@ function renderMachines(){
         const use = vmUsage(vm.id);
         const dbs = vmDatabases(vm.id);
         const languages = vmLanguageList(vm);
-        const tech = vmTechList(vm);
+        const tech = vmDeploymentTags(vm);
         const instances = vmInstances(vm);
         const languageTags = languages.map((item) => vmLanguageTagText(vm, item)).filter(Boolean);
         const specs = [vm.vcpus ? `${vm.vcpus} vCPU` : '', vm.ram || '', vm.disk || ''].filter(Boolean);
@@ -1838,7 +2494,7 @@ function renderMachines(){
         <div class="vm-type-title">${esc(type)}</div>
         <div class="table-wrap vm-desktop-table">
             <table class="vm-compact-table">
-              <thead><tr><th class="vm-name-col">Nome da Maquina</th><th class="vm-ip-col">IP</th><th>Categoria</th><th>Tipo</th><th>Acesso</th><th>Administracao</th><th class="vm-os-col">Sistema Operacional</th><th class="vm-res-col">Recursos (vCPU | RAM | Disco)</th><th class="vm-lang-col">Linguagem</th><th class="vm-tech-col">Tecnologias</th><th class="${type === 'SGBD' ? 'vm-db-col' : 'vm-rel-col'}">${type === 'SGBD' ? 'Bases de Dados' : esc(relationHeader)}</th><th class="vm-actions-col">Diagnostico</th></tr></thead>
+              <thead><tr><th class="vm-name-col">Nome da Maquina</th><th class="vm-ip-col">IP</th><th>Categoria</th><th>Tipo</th><th>Acesso</th><th>Administracao</th><th class="vm-os-col">Sistema Operacional</th><th class="vm-res-col">Recursos (vCPU | RAM | Disco)</th><th class="vm-lang-col">Linguagem</th><th class="vm-tech-col">Deploy</th><th class="${type === 'SGBD' ? 'vm-db-col' : 'vm-rel-col'}">${type === 'SGBD' ? 'Bases de Dados' : esc(relationHeader)}</th><th class="vm-actions-col">Diagnostico</th></tr></thead>
               <tbody>${rows}</tbody>
             </table>
           </div>
@@ -1942,6 +2598,12 @@ function renderCurrent(){
     return;
   }
 
+  if (App.view === 'chamados') {
+    $('result-count').textContent = '';
+    renderCalls();
+    return;
+  }
+
   if (App.view === 'dns') {
     $('result-count').textContent = '';
     renderDns();
@@ -1960,6 +2622,184 @@ function renderCurrent(){
     return;
   }
   if (App.view === 'lista') renderList(list);
+}
+
+function systemDocTypeConfig(){
+  return {
+    installation: { label: 'Instalacao' },
+    maintenance: { label: 'Manutencao / Atualizacao' },
+    security: { label: 'Seguranca' },
+    manual: { label: 'Manual de Uso / Procedimentos' },
+  };
+}
+
+function systemDocRefInputId(type){ return `fdoc_${type}_ref`; }
+function systemDocUpdatedInputId(type){ return `fdoc_${type}_updated_at`; }
+function systemDocFileInputId(type){ return `fdoc_${type}_file`; }
+function systemDocStatusId(type){ return `fdoc_${type}_status`; }
+function systemDocViewButtonId(type){ return `fdoc_${type}_view`; }
+function systemDocUploadButtonId(type){ return `fdoc_${type}_upload`; }
+function systemDocRemoveButtonId(type){ return `fdoc_${type}_remove`; }
+
+function systemDocFilenameFromReference(reference){
+  const ref = String(reference || '').trim();
+  if (!ref) return '';
+  const parts = ref.split('/');
+  return parts.length ? parts[parts.length - 1] : ref;
+}
+
+function setSystemDocFieldsFromItem(item){
+  const config = systemDocTypeConfig();
+  Object.keys(config).forEach((type) => {
+    const refId = systemDocRefInputId(type);
+    const updatedId = systemDocUpdatedInputId(type);
+    const ref = String(item?.[`doc_${type}_ref`] || '').trim();
+    const updatedAt = String(item?.[`doc_${type}_updated_at`] || '').trim();
+    if ($(refId)) $(refId).value = ref;
+    if ($(updatedId)) $(updatedId).value = updatedAt;
+    if ($(systemDocFileInputId(type))) $(systemDocFileInputId(type)).value = '';
+  });
+}
+
+function renderSystemDocSection(){
+  const config = systemDocTypeConfig();
+  const editable = canEdit();
+  const systemId = Number($('fid')?.value || 0);
+  const hasSystem = systemId > 0;
+
+  Object.entries(config).forEach(([type]) => {
+    const ref = String($(systemDocRefInputId(type))?.value || '').trim();
+    const updatedAt = String($(systemDocUpdatedInputId(type))?.value || '').trim();
+    const hasFile = ref !== '';
+    const filename = systemDocFilenameFromReference(ref);
+    const statusEl = $(systemDocStatusId(type));
+    const fileInput = $(systemDocFileInputId(type));
+    const viewBtn = $(systemDocViewButtonId(type));
+    const uploadBtn = $(systemDocUploadButtonId(type));
+    const removeBtn = $(systemDocRemoveButtonId(type));
+
+    if (statusEl) {
+      statusEl.textContent = hasFile
+        ? `${filename}${updatedAt ? ` (Atualizado em ${updatedAt})` : ''}`
+        : 'Nenhum arquivo enviado.';
+    }
+    if (fileInput) fileInput.disabled = !editable || !hasSystem;
+    if (viewBtn) viewBtn.disabled = !hasSystem || !hasFile;
+    if (uploadBtn) uploadBtn.disabled = !editable || !hasSystem;
+    if (removeBtn) removeBtn.disabled = !editable || !hasSystem || !hasFile;
+  });
+
+  const hint = $('fdoc_hint');
+  if (hint) {
+    hint.textContent = hasSystem
+      ? 'Use os botoes para visualizar, atualizar ou remover cada PDF.'
+      : 'Salve o sistema para habilitar envio de PDFs.';
+  }
+}
+
+async function fileToBase64(file){
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      const base64 = result.includes(',') ? result.split(',')[1] : result;
+      if (!base64) {
+        reject(new Error('Falha ao ler arquivo PDF.'));
+        return;
+      }
+      resolve(base64);
+    };
+    reader.onerror = () => reject(new Error('Falha ao ler arquivo PDF.'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function applySystemDocRowUpdate(row){
+  const id = Number(row?.id || 0);
+  if (id > 0) {
+    const idx = App.items.findIndex((item) => Number(item.id) === id);
+    if (idx >= 0) App.items[idx] = row;
+    else App.items.unshift(row);
+  }
+  setSystemDocFieldsFromItem(row || {});
+  renderSystemDocSection();
+}
+
+function openSystemDocByType(type){
+  const systemId = Number($('fid')?.value || 0);
+  if (systemId <= 0) {
+    toast('Salve o sistema antes de visualizar documentos.', true);
+    return;
+  }
+  const ref = String($(systemDocRefInputId(type))?.value || '').trim();
+  if (!ref) {
+    toast('Nenhum PDF cadastrado para este tipo de documento.', true);
+    return;
+  }
+  window.open(`?api=system-doc-view&id=${encodeURIComponent(String(systemId))}&doc_type=${encodeURIComponent(String(type))}`, '_blank');
+}
+
+async function uploadSystemDocByType(type){
+  if (!ensureCanEdit()) return;
+  const systemId = Number($('fid')?.value || 0);
+  if (systemId <= 0) {
+    toast('Salve o sistema antes de enviar documentos.', true);
+    return;
+  }
+  const fileEl = $(systemDocFileInputId(type));
+  const file = fileEl?.files?.[0];
+  if (!file) {
+    toast('Selecione um arquivo PDF para enviar.', true);
+    return;
+  }
+  const filename = String(file.name || '').trim();
+  if (!/\.pdf$/i.test(filename)) {
+    toast('Envie apenas arquivo PDF.', true);
+    return;
+  }
+
+  try {
+    const contentBase64 = await fileToBase64(file);
+    const result = await api('system-doc-upload', {
+      system_id: systemId,
+      doc_type: type,
+      filename,
+      content_base64: contentBase64,
+    });
+    if (!result.ok) throw new Error(result.error || 'Falha ao enviar PDF');
+    applySystemDocRowUpdate(result.data || {});
+    if (fileEl) fileEl.value = '';
+    toast('Documento PDF atualizado com sucesso.');
+  } catch (e) {
+    toast('Erro ao enviar PDF: ' + (e.message || '?'), true);
+  }
+}
+
+async function removeSystemDocByType(type){
+  if (!ensureCanEdit()) return;
+  const systemId = Number($('fid')?.value || 0);
+  if (systemId <= 0) {
+    toast('Salve o sistema antes de remover documentos.', true);
+    return;
+  }
+  const ref = String($(systemDocRefInputId(type))?.value || '').trim();
+  if (!ref) {
+    toast('Nao existe documento para remover neste tipo.', true);
+    return;
+  }
+  if (!confirm('Remover este PDF?')) return;
+
+  try {
+    const result = await api('system-doc-delete', {
+      system_id: systemId,
+      doc_type: type,
+    });
+    if (!result.ok) throw new Error(result.error || 'Falha ao remover PDF');
+    applySystemDocRowUpdate(result.data || {});
+    toast('Documento removido com sucesso.');
+  } catch (e) {
+    toast('Erro ao remover PDF: ' + (e.message || '?'), true);
+  }
 }
 
 function openFormById(id){
@@ -2000,12 +2840,24 @@ function openForm(item=null){
   $('fsize').value = item?.size || '';
   $('frepository').value = item?.repository || '';
   $('ftech').value = (item?.tech || []).join(', ');
+  $('ftarget_version').value = item?.target_version || '';
+  $('fapp_server').value = item?.app_server || '';
+  $('fweb_server').value = item?.web_server || '';
+  $('fcontainerization').value = Number(item?.containerization || 0) > 0 ? '1' : '0';
+  $('fcontainer_tool').value = item?.container_tool || '';
+  $('fruntime_port').value = item?.runtime_port || '';
+  $('fphp_required_extensions').value = item?.php_required_extensions || '';
+  $('fphp_required_ini').value = item?.php_required_ini || '';
+  $('fr_required_packages').value = item?.r_required_packages || '';
+  setSystemDocFieldsFromItem(item || {});
+  syncSystemContainerFields();
   $('fnotes').value = item?.notes || '';
 
   populateVmSelects();
   $('fvm_id').value = item?.vm_id ? String(item.vm_id) : '';
   $('fvm_homolog_id').value = item?.vm_homolog_id ? String(item.vm_homolog_id) : '';
   $('fvm_dev_id').value = item?.vm_dev_id ? String(item.vm_dev_id) : '';
+  syncSystemTechFromVms();
   if ($('btn-manage-vms')) {
     $('btn-manage-vms').disabled = !editable;
     $('btn-manage-vms').classList.toggle('hidden', !editable);
@@ -2020,6 +2872,7 @@ function openForm(item=null){
   $('bsave').disabled = !editable || $('fname').value.trim() === '';
 
   toggleSave();
+  renderSystemDocSection();
   $('mform').classList.remove('hidden');
 }
 
@@ -2092,7 +2945,24 @@ async function saveSystem(){
     repository:$('frepository').value.trim(),
     notes:$('fnotes').value.trim(),
     tech:$('ftech').value.split(',').map((x)=>x.trim()).filter(Boolean),
+    target_version:$('ftarget_version').value.trim(),
+    app_server:$('fapp_server').value.trim(),
+    web_server:$('fweb_server').value.trim(),
+    containerization: String($('fcontainerization').value || '0') === '1' ? 1 : 0,
+    container_tool:$('fcontainer_tool').value.trim(),
+    runtime_port:$('fruntime_port').value.trim(),
+    php_required_extensions:$('fphp_required_extensions').value.trim(),
+    php_required_ini:$('fphp_required_ini').value.trim(),
+    r_required_packages:$('fr_required_packages').value.trim(),
   };
+
+  if (!data.containerization) data.container_tool = '';
+  const normalizedSystemPorts = normalizePortInput(data.runtime_port);
+  if (!normalizedSystemPorts.ok) {
+    toast('Porta de execucao invalida. Use valores entre 1 e 65535 separados por virgula.', true);
+    return;
+  }
+  data.runtime_port = normalizedSystemPorts.value;
 
   try{
     const r = await api('save', data);
@@ -2270,6 +3140,9 @@ function openVmForm(vm=null){
   $('fvmdisk').value = vm?.disk || '';
   $('fvmlanguage').value = vmLanguageList(vm).join(', ');
   $('fvmtech').value = vmTechList(vm).join(', ');
+  $('fvmwebserver').value = vmWebServerList(vm).join(', ');
+  $('fvmcontainertool').value = vmContainerToolList(vm).join(', ');
+  $('fvmruntimeport').value = vmRuntimePortText(vm);
   $('fvminstances').value = vmInstancesText(vm);
   $('mvm').classList.remove('hidden');
 }
@@ -2297,6 +3170,11 @@ async function saveVm(){
     disk: $('fvmdisk').value.trim(),
     vm_instances: instances,
     vm_language: $('fvmlanguage').value.split(',').map((x)=>x.trim()).filter(Boolean),
+    vm_app_server: $('fvmtech').value.split(',').map((x)=>x.trim()).filter(Boolean),
+    vm_web_server: $('fvmwebserver').value.split(',').map((x)=>x.trim()).filter(Boolean),
+    vm_container_tool: $('fvmcontainertool').value.split(',').map((x)=>x.trim()).filter(Boolean),
+    vm_runtime_port: $('fvmruntimeport').value.trim(),
+    // Compatibilidade com backend legado.
     vm_tech: $('fvmtech').value.split(',').map((x)=>x.trim()).filter(Boolean),
   };
 
@@ -2304,6 +3182,12 @@ async function saveVm(){
     toast('Informe nome e IP da maquina.', true);
     return;
   }
+  const normalizedVmPorts = normalizePortInput(data.vm_runtime_port);
+  if (!normalizedVmPorts.ok) {
+    toast('Porta de execucao invalida. Use valores entre 1 e 65535 separados por virgula.', true);
+    return;
+  }
+  data.vm_runtime_port = normalizedVmPorts.value;
   if (data.vm_type === 'SGBD' && !data.vm_instances.length) {
     toast('Para VM do tipo SGBD informe ao menos uma instancia com IP.', true);
     return;
@@ -2335,6 +3219,32 @@ function openVmDiagnosticPageById(id){
     return;
   }
   window.location.href = `vm_diagnostic.php?id=${encodeURIComponent(String(id))}`;
+}
+
+function openSystemPhpCompatibilityPageById(id){
+  if (!App.auth.authenticated) {
+    toast('Faca login para acessar a validacao de compatibilidade.', true);
+    return;
+  }
+  const system = App.items.find((x)=>Number(x.id)===Number(id));
+  if (!system) {
+    toast('Sistema nao encontrado.', true);
+    return;
+  }
+  window.location.href = `system_php_compat.php?id=${encodeURIComponent(String(id))}`;
+}
+
+function openSystemRCompatibilityPageById(id){
+  if (!App.auth.authenticated) {
+    toast('Faca login para acessar a validacao de compatibilidade.', true);
+    return;
+  }
+  const system = App.items.find((x)=>Number(x.id)===Number(id));
+  if (!system) {
+    toast('Sistema nao encontrado.', true);
+    return;
+  }
+  window.location.href = `system_r_compat.php?id=${encodeURIComponent(String(id))}`;
 }
 
 async function openVmDiagnosticById(id){
@@ -2386,21 +3296,25 @@ async function refreshArchived(){
 }
 
 async function refreshAll(){
-  const [systemsRes, vmRes, dbRes, archivedRes] = await Promise.all([api('list'), api('vm-list'), api('db-list'), api('archived-list')]);
+  const [systemsRes, vmRes, dbRes, archivedRes, ticketsRes] = await Promise.all([api('list'), api('vm-list'), api('db-list'), api('archived-list'), api('ticket-list')]);
   if(!systemsRes.ok) throw new Error(systemsRes.error || 'Erro ao carregar sistemas');
   if(!vmRes.ok) throw new Error(vmRes.error || 'Erro ao carregar maquinas');
   if(!dbRes.ok) throw new Error(dbRes.error || 'Erro ao carregar bases');
   if(!archivedRes.ok) throw new Error(archivedRes.error || 'Erro ao carregar arquivados');
+  if(!ticketsRes.ok) throw new Error(ticketsRes.error || 'Erro ao carregar chamados');
 
   App.items = systemsRes.data || [];
   App.vms = vmRes.data || [];
   App.databases = dbRes.data || [];
+  App.tickets = ticketsRes.data || [];
   App.archived = archivedRes.data || { systems: [], vms: [] };
   App.vms.sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')));
   populateFilters();
   populateVmTabFilters();
   populateVmSelects();
   populateDbSelects();
+  populateTicketSelects();
+  syncCallTargetFields();
   renderCurrent();
 }
 
@@ -2463,5 +3377,7 @@ $('btn-backup')?.addEventListener('click', () => triggerBackupImport());
 $('backup-file')?.addEventListener('change', (ev) => onBackupFileChange(ev));
 $('backup-export-json')?.addEventListener('click', () => exportBackup());
 $('backup-import-btn')?.addEventListener('click', () => triggerBackupImport());
+$('bcall-save')?.addEventListener('click', () => saveTicket());
+$('bcall-cancel')?.addEventListener('click', () => resetTicketForm());
 
 boot();
