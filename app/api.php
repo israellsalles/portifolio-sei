@@ -7,10 +7,13 @@ function systemSelectSql(): string {
     s.*,
     vm.name AS vm_name,
     vm.ip AS vm_ip,
+    vm.public_ip AS vm_public_ip,
     vmh.name AS vm_homolog_name,
     vmh.ip AS vm_homolog_ip,
+    vmh.public_ip AS vm_homolog_public_ip,
     vmd.name AS vm_dev_name,
-    vmd.ip AS vm_dev_ip
+    vmd.ip AS vm_dev_ip,
+    vmd.public_ip AS vm_dev_public_ip
   FROM systems s
   LEFT JOIN virtual_machines vm ON vm.id = s.vm_id
   LEFT JOIN virtual_machines vmh ON vmh.id = s.vm_homolog_id
@@ -179,6 +182,290 @@ function packUrlListValue($raw): string {
   return implode("\n", normalizeUrlListValue($raw));
 }
 
+function normalizeVmIpListValue($raw): array {
+  $values = [];
+  if (is_array($raw)) {
+    foreach ($raw as $entry) {
+      $parts = preg_split('/[\r\n,;]+/', (string)$entry) ?: [];
+      foreach ($parts as $part) {
+        $value = trim((string)$part);
+        if ($value !== '') { $values[] = $value; }
+      }
+    }
+  } else {
+    $parts = preg_split('/[\r\n,;]+/', (string)$raw) ?: [];
+    foreach ($parts as $part) {
+      $value = trim((string)$part);
+      if ($value !== '') { $values[] = $value; }
+    }
+  }
+
+  $seen = [];
+  $out = [];
+  foreach ($values as $value) {
+    $key = strtolower($value);
+    if (isset($seen[$key])) { continue; }
+    $seen[$key] = true;
+    $out[] = $value;
+  }
+  return $out;
+}
+
+function packVmIpListValue($raw): string {
+  return implode(', ', normalizeVmIpListValue($raw));
+}
+
+function firstVmIpValue($raw): string {
+  $ips = normalizeVmIpListValue($raw);
+  return $ips[0] ?? '';
+}
+
+function hostFromUrlText(string $rawUrl): string {
+  $value = trim($rawUrl);
+  if ($value === '') { return ''; }
+  $candidate = preg_match('#^[a-z][a-z0-9+.-]*://#i', $value) === 1 ? $value : ('https://' . $value);
+  $parts = @parse_url($candidate);
+  if (!is_array($parts)) { return ''; }
+  $host = strtolower(trim((string)($parts['host'] ?? '')));
+  if ($host === '' || preg_match('/[^a-z0-9.\-]/i', $host) === 1) { return ''; }
+  return $host;
+}
+
+function isPublicIpAddress(string $ip): bool {
+  $value = trim($ip);
+  if ($value === '') { return false; }
+  $flags = FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE;
+  return filter_var($value, FILTER_VALIDATE_IP, $flags) !== false;
+}
+
+function resolveHostPublicIps(string $host): array {
+  $target = strtolower(trim($host));
+  if ($target === '') { return []; }
+  $out = [];
+  $seen = [];
+
+  $addIp = static function(string $ip) use (&$out, &$seen): void {
+    $value = trim($ip);
+    if ($value === '' || !isPublicIpAddress($value)) { return; }
+    $key = strtolower($value);
+    if (isset($seen[$key])) { return; }
+    $seen[$key] = true;
+    $out[] = $value;
+  };
+
+  if (function_exists('dns_get_record')) {
+    $flags = 0;
+    if (defined('DNS_A')) { $flags |= DNS_A; }
+    if (defined('DNS_AAAA')) { $flags |= DNS_AAAA; }
+    if ($flags === 0) { $flags = DNS_A; }
+    $records = @dns_get_record($target, $flags);
+    if (is_array($records)) {
+      foreach ($records as $record) {
+        if (!is_array($record)) { continue; }
+        $addIp((string)($record['ip'] ?? ''));
+        $addIp((string)($record['ipv6'] ?? ''));
+      }
+    }
+  }
+
+  if (!$out && function_exists('gethostbynamel')) {
+    $fallback = @gethostbynamel($target);
+    if (is_array($fallback)) {
+      foreach ($fallback as $ip) {
+        $addIp((string)$ip);
+      }
+    }
+  }
+
+  if (!$out) {
+    foreach (resolveHostPublicIpsViaDoh($target) as $ip) {
+      $addIp((string)$ip);
+    }
+  }
+
+  return $out;
+}
+
+function resolveHostInternalIps(string $host): array {
+  $target = strtolower(trim($host));
+  if ($target === '') { return []; }
+  $out = [];
+  $seen = [];
+
+  $addIp = static function(string $ip) use (&$out, &$seen): void {
+    $value = trim($ip);
+    if ($value === '') { return; }
+    if (filter_var($value, FILTER_VALIDATE_IP) === false) { return; }
+    $key = strtolower($value);
+    if (isset($seen[$key])) { return; }
+    $seen[$key] = true;
+    $out[] = $value;
+  };
+
+  if (function_exists('dns_get_record')) {
+    $flags = 0;
+    if (defined('DNS_A')) { $flags |= DNS_A; }
+    if (defined('DNS_AAAA')) { $flags |= DNS_AAAA; }
+    if ($flags === 0) { $flags = DNS_A; }
+    $records = @dns_get_record($target, $flags);
+    if (is_array($records)) {
+      foreach ($records as $record) {
+        if (!is_array($record)) { continue; }
+        $addIp((string)($record['ip'] ?? ''));
+        $addIp((string)($record['ipv6'] ?? ''));
+      }
+    }
+  }
+
+  if (!$out && function_exists('gethostbynamel')) {
+    $fallback = @gethostbynamel($target);
+    if (is_array($fallback)) {
+      foreach ($fallback as $ip) {
+        $addIp((string)$ip);
+      }
+    }
+  }
+
+  return $out;
+}
+
+function resolveHostPublicIpsViaDoh(string $host): array {
+  $target = strtolower(trim($host));
+  if ($target === '') { return []; }
+  $out = [];
+  $seen = [];
+
+  $add = static function(string $ip) use (&$out, &$seen): void {
+    $value = trim($ip);
+    if ($value === '' || !isPublicIpAddress($value)) { return; }
+    $key = strtolower($value);
+    if (isset($seen[$key])) { return; }
+    $seen[$key] = true;
+    $out[] = $value;
+  };
+
+  $providers = [
+    'https://dns.google/resolve',
+    'https://cloudflare-dns.com/dns-query',
+  ];
+  $types = ['A', 'AAAA'];
+
+  foreach ($providers as $baseUrl) {
+    foreach ($types as $type) {
+      $url = $baseUrl . '?name=' . rawurlencode($target) . '&type=' . rawurlencode($type);
+      $json = httpGetJson($url);
+      if (!is_array($json)) { continue; }
+      $answers = $json['Answer'] ?? [];
+      if (!is_array($answers)) { continue; }
+      foreach ($answers as $answer) {
+        if (!is_array($answer)) { continue; }
+        $add((string)($answer['data'] ?? ''));
+      }
+    }
+    if ($out) { break; }
+  }
+
+  return $out;
+}
+
+function httpGetJson(string $url): ?array {
+  $target = trim($url);
+  if ($target === '') { return null; }
+  $body = '';
+
+  if (function_exists('curl_init')) {
+    $ch = curl_init($target);
+    if ($ch === false) { return null; }
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 4);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 8);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Accept: application/dns-json, application/json']);
+    curl_setopt($ch, CURLOPT_USERAGENT, 'SEI-Catalog/1.0');
+    $resp = curl_exec($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    if (is_string($resp) && $status >= 200 && $status < 300) { $body = $resp; }
+  }
+
+  if ($body === '' && filter_var($target, FILTER_VALIDATE_URL)) {
+    $ctx = stream_context_create([
+      'http' => [
+        'method' => 'GET',
+        'timeout' => 8,
+        'header' => "Accept: application/dns-json, application/json\r\nUser-Agent: SEI-Catalog/1.0\r\n",
+      ],
+    ]);
+    $resp = @file_get_contents($target, false, $ctx);
+    if (is_string($resp) && $resp !== '') { $body = $resp; }
+  }
+
+  if ($body === '') { return null; }
+  $decoded = json_decode($body, true);
+  return is_array($decoded) ? $decoded : null;
+}
+
+function parseSslTargetKey(string $raw): ?array {
+  $value = strtolower(trim($raw));
+  if ($value === '') { return null; }
+  if (preg_match('/^([a-z0-9.-]+)(?::([0-9]{1,5}))?$/i', $value, $m) !== 1) { return null; }
+  $host = trim((string)($m[1] ?? ''));
+  if ($host === '' || preg_match('/[^a-z0-9.-]/i', $host) === 1) { return null; }
+  $port = isset($m[2]) && $m[2] !== '' ? (int)$m[2] : 443;
+  if ($port < 1 || $port > 65535) { return null; }
+  return ['key' => $host . ':' . $port, 'host' => $host, 'port' => $port];
+}
+
+function sslCertificateExpiryTimestamp(string $host, int $port = 443): ?int {
+  if (!function_exists('stream_socket_client') || !function_exists('stream_context_create')) { return null; }
+  $hostname = strtolower(trim($host));
+  if ($hostname === '') { return null; }
+  if ($port < 1 || $port > 65535) { return null; }
+
+  $context = stream_context_create([
+    'ssl' => [
+      'capture_peer_cert' => true,
+      'verify_peer' => false,
+      'verify_peer_name' => false,
+      'allow_self_signed' => true,
+      'SNI_enabled' => true,
+      'peer_name' => $hostname,
+    ],
+  ]);
+
+  $errno = 0;
+  $errstr = '';
+  $socket = @stream_socket_client(
+    'ssl://' . $hostname . ':' . $port,
+    $errno,
+    $errstr,
+    8,
+    STREAM_CLIENT_CONNECT,
+    $context
+  );
+  if (!is_resource($socket)) { return null; }
+
+  $params = stream_context_get_params($socket);
+  @fclose($socket);
+  $cert = $params['options']['ssl']['peer_certificate'] ?? null;
+  if (!is_resource($cert) && !is_object($cert)) { return null; }
+
+  if (!function_exists('openssl_x509_parse')) { return null; }
+  $parsed = @openssl_x509_parse($cert);
+  if (!is_array($parsed)) { return null; }
+  $validTo = (int)($parsed['validTo_time_t'] ?? 0);
+  return $validTo > 0 ? $validTo : null;
+}
+
+function sslValidityLabelByTimestamp(?int $timestamp): string {
+  if ($timestamp === null || $timestamp <= 0) { return '-'; }
+  $now = time();
+  $date = date('d/m/Y', $timestamp);
+  if ($timestamp < $now) { return 'Expirado em ' . $date; }
+  $days = (int)floor(($timestamp - $now) / 86400);
+  return $date . ' (' . $days . ' dias)';
+}
+
 function normalizeVmInstancesValue($raw): array {
   $list = [];
   if (is_array($raw)) {
@@ -208,9 +495,13 @@ function normalizeVmInstancesValue($raw): array {
 function vmInstancesWithFallback(array $vm): array {
   $instances = normalizeVmInstancesValue($vm['vm_instances_list'] ?? ($vm['vm_instances'] ?? ''));
   if ($instances) { return $instances; }
-  $ip = trim((string)($vm['ip'] ?? ''));
-  if ($ip === '') { return []; }
-  return [['name' => 'Instancia principal', 'ip' => $ip]];
+  $ips = normalizeVmIpListValue($vm['ip'] ?? '');
+  if (!$ips) { return []; }
+  $out = [];
+  foreach ($ips as $ip) {
+    $out[] = ['name' => 'Instancia principal', 'ip' => $ip];
+  }
+  return $out;
 }
 
 function resolveVmInstance(array $vm, string $name, string $ip): ?array {
@@ -282,8 +573,17 @@ function normalizeSystemRow(array $row): array {
   if (($row['vm_homolog_name'] ?? '') === '') { $row['vm_homolog_name'] = (string)($row['vm_homolog'] ?? ''); }
   if (($row['vm_ip'] ?? '') === '') { $row['vm_ip'] = (string)($row['ip'] ?? ''); }
   if (($row['vm_homolog_ip'] ?? '') === '') { $row['vm_homolog_ip'] = (string)($row['ip_homolog'] ?? ''); }
+  if (($row['vm_public_ip'] ?? '') === '') { $row['vm_public_ip'] = (string)($row['public_ip'] ?? ''); }
+  if (($row['vm_homolog_public_ip'] ?? '') === '') { $row['vm_homolog_public_ip'] = (string)($row['public_ip_homolog'] ?? ''); }
   if (($row['vm_dev_name'] ?? '') === '') { $row['vm_dev_name'] = (string)($row['vm_dev'] ?? ''); }
   if (($row['vm_dev_ip'] ?? '') === '') { $row['vm_dev_ip'] = (string)($row['ip_dev'] ?? ''); }
+  if (($row['vm_dev_public_ip'] ?? '') === '') { $row['vm_dev_public_ip'] = (string)($row['public_ip_dev'] ?? ''); }
+  $row['vm_ip'] = firstVmIpValue((string)($row['vm_ip'] ?? ''));
+  $row['vm_homolog_ip'] = firstVmIpValue((string)($row['vm_homolog_ip'] ?? ''));
+  $row['vm_dev_ip'] = firstVmIpValue((string)($row['vm_dev_ip'] ?? ''));
+  $row['vm_public_ip'] = firstVmIpValue((string)($row['vm_public_ip'] ?? ''));
+  $row['vm_homolog_public_ip'] = firstVmIpValue((string)($row['vm_homolog_public_ip'] ?? ''));
+  $row['vm_dev_public_ip'] = firstVmIpValue((string)($row['vm_dev_public_ip'] ?? ''));
 
   $row['system_documents'] = [];
   foreach (systemDocAllFieldMaps() as $type => $map) {
@@ -1065,6 +1365,10 @@ function listVmsSqlite3(SQLite3 $db, bool $archived=false): array {
       if (is_string($value)) { $row[$key] = normalizeUtf8Text($value); }
     }
     $row['id'] = (int)$row['id'];
+    $row['ip'] = packVmIpListValue((string)($row['ip'] ?? ''));
+    $row['ip_list'] = normalizeVmIpListValue($row['ip']);
+    $row['public_ip'] = packVmIpListValue((string)($row['public_ip'] ?? ''));
+    $row['public_ip_list'] = normalizeVmIpListValue($row['public_ip']);
     $row['vm_category'] = trim((string)($row['vm_category'] ?? '')) !== '' ? trim((string)$row['vm_category']) : 'Producao';
     $row['vm_type'] = trim((string)($row['vm_type'] ?? '')) !== '' ? trim((string)$row['vm_type']) : 'Sistemas';
     $row['vm_access'] = trim((string)($row['vm_access'] ?? '')) !== '' ? trim((string)$row['vm_access']) : 'Interno';
@@ -1119,6 +1423,10 @@ function listVmsPdo(PDO $db, bool $archived=false): array {
       if (is_string($value)) { $row[$key] = normalizeUtf8Text($value); }
     }
     $row['id'] = (int)$row['id'];
+    $row['ip'] = packVmIpListValue((string)($row['ip'] ?? ''));
+    $row['ip_list'] = normalizeVmIpListValue($row['ip']);
+    $row['public_ip'] = packVmIpListValue((string)($row['public_ip'] ?? ''));
+    $row['public_ip_list'] = normalizeVmIpListValue($row['public_ip']);
     $row['vm_category'] = trim((string)($row['vm_category'] ?? '')) !== '' ? trim((string)$row['vm_category']) : 'Producao';
     $row['vm_type'] = trim((string)($row['vm_type'] ?? '')) !== '' ? trim((string)$row['vm_type']) : 'Sistemas';
     $row['vm_access'] = trim((string)($row['vm_access'] ?? '')) !== '' ? trim((string)$row['vm_access']) : 'Interno';
@@ -1156,7 +1464,7 @@ function listVmsPdo(PDO $db, bool $archived=false): array {
 }
 
 function fetchVmByIdSqlite3(SQLite3 $db, int $id): ?array {
-  $st = $db->prepare("SELECT id,name,ip,vm_category,vm_type,vm_access,vm_administration,vm_instances,vm_language,vm_target_version,vm_app_server,vm_web_server,vm_containerization,vm_container_tool,vm_runtime_port,vm_tech,diagnostic_json_ref,diagnostic_json_updated_at,diagnostic_json_ref_r,diagnostic_json_updated_at_r,os_name,os_version,vcpus,ram,disk,created_at,updated_at FROM virtual_machines WHERE id=:id");
+  $st = $db->prepare("SELECT id,name,ip,public_ip,vm_category,vm_type,vm_access,vm_administration,vm_instances,vm_language,vm_target_version,vm_app_server,vm_web_server,vm_containerization,vm_container_tool,vm_runtime_port,vm_tech,diagnostic_json_ref,diagnostic_json_updated_at,diagnostic_json_ref_r,diagnostic_json_updated_at_r,os_name,os_version,vcpus,ram,disk,created_at,updated_at FROM virtual_machines WHERE id=:id");
   $st->bindValue(':id', $id, SQLITE3_INTEGER);
   $res = $st->execute();
   $row = $res ? $res->fetchArray(SQLITE3_ASSOC) : false;
@@ -1165,6 +1473,10 @@ function fetchVmByIdSqlite3(SQLite3 $db, int $id): ?array {
     if (is_string($value)) { $row[$key] = normalizeUtf8Text($value); }
   }
   $row['id'] = (int)$row['id'];
+  $row['ip'] = packVmIpListValue((string)($row['ip'] ?? ''));
+  $row['ip_list'] = normalizeVmIpListValue($row['ip']);
+  $row['public_ip'] = packVmIpListValue((string)($row['public_ip'] ?? ''));
+  $row['public_ip_list'] = normalizeVmIpListValue($row['public_ip']);
   $row['vm_category'] = trim((string)($row['vm_category'] ?? '')) !== '' ? trim((string)$row['vm_category']) : 'Producao';
   $row['vm_type'] = trim((string)($row['vm_type'] ?? '')) !== '' ? trim((string)$row['vm_type']) : 'Sistemas';
   $row['vm_access'] = trim((string)($row['vm_access'] ?? '')) !== '' ? trim((string)$row['vm_access']) : 'Interno';
@@ -1195,7 +1507,7 @@ function fetchVmByIdSqlite3(SQLite3 $db, int $id): ?array {
 }
 
 function fetchVmByIdPdo(PDO $db, int $id): ?array {
-  $st = $db->prepare("SELECT id,name,ip,vm_category,vm_type,vm_access,vm_administration,vm_instances,vm_language,vm_target_version,vm_app_server,vm_web_server,vm_containerization,vm_container_tool,vm_runtime_port,vm_tech,diagnostic_json_ref,diagnostic_json_updated_at,diagnostic_json_ref_r,diagnostic_json_updated_at_r,os_name,os_version,vcpus,ram,disk,created_at,updated_at FROM virtual_machines WHERE id=:id");
+  $st = $db->prepare("SELECT id,name,ip,public_ip,vm_category,vm_type,vm_access,vm_administration,vm_instances,vm_language,vm_target_version,vm_app_server,vm_web_server,vm_containerization,vm_container_tool,vm_runtime_port,vm_tech,diagnostic_json_ref,diagnostic_json_updated_at,diagnostic_json_ref_r,diagnostic_json_updated_at_r,os_name,os_version,vcpus,ram,disk,created_at,updated_at FROM virtual_machines WHERE id=:id");
   $st->bindValue(':id', $id, PDO::PARAM_INT);
   $st->execute();
   $row = $st->fetch(PDO::FETCH_ASSOC);
@@ -1204,6 +1516,10 @@ function fetchVmByIdPdo(PDO $db, int $id): ?array {
     if (is_string($value)) { $row[$key] = normalizeUtf8Text($value); }
   }
   $row['id'] = (int)$row['id'];
+  $row['ip'] = packVmIpListValue((string)($row['ip'] ?? ''));
+  $row['ip_list'] = normalizeVmIpListValue($row['ip']);
+  $row['public_ip'] = packVmIpListValue((string)($row['public_ip'] ?? ''));
+  $row['public_ip_list'] = normalizeVmIpListValue($row['public_ip']);
   $row['vm_category'] = trim((string)($row['vm_category'] ?? '')) !== '' ? trim((string)$row['vm_category']) : 'Producao';
   $row['vm_type'] = trim((string)($row['vm_type'] ?? '')) !== '' ? trim((string)$row['vm_type']) : 'Sistemas';
   $row['vm_access'] = trim((string)($row['vm_access'] ?? '')) !== '' ? trim((string)$row['vm_access']) : 'Interno';
@@ -1244,7 +1560,8 @@ function fetchActiveVmForDbSqlite3(SQLite3 $db, int $id): ?array {
   }
   $row['id'] = (int)($row['id'] ?? 0);
   $row['vm_type'] = trim((string)($row['vm_type'] ?? '')) !== '' ? trim((string)$row['vm_type']) : 'Sistemas';
-  $row['ip'] = trim((string)($row['ip'] ?? ''));
+  $row['ip'] = packVmIpListValue((string)($row['ip'] ?? ''));
+  $row['ip_list'] = normalizeVmIpListValue($row['ip']);
   $row['vm_instances'] = trim((string)($row['vm_instances'] ?? ''));
   $row['vm_instances_list'] = normalizeVmInstancesValue($row['vm_instances']);
   return $row;
@@ -1261,7 +1578,8 @@ function fetchActiveVmForDbPdo(PDO $db, int $id): ?array {
   }
   $row['id'] = (int)($row['id'] ?? 0);
   $row['vm_type'] = trim((string)($row['vm_type'] ?? '')) !== '' ? trim((string)$row['vm_type']) : 'Sistemas';
-  $row['ip'] = trim((string)($row['ip'] ?? ''));
+  $row['ip'] = packVmIpListValue((string)($row['ip'] ?? ''));
+  $row['ip_list'] = normalizeVmIpListValue($row['ip']);
   $row['vm_instances'] = trim((string)($row['vm_instances'] ?? ''));
   $row['vm_instances_list'] = normalizeVmInstancesValue($row['vm_instances']);
   return $row;
@@ -1322,7 +1640,7 @@ function diagnosticReferencesFromVmRow(array $row): array {
 
 function vmLabelFromRow(array $vm): string {
   $name = trim((string)($vm['name'] ?? ''));
-  $ip = trim((string)($vm['ip'] ?? ''));
+  $ip = packVmIpListValue((string)($vm['ip'] ?? ''));
   if ($name === '' && $ip === '') { return ''; }
   if ($name !== '' && $ip !== '') { return $name . ' (' . $ip . ')'; }
   return $name !== '' ? $name : $ip;
@@ -1601,8 +1919,8 @@ function normalizeDatabaseRow(array $row): array {
   $row['db_instance_ip'] = trim((string)($row['db_instance_ip'] ?? ''));
   $row['db_instance_homolog_name'] = trim((string)($row['db_instance_homolog_name'] ?? ''));
   $row['db_instance_homolog_ip'] = trim((string)($row['db_instance_homolog_ip'] ?? ''));
-  if ($row['db_instance_ip'] === '') { $row['db_instance_ip'] = trim((string)($row['vm_ip'] ?? '')); }
-  if ($row['db_instance_homolog_ip'] === '') { $row['db_instance_homolog_ip'] = trim((string)($row['vm_homolog_ip'] ?? '')); }
+  if ($row['db_instance_ip'] === '') { $row['db_instance_ip'] = firstVmIpValue((string)($row['vm_ip'] ?? '')); }
+  if ($row['db_instance_homolog_ip'] === '') { $row['db_instance_homolog_ip'] = firstVmIpValue((string)($row['vm_homolog_ip'] ?? '')); }
   if ($row['db_instance_name'] === '' && $row['db_instance_ip'] !== '') { $row['db_instance_name'] = 'Instancia principal'; }
   if ($row['db_instance_homolog_name'] === '' && $row['db_instance_homolog_ip'] !== '') { $row['db_instance_homolog_name'] = 'Instancia principal'; }
   $row['notes'] = trim((string)($row['notes'] ?? ''));
@@ -1864,23 +2182,399 @@ function fetchUsersForBackupPdo(PDO $db): array {
   return $db->query("SELECT id,username,password_hash,full_name,role,active,created_at,updated_at FROM users ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
 }
 
-function csvEscapeValue(string $value): string {
-  $needsQuotes = str_contains($value, ',') || str_contains($value, '"') || str_contains($value, "\n") || str_contains($value, "\r");
+function csvEscapeValue(string $value, string $delimiter=','): string {
+  $needsQuotes = str_contains($value, $delimiter) || str_contains($value, '"') || str_contains($value, "\n") || str_contains($value, "\r");
   if (!$needsQuotes) { return $value; }
   return '"' . str_replace('"', '""', $value) . '"';
 }
 
-function csvBuild(array $headers, array $rows): string {
+function csvBuild(array $headers, array $rows, string $delimiter=','): string {
   $lines = [];
-  $lines[] = implode(',', array_map(fn($v) => csvEscapeValue((string)$v), $headers));
+  $lines[] = implode($delimiter, array_map(fn($v) => csvEscapeValue((string)$v, $delimiter), $headers));
   foreach ($rows as $row) {
     $line = [];
     foreach ($headers as $key) {
-      $line[] = csvEscapeValue((string)($row[$key] ?? ''));
+      $line[] = csvEscapeValue((string)($row[$key] ?? ''), $delimiter);
     }
-    $lines[] = implode(',', $line);
+    $lines[] = implode($delimiter, $line);
   }
   return "\xEF\xBB\xBF" . implode("\r\n", $lines) . "\r\n";
+}
+
+function normalizeVmCsvHeaderKey(string $value): string {
+  $text = str_replace("\xEF\xBB\xBF", '', trim($value));
+  $text = normalizeUtf8Text($text);
+  if ($text === '') { return ''; }
+  $text = strtr($text, [
+    'Á' => 'A', 'À' => 'A', 'Â' => 'A', 'Ã' => 'A', 'Ä' => 'A',
+    'á' => 'a', 'à' => 'a', 'â' => 'a', 'ã' => 'a', 'ä' => 'a',
+    'É' => 'E', 'È' => 'E', 'Ê' => 'E', 'Ë' => 'E',
+    'é' => 'e', 'è' => 'e', 'ê' => 'e', 'ë' => 'e',
+    'Í' => 'I', 'Ì' => 'I', 'Î' => 'I', 'Ï' => 'I',
+    'í' => 'i', 'ì' => 'i', 'î' => 'i', 'ï' => 'i',
+    'Ó' => 'O', 'Ò' => 'O', 'Ô' => 'O', 'Õ' => 'O', 'Ö' => 'O',
+    'ó' => 'o', 'ò' => 'o', 'ô' => 'o', 'õ' => 'o', 'ö' => 'o',
+    'Ú' => 'U', 'Ù' => 'U', 'Û' => 'U', 'Ü' => 'U',
+    'ú' => 'u', 'ù' => 'u', 'û' => 'u', 'ü' => 'u',
+    'Ç' => 'C', 'ç' => 'c',
+    'Ñ' => 'N', 'ñ' => 'n'
+  ]);
+  if (function_exists('iconv')) {
+    $converted = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $text);
+    if (is_string($converted) && $converted !== '') { $text = $converted; }
+  }
+  $text = strtolower($text);
+  $text = preg_replace('/[^a-z0-9]+/', ' ', $text) ?? $text;
+  $text = preg_replace('/\s+/', ' ', $text) ?? $text;
+  return trim($text);
+}
+
+function normalizeVmCsvAdministration(string $value): string {
+  $raw = trim($value);
+  if ($raw === '') { return ''; }
+  $key = normalizeVmCsvHeaderKey($raw);
+  if (str_contains($key, 'prodeb')) { return 'PRODEB'; }
+  if (str_contains($key, 'sei')) { return 'SEI'; }
+  return strtoupper($raw);
+}
+
+function normalizeVmCsvResourceText(string $value): string {
+  $raw = trim($value);
+  if ($raw === '') { return ''; }
+  if (preg_match('/[a-z]/i', $raw) === 1) { return $raw; }
+  return $raw;
+}
+
+function normalizeVmCsvVcpuText(string $value): string {
+  $raw = trim($value);
+  if ($raw === '') { return ''; }
+  $raw = str_replace(',', '.', $raw);
+  if (!preg_match('/^[0-9]+(?:\.[0-9]+)?$/', $raw)) { return trim($value); }
+  $number = (float)$raw;
+  if (abs($number - round($number)) < 0.00001) { return (string)((int)round($number)); }
+  return rtrim(rtrim(number_format($number, 2, '.', ''), '0'), '.');
+}
+
+function vmCsvMachinesHeadersMap(): array {
+  return [
+    'nome do servidor' => 'name',
+    'administracao' => 'vm_administration',
+    'sistema operacional' => 'os_name',
+    'endereco ip' => 'ip',
+    'vcpu' => 'vcpus',
+    'memoria gb' => 'ram_csv',
+    'storage gb' => 'disk_csv',
+  ];
+}
+
+function parseVmMachinesCsvContent(string $csvContent): array {
+  $lines = preg_split('/\r\n|\n|\r/', str_replace("\xEF\xBB\xBF", '', $csvContent)) ?: [];
+  $lineNumber = 0;
+  $headerLine = '';
+  foreach ($lines as $line) {
+    $lineNumber++;
+    if (trim((string)$line) === '') { continue; }
+    $headerLine = (string)$line;
+    break;
+  }
+  if ($headerLine === '') {
+    throw new RuntimeException('CSV vazio.');
+  }
+
+  $rawHeaders = str_getcsv($headerLine, ';');
+  $headerMap = vmCsvMachinesHeadersMap();
+  $indexToField = [];
+  foreach ($rawHeaders as $index => $rawHeader) {
+    $normalized = normalizeVmCsvHeaderKey((string)$rawHeader);
+    if ($normalized === '') { continue; }
+    $field = $headerMap[$normalized] ?? null;
+    if ($field !== null) {
+      $indexToField[(int)$index] = $field;
+    }
+  }
+  $required = ['name', 'vm_administration', 'os_name', 'ip', 'vcpus', 'ram_csv', 'disk_csv'];
+  foreach ($required as $field) {
+    if (!in_array($field, $indexToField, true)) {
+      throw new RuntimeException('Cabeçalho CSV inválido. Use o modelo exportado pela aba Máquinas.');
+    }
+  }
+
+  $rows = [];
+  $seenNames = [];
+  for ($i = $lineNumber; $i < count($lines); $i++) {
+    $line = (string)($lines[$i] ?? '');
+    $rowNumber = $i + 1;
+    if (trim($line) === '') { continue; }
+    $columns = str_getcsv($line, ';');
+    $parsed = [
+      'row_number' => $rowNumber,
+      'name' => '',
+      'vm_administration' => '',
+      'os_name' => '',
+      'ip' => '',
+      'vcpus' => '',
+      'ram_csv' => '',
+      'disk_csv' => '',
+    ];
+    foreach ($indexToField as $index => $field) {
+      $parsed[$field] = trim((string)($columns[$index] ?? ''));
+    }
+    $parsed['name'] = trim((string)$parsed['name']);
+    $parsed['vm_administration'] = normalizeVmCsvAdministration((string)$parsed['vm_administration']);
+    $parsed['os_name'] = trim((string)$parsed['os_name']);
+    $parsed['ip'] = packVmIpListValue((string)$parsed['ip']);
+    $parsed['vcpus'] = normalizeVmCsvVcpuText((string)$parsed['vcpus']);
+    $parsed['ram_csv'] = normalizeVmCsvResourceText((string)$parsed['ram_csv']);
+    $parsed['disk_csv'] = normalizeVmCsvResourceText((string)$parsed['disk_csv']);
+
+    $nameKey = strtolower($parsed['name']);
+    if ($nameKey !== '') {
+      if (isset($seenNames[$nameKey])) {
+        $parsed['row_error'] = 'Nome de servidor duplicado no CSV.';
+      } else {
+        $seenNames[$nameKey] = true;
+      }
+    }
+    $rows[] = $parsed;
+  }
+  return $rows;
+}
+
+function vmCsvMachinesDiskExportValue(string $raw): string {
+  $text = trim($raw);
+  if ($text === '') { return ''; }
+  if (preg_match('/^\s*([0-9][0-9\.,]*)\s*gb\s*$/i', $text, $match) === 1) {
+    return trim((string)($match[1] ?? ''));
+  }
+  return $text;
+}
+
+function vmCsvPreviewPayload(array $parsedRows, array $existingVms): array {
+  $prepared = [];
+  foreach ($existingVms as $vm) {
+    if (!is_array($vm)) { continue; }
+    $id = (int)($vm['id'] ?? 0);
+    if ($id <= 0) { continue; }
+    $name = trim((string)($vm['name'] ?? ''));
+    $ips = normalizeVmIpListValue((string)($vm['ip'] ?? ''));
+    $prepared[$id] = [
+      'id' => $id,
+      'name' => $name,
+      'name_key' => strtolower($name),
+      'ip' => implode(', ', $ips),
+      'ip_keys' => array_values(array_unique(array_map('strtolower', $ips))),
+      'vm_administration' => trim((string)($vm['vm_administration'] ?? '')),
+      'os_name' => trim((string)($vm['os_name'] ?? '')),
+      'vcpus' => trim((string)($vm['vcpus'] ?? '')),
+      'ram_csv' => vmCsvMachinesDiskExportValue((string)($vm['ram'] ?? '')),
+      'disk_csv' => vmCsvMachinesDiskExportValue((string)($vm['disk'] ?? '')),
+      'archived' => (int)($vm['archived'] ?? 0) > 0 ? 1 : 0,
+    ];
+  }
+
+  $nameIndex = [];
+  $ipIndex = [];
+  foreach ($prepared as $vm) {
+    $nameKey = (string)($vm['name_key'] ?? '');
+    if ($nameKey !== '') {
+      if (!isset($nameIndex[$nameKey])) { $nameIndex[$nameKey] = []; }
+      $nameIndex[$nameKey][$vm['id']] = $vm;
+    }
+    foreach (($vm['ip_keys'] ?? []) as $ipKey) {
+      if ($ipKey === '') { continue; }
+      if (!isset($ipIndex[$ipKey])) { $ipIndex[$ipKey] = []; }
+      $ipIndex[$ipKey][$vm['id']] = $vm;
+    }
+  }
+
+  $pickCandidate = static function(array $candidates): array {
+    if (!$candidates) { return ['vm' => null, 'ambiguous' => false]; }
+    $candidates = array_values($candidates);
+    $active = array_values(array_filter($candidates, static fn($vm) => (int)($vm['archived'] ?? 0) === 0));
+    $pool = $active ?: $candidates;
+    if (count($pool) > 1) { return ['vm' => null, 'ambiguous' => true]; }
+    return ['vm' => $pool[0], 'ambiguous' => false];
+  };
+
+  $items = [];
+  $applyRows = [];
+  $summary = ['rows_total' => count($parsedRows), 'update' => 0, 'create' => 0, 'skip' => 0, 'error' => 0];
+
+  foreach ($parsedRows as $row) {
+    if (!is_array($row)) { continue; }
+    $name = trim((string)($row['name'] ?? ''));
+    $ip = packVmIpListValue((string)($row['ip'] ?? ''));
+    $rowIps = normalizeVmIpListValue($ip);
+    $admin = normalizeVmCsvAdministration((string)($row['vm_administration'] ?? ''));
+    $effectiveAdmin = $admin;
+    $vmCategory = 'Producao';
+    $vmType = 'Sistemas';
+    $vmAccess = 'Interno';
+    $osName = trim((string)($row['os_name'] ?? ''));
+    $vcpus = normalizeVmCsvVcpuText((string)($row['vcpus'] ?? ''));
+    $ramCsv = normalizeVmCsvResourceText((string)($row['ram_csv'] ?? ''));
+    $diskCsv = normalizeVmCsvResourceText((string)($row['disk_csv'] ?? ''));
+
+    $item = [
+      'row_number' => (int)($row['row_number'] ?? 0),
+      'action' => 'skip',
+      'reason' => '',
+      'name' => $name,
+      'match_by' => '',
+      'changed_fields' => [],
+      'next' => [
+        'name' => $name,
+        'ip' => $ip,
+        'vm_category' => $vmCategory,
+        'vm_type' => $vmType,
+        'vm_access' => $vmAccess,
+        'vm_administration' => $admin,
+        'os_name' => $osName,
+        'vcpus' => $vcpus,
+        'ram_csv' => $ramCsv,
+        'disk_csv' => $diskCsv,
+      ],
+      'current' => null,
+    ];
+
+    $rowError = trim((string)($row['row_error'] ?? ''));
+    if ($rowError !== '') {
+      $item['action'] = 'error';
+      $item['reason'] = $rowError;
+      $summary['error']++;
+      $items[] = $item;
+      continue;
+    }
+
+    if ($name === '' || $ip === '') {
+      $item['action'] = 'error';
+      $item['reason'] = 'Nome do servidor e Endereço IP são obrigatórios.';
+      $summary['error']++;
+      $items[] = $item;
+      continue;
+    }
+
+    $nameCandidates = $nameIndex[strtolower($name)] ?? [];
+    $ipCandidatesMap = [];
+    foreach ($rowIps as $rowIp) {
+      $ipKey = strtolower($rowIp);
+      foreach (($ipIndex[$ipKey] ?? []) as $vmId => $vmCandidate) {
+        $ipCandidatesMap[$vmId] = $vmCandidate;
+      }
+    }
+    $ipCandidates = array_values($ipCandidatesMap);
+
+    $pickedByName = $pickCandidate(array_values($nameCandidates));
+    $pickedByIp = $pickCandidate($ipCandidates);
+
+    if ($pickedByName['ambiguous']) {
+      $item['action'] = 'error';
+      $item['reason'] = 'Mais de uma máquina encontrada com este nome.';
+      $summary['error']++;
+      $items[] = $item;
+      continue;
+    }
+    if (!$pickedByName['vm'] && $pickedByIp['ambiguous']) {
+      $item['action'] = 'error';
+      $item['reason'] = 'Mais de uma máquina encontrada com este IP.';
+      $summary['error']++;
+      $items[] = $item;
+      continue;
+    }
+
+    $existing = null;
+    $matchBy = '';
+    if (is_array($pickedByName['vm'] ?? null)) {
+      $existing = $pickedByName['vm'];
+      $matchBy = 'name';
+      if (is_array($pickedByIp['vm'] ?? null) && (int)($pickedByIp['vm']['id'] ?? 0) !== (int)($existing['id'] ?? 0)) {
+        $item['action'] = 'error';
+        $item['reason'] = 'Conflito: nome e IP apontam para máquinas diferentes.';
+        $summary['error']++;
+        $items[] = $item;
+        continue;
+      }
+    } elseif (is_array($pickedByIp['vm'] ?? null)) {
+      $existing = $pickedByIp['vm'];
+      $matchBy = 'ip';
+    }
+
+    if (is_array($existing)) {
+      $current = [
+        'id' => (int)($existing['id'] ?? 0),
+        'name' => trim((string)($existing['name'] ?? '')),
+        'ip' => packVmIpListValue((string)($existing['ip'] ?? '')),
+        'vm_administration' => trim((string)($existing['vm_administration'] ?? '')),
+        'os_name' => trim((string)($existing['os_name'] ?? '')),
+        'vcpus' => trim((string)($existing['vcpus'] ?? '')),
+        'ram_csv' => vmCsvMachinesDiskExportValue((string)($existing['ram_csv'] ?? '')),
+        'disk_csv' => vmCsvMachinesDiskExportValue((string)($existing['disk_csv'] ?? '')),
+      ];
+      if (!in_array($effectiveAdmin, ['SEI', 'PRODEB'], true)) {
+        $effectiveAdmin = in_array((string)$current['vm_administration'], ['SEI', 'PRODEB'], true)
+          ? (string)$current['vm_administration']
+          : 'SEI';
+      }
+      $item['match_by'] = $matchBy;
+      $item['next']['vm_administration'] = $effectiveAdmin;
+      $item['current'] = $current;
+      $changedFields = [];
+      foreach (['name','ip','vm_administration','os_name','vcpus','ram_csv','disk_csv'] as $field) {
+        if ((string)($current[$field] ?? '') !== (string)($item['next'][$field] ?? '')) {
+          $changedFields[] = $field;
+        }
+      }
+      if (!$changedFields) {
+        $item['action'] = 'skip';
+        $item['reason'] = $matchBy === 'ip' ? 'Sem alterações (identificada por IP).' : 'Sem alterações.';
+        $summary['skip']++;
+      } else {
+        $item['action'] = 'update';
+        $item['changed_fields'] = $changedFields;
+        $summary['update']++;
+        $applyRows[] = [
+          'row_number' => (int)($row['row_number'] ?? 0),
+          'action' => 'update',
+          'id' => (int)$current['id'],
+          'name' => $name,
+          'ip' => $ip,
+          'vm_administration' => $effectiveAdmin,
+          'os_name' => $osName,
+          'vcpus' => $vcpus,
+          'ram_csv' => $ramCsv,
+          'disk_csv' => $diskCsv,
+        ];
+      }
+    } else {
+      if (!in_array($effectiveAdmin, ['SEI', 'PRODEB'], true)) { $effectiveAdmin = 'SEI'; }
+      $item['next']['vm_administration'] = $effectiveAdmin;
+      $item['action'] = 'create';
+      $summary['create']++;
+      $applyRows[] = [
+        'row_number' => (int)($row['row_number'] ?? 0),
+        'action' => 'create',
+        'id' => 0,
+        'name' => $name,
+        'ip' => $ip,
+        'vm_category' => $vmCategory,
+        'vm_type' => $vmType,
+        'vm_access' => $vmAccess,
+        'vm_administration' => $effectiveAdmin,
+        'os_name' => $osName,
+        'vcpus' => $vcpus,
+        'ram_csv' => $ramCsv,
+        'disk_csv' => $diskCsv,
+      ];
+    }
+
+    $items[] = $item;
+  }
+
+  return [
+    'summary' => $summary,
+    'items' => $items,
+    'apply_rows' => $applyRows,
+  ];
 }
 
 function sanitizeBackupRows(array $backup, string $section): array {
@@ -2150,7 +2844,7 @@ function handleApiRequest(): void {
       return;
     }
 
-    $publicActions = ['list', 'vm-list', 'db-list', 'archived-list', 'ticket-list', 'system-doc-view'];
+    $publicActions = ['list', 'vm-list', 'db-list', 'archived-list', 'ticket-list', 'system-doc-view', 'dns-public-ip-resolve', 'dns-ssl-validity-resolve', 'dns-internal-ip-resolve'];
     $authUser = sessionAuthUser();
     if (!$authUser && !in_array($api, $publicActions, true)) {
       echo json_encode(['ok'=>false,'error'=>'Autenticacao necessaria.'], JSON_UNESCAPED_UNICODE);
@@ -2213,7 +2907,7 @@ function handleApiRequest(): void {
       return;
     }
 
-    $editActions = ['save', 'archive', 'restore', 'vm-save', 'vm-archive', 'vm-restore', 'db-save', 'db-delete', 'vm-diagnostic-save', 'vm-diagnostic-clear', 'ticket-save', 'ticket-update', 'ticket-delete', 'system-doc-upload', 'system-doc-delete'];
+    $editActions = ['save', 'archive', 'restore', 'vm-save', 'vm-archive', 'vm-restore', 'db-save', 'db-delete', 'vm-diagnostic-save', 'vm-diagnostic-clear', 'ticket-save', 'ticket-update', 'ticket-delete', 'system-doc-upload', 'system-doc-delete', 'vm-csv-import-preview', 'vm-csv-import-apply'];
     if (in_array($api, $editActions, true) && !roleAtLeast((string)$authUser['role'], 'edicao')) {
       echo json_encode(['ok'=>false,'error'=>'Perfil apenas leitura.'], JSON_UNESCAPED_UNICODE);
       return;
@@ -2246,6 +2940,122 @@ function handleApiRequest(): void {
 
     if ($api === 'ticket-list') {
       $out = $db instanceof SQLite3 ? listTicketsSqlite3($db) : listTicketsPdo($db);
+      echo json_encode(['ok'=>true,'data'=>$out], JSON_UNESCAPED_UNICODE);
+      return;
+    }
+
+    if ($api === 'dns-public-ip-resolve') {
+      $method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+      $data = [];
+      if ($method === 'POST') {
+        $data = json_decode((string)file_get_contents('php://input'), true);
+        if (!is_array($data)) { echo json_encode(['ok'=>false,'error'=>'Invalid JSON']); return; }
+      } elseif ($method === 'GET') {
+        $data = ['hosts' => (string)($_GET['hosts'] ?? '')];
+      } else {
+        echo json_encode(['ok'=>false,'error'=>'Invalid method']);
+        return;
+      }
+
+      $rawHosts = [];
+      if (is_array($data['hosts'] ?? null)) {
+        $rawHosts = $data['hosts'];
+      } elseif (array_key_exists('hosts', $data)) {
+        $rawHosts = preg_split('/[\r\n,; ]+/', (string)$data['hosts']) ?: [];
+      }
+
+      $out = [];
+      $seen = [];
+      $maxHosts = 150;
+      foreach ($rawHosts as $entry) {
+        if (count($out) >= $maxHosts) { break; }
+        $candidate = trim((string)$entry);
+        if ($candidate === '') { continue; }
+        $host = hostFromUrlText($candidate);
+        if ($host === '' && preg_match('/^[a-z0-9.-]+$/i', $candidate) === 1) { $host = strtolower($candidate); }
+        if ($host === '' || isset($seen[$host])) { continue; }
+        $seen[$host] = true;
+        $ips = resolveHostPublicIps($host);
+        $out[$host] = $ips ? implode(', ', $ips) : '-';
+      }
+
+      echo json_encode(['ok'=>true,'data'=>$out], JSON_UNESCAPED_UNICODE);
+      return;
+    }
+
+    if ($api === 'dns-ssl-validity-resolve') {
+      $method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+      $data = [];
+      if ($method === 'POST') {
+        $data = json_decode((string)file_get_contents('php://input'), true);
+        if (!is_array($data)) { echo json_encode(['ok'=>false,'error'=>'Invalid JSON']); return; }
+      } elseif ($method === 'GET') {
+        $data = ['targets' => (string)($_GET['targets'] ?? '')];
+      } else {
+        echo json_encode(['ok'=>false,'error'=>'Invalid method']);
+        return;
+      }
+
+      $rawTargets = [];
+      if (is_array($data['targets'] ?? null)) {
+        $rawTargets = $data['targets'];
+      } elseif (array_key_exists('targets', $data)) {
+        $rawTargets = preg_split('/[\r\n,; ]+/', (string)$data['targets']) ?: [];
+      }
+
+      $out = [];
+      $seen = [];
+      $maxTargets = 150;
+      foreach ($rawTargets as $entry) {
+        if (count($out) >= $maxTargets) { break; }
+        $parsed = parseSslTargetKey((string)$entry);
+        if ($parsed === null) { continue; }
+        $key = (string)$parsed['key'];
+        if (isset($seen[$key])) { continue; }
+        $seen[$key] = true;
+        $timestamp = sslCertificateExpiryTimestamp((string)$parsed['host'], (int)$parsed['port']);
+        $out[$key] = sslValidityLabelByTimestamp($timestamp);
+      }
+
+      echo json_encode(['ok'=>true,'data'=>$out], JSON_UNESCAPED_UNICODE);
+      return;
+    }
+
+    if ($api === 'dns-internal-ip-resolve') {
+      $method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+      $data = [];
+      if ($method === 'POST') {
+        $data = json_decode((string)file_get_contents('php://input'), true);
+        if (!is_array($data)) { echo json_encode(['ok'=>false,'error'=>'Invalid JSON']); return; }
+      } elseif ($method === 'GET') {
+        $data = ['hosts' => (string)($_GET['hosts'] ?? '')];
+      } else {
+        echo json_encode(['ok'=>false,'error'=>'Invalid method']);
+        return;
+      }
+
+      $rawHosts = [];
+      if (is_array($data['hosts'] ?? null)) {
+        $rawHosts = $data['hosts'];
+      } elseif (array_key_exists('hosts', $data)) {
+        $rawHosts = preg_split('/[\r\n,; ]+/', (string)$data['hosts']) ?: [];
+      }
+
+      $out = [];
+      $seen = [];
+      $maxHosts = 150;
+      foreach ($rawHosts as $entry) {
+        if (count($out) >= $maxHosts) { break; }
+        $candidate = trim((string)$entry);
+        if ($candidate === '') { continue; }
+        $host = hostFromUrlText($candidate);
+        if ($host === '' && preg_match('/^[a-z0-9.-]+$/i', $candidate) === 1) { $host = strtolower($candidate); }
+        if ($host === '' || isset($seen[$host])) { continue; }
+        $seen[$host] = true;
+        $ips = resolveHostInternalIps($host);
+        $out[$host] = $ips ? implode(', ', $ips) : '-';
+      }
+
       echo json_encode(['ok'=>true,'data'=>$out], JSON_UNESCAPED_UNICODE);
       return;
     }
@@ -2317,6 +3127,188 @@ function handleApiRequest(): void {
       return;
     }
 
+    if ($api === 'vm-csv-export') {
+      $vms = $db instanceof SQLite3 ? listVmsSqlite3($db, false) : listVmsPdo($db, false);
+      $headers = ['Nome do Servidor','Administração','Sistema Operacional','Endereço IP','vCPU','Memória (GB)','Storage (GB)'];
+      $rows = [];
+      foreach ($vms as $vm) {
+        if (!is_array($vm)) { continue; }
+        $rows[] = [
+          'Nome do Servidor' => trim((string)($vm['name'] ?? '')),
+          'Administração' => trim((string)($vm['vm_administration'] ?? '')),
+          'Sistema Operacional' => trim((string)($vm['os_name'] ?? '')),
+          'Endereço IP' => packVmIpListValue((string)($vm['ip'] ?? '')),
+          'vCPU' => trim((string)($vm['vcpus'] ?? '')),
+          'Memória (GB)' => vmCsvMachinesDiskExportValue((string)($vm['ram'] ?? '')),
+          'Storage (GB)' => vmCsvMachinesDiskExportValue((string)($vm['disk'] ?? '')),
+        ];
+      }
+      $file = 'maquinas_' . date('Ymd_His') . '.csv';
+      echo json_encode(['ok'=>true,'data'=>[
+        'filename' => $file,
+        'mime' => 'text/csv;charset=utf-8',
+        'content' => csvBuild($headers, $rows, ';'),
+      ]], JSON_UNESCAPED_UNICODE);
+      return;
+    }
+
+    if ($api === 'vm-csv-import-preview') {
+      if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') { echo json_encode(['ok'=>false,'error'=>'Invalid method']); return; }
+      $data = json_decode((string)file_get_contents('php://input'), true);
+      if (!is_array($data)) { echo json_encode(['ok'=>false,'error'=>'Invalid JSON']); return; }
+      $csvContent = (string)($data['csv_content'] ?? '');
+      if (trim($csvContent) === '') {
+        echo json_encode(['ok'=>false,'error'=>'CSV vazio.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+      try {
+        $parsedRows = parseVmMachinesCsvContent($csvContent);
+      } catch (Throwable $e) {
+        echo json_encode(['ok'=>false,'error'=>$e->getMessage()], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+      $existingActive = $db instanceof SQLite3 ? listVmsSqlite3($db, false) : listVmsPdo($db, false);
+      $existingArchived = $db instanceof SQLite3 ? listVmsSqlite3($db, true) : listVmsPdo($db, true);
+      $preview = vmCsvPreviewPayload(array_values($parsedRows), array_merge($existingActive, $existingArchived));
+      echo json_encode(['ok'=>true,'data'=>$preview], JSON_UNESCAPED_UNICODE);
+      return;
+    }
+
+    if ($api === 'vm-csv-import-apply') {
+      if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') { echo json_encode(['ok'=>false,'error'=>'Invalid method']); return; }
+      $data = json_decode((string)file_get_contents('php://input'), true);
+      if (!is_array($data)) { echo json_encode(['ok'=>false,'error'=>'Invalid JSON']); return; }
+      $rows = is_array($data['rows'] ?? null) ? $data['rows'] : [];
+      if (!$rows) {
+        echo json_encode(['ok'=>false,'error'=>'Nenhuma linha para atualizar.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+
+      $summary = ['updated' => 0, 'created' => 0, 'skipped' => 0];
+      $applyRow = function(array $row) use (&$summary, $db) {
+        $action = strtolower(trim((string)($row['action'] ?? '')));
+        if (!in_array($action, ['update', 'create'], true)) {
+          $summary['skipped']++;
+          return;
+        }
+
+        $name = trim((string)($row['name'] ?? ''));
+        $ip = packVmIpListValue((string)($row['ip'] ?? ''));
+        if ($name === '' || $ip === '') {
+          $summary['skipped']++;
+          return;
+        }
+
+        $admin = normalizeVmCsvAdministration((string)($row['vm_administration'] ?? ''));
+        $vmCategory = trim((string)($row['vm_category'] ?? ''));
+        $vmType = trim((string)($row['vm_type'] ?? ''));
+        $vmAccess = trim((string)($row['vm_access'] ?? ''));
+        $osName = trim((string)($row['os_name'] ?? ''));
+        $vcpus = normalizeVmCsvVcpuText((string)($row['vcpus'] ?? ''));
+        $ramCsv = normalizeVmCsvResourceText((string)($row['ram_csv'] ?? ''));
+        $diskCsv = normalizeVmCsvResourceText((string)($row['disk_csv'] ?? ''));
+        $ram = $ramCsv !== '' && preg_match('/[a-z]/i', $ramCsv) !== 1 ? ($ramCsv . ' GB') : $ramCsv;
+        $disk = $diskCsv !== '' && preg_match('/[a-z]/i', $diskCsv) !== 1 ? ($diskCsv . ' GB') : $diskCsv;
+        if (!in_array($vmCategory, ['Producao', 'Homologacao', 'Desenvolvimento'], true)) { $vmCategory = 'Producao'; }
+        if (!in_array($vmType, ['Sistemas', 'SGBD'], true)) { $vmType = 'Sistemas'; }
+        if (!in_array($vmAccess, ['Interno', 'Externo'], true)) { $vmAccess = 'Interno'; }
+
+        $id = (int)($row['id'] ?? 0);
+        $current = null;
+        if ($id > 0) {
+          $current = $db instanceof SQLite3 ? fetchVmByIdSqlite3($db, $id) : fetchVmByIdPdo($db, $id);
+        }
+
+        if ($current !== null) {
+          if (!in_array($admin, ['SEI', 'PRODEB'], true)) {
+            $admin = trim((string)($current['vm_administration'] ?? ''));
+            if (!in_array($admin, ['SEI', 'PRODEB'], true)) { $admin = 'SEI'; }
+          }
+          if ($db instanceof SQLite3) {
+            $st = $db->prepare("UPDATE virtual_machines SET name=:name, ip=:ip, vm_administration=:vm_administration, os_name=:os_name, vcpus=:vcpus, ram=:ram, disk=:disk, updated_at=datetime('now','localtime') WHERE id=:id");
+            $st->bindValue(':name', $name, SQLITE3_TEXT);
+            $st->bindValue(':ip', $ip, SQLITE3_TEXT);
+            $st->bindValue(':vm_administration', $admin, SQLITE3_TEXT);
+            $st->bindValue(':os_name', $osName, SQLITE3_TEXT);
+            $st->bindValue(':vcpus', $vcpus, SQLITE3_TEXT);
+            $st->bindValue(':ram', $ram, SQLITE3_TEXT);
+            $st->bindValue(':disk', $disk, SQLITE3_TEXT);
+            $st->bindValue(':id', (int)$current['id'], SQLITE3_INTEGER);
+            $st->execute();
+          } else {
+            $st = $db->prepare("UPDATE virtual_machines SET name=:name, ip=:ip, vm_administration=:vm_administration, os_name=:os_name, vcpus=:vcpus, ram=:ram, disk=:disk, updated_at=datetime('now','localtime') WHERE id=:id");
+            $st->bindValue(':name', $name, PDO::PARAM_STR);
+            $st->bindValue(':ip', $ip, PDO::PARAM_STR);
+            $st->bindValue(':vm_administration', $admin, PDO::PARAM_STR);
+            $st->bindValue(':os_name', $osName, PDO::PARAM_STR);
+            $st->bindValue(':vcpus', $vcpus, PDO::PARAM_STR);
+            $st->bindValue(':ram', $ram, PDO::PARAM_STR);
+            $st->bindValue(':disk', $disk, PDO::PARAM_STR);
+            $st->bindValue(':id', (int)$current['id'], PDO::PARAM_INT);
+            $st->execute();
+          }
+          $summary['updated']++;
+          return;
+        }
+
+        if (!in_array($admin, ['SEI', 'PRODEB'], true)) { $admin = 'SEI'; }
+        if ($db instanceof SQLite3) {
+          $st = $db->prepare("INSERT INTO virtual_machines(name,ip,vm_category,vm_type,vm_access,vm_administration,os_name,vcpus,ram,disk) VALUES(:name,:ip,:vm_category,:vm_type,:vm_access,:vm_administration,:os_name,:vcpus,:ram,:disk)");
+          $st->bindValue(':name', $name, SQLITE3_TEXT);
+          $st->bindValue(':ip', $ip, SQLITE3_TEXT);
+          $st->bindValue(':vm_category', $vmCategory, SQLITE3_TEXT);
+          $st->bindValue(':vm_type', $vmType, SQLITE3_TEXT);
+          $st->bindValue(':vm_access', $vmAccess, SQLITE3_TEXT);
+          $st->bindValue(':vm_administration', $admin, SQLITE3_TEXT);
+          $st->bindValue(':os_name', $osName, SQLITE3_TEXT);
+          $st->bindValue(':vcpus', $vcpus, SQLITE3_TEXT);
+          $st->bindValue(':ram', $ram, SQLITE3_TEXT);
+          $st->bindValue(':disk', $disk, SQLITE3_TEXT);
+          $st->execute();
+        } else {
+          $st = $db->prepare("INSERT INTO virtual_machines(name,ip,vm_category,vm_type,vm_access,vm_administration,os_name,vcpus,ram,disk) VALUES(:name,:ip,:vm_category,:vm_type,:vm_access,:vm_administration,:os_name,:vcpus,:ram,:disk)");
+          $st->bindValue(':name', $name, PDO::PARAM_STR);
+          $st->bindValue(':ip', $ip, PDO::PARAM_STR);
+          $st->bindValue(':vm_category', $vmCategory, PDO::PARAM_STR);
+          $st->bindValue(':vm_type', $vmType, PDO::PARAM_STR);
+          $st->bindValue(':vm_access', $vmAccess, PDO::PARAM_STR);
+          $st->bindValue(':vm_administration', $admin, PDO::PARAM_STR);
+          $st->bindValue(':os_name', $osName, PDO::PARAM_STR);
+          $st->bindValue(':vcpus', $vcpus, PDO::PARAM_STR);
+          $st->bindValue(':ram', $ram, PDO::PARAM_STR);
+          $st->bindValue(':disk', $disk, PDO::PARAM_STR);
+          $st->execute();
+        }
+        $summary['created']++;
+      };
+
+      try {
+        if ($db instanceof SQLite3) {
+          $db->exec('BEGIN IMMEDIATE');
+          foreach ($rows as $row) {
+            if (!is_array($row)) { $summary['skipped']++; continue; }
+            $applyRow($row);
+          }
+          $db->exec('COMMIT');
+        } else {
+          $db->beginTransaction();
+          foreach ($rows as $row) {
+            if (!is_array($row)) { $summary['skipped']++; continue; }
+            $applyRow($row);
+          }
+          $db->commit();
+        }
+      } catch (Throwable $e) {
+        if ($db instanceof SQLite3) { $db->exec('ROLLBACK'); }
+        elseif ($db->inTransaction()) { $db->rollBack(); }
+        echo json_encode(['ok'=>false,'error'=>'Falha ao aplicar importação: ' . $e->getMessage()], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+
+      echo json_encode(['ok'=>true,'data'=>['summary'=>$summary]], JSON_UNESCAPED_UNICODE);
+      return;
+    }
+
     if ($api === 'export-csv') {
       $scope = strtolower(trim((string)($_GET['scope'] ?? 'systems')));
       if (!in_array($scope, ['systems', 'vms', 'databases'], true)) {
@@ -2367,13 +3359,14 @@ function handleApiRequest(): void {
         }
       } elseif ($scope === 'vms') {
         $vms = $db instanceof SQLite3 ? listVmsSqlite3($db, false) : listVmsPdo($db, false);
-        $headers = ['id','name','ip','vm_category','vm_type','vm_access','vm_administration','os_name','vcpus','ram','disk','vm_language','vm_target_version','vm_app_server','vm_web_server','vm_containerization','vm_container_tool','vm_runtime_port','vm_tech','vm_instances','system_count','database_count','updated_at'];
+        $headers = ['id','name','ip','public_ip','vm_category','vm_type','vm_access','vm_administration','os_name','vcpus','ram','disk','vm_language','vm_target_version','vm_app_server','vm_web_server','vm_containerization','vm_container_tool','vm_runtime_port','vm_tech','vm_instances','system_count','database_count','updated_at'];
         foreach ($vms as $item) {
           if (!is_array($item)) { continue; }
           $rows[] = [
             'id' => (int)($item['id'] ?? 0),
             'name' => (string)($item['name'] ?? ''),
             'ip' => (string)($item['ip'] ?? ''),
+            'public_ip' => (string)($item['public_ip'] ?? ''),
             'vm_category' => (string)($item['vm_category'] ?? ''),
             'vm_type' => (string)($item['vm_type'] ?? ''),
             'vm_access' => (string)($item['vm_access'] ?? ''),
@@ -2505,7 +3498,8 @@ function handleApiRequest(): void {
             $values = [
               sqlValueSqlite3($id),
               sqlValueSqlite3(normalizeUtf8Text(trim((string)($row['name'] ?? '')))),
-              sqlValueSqlite3(trim((string)($row['ip'] ?? ''))),
+              sqlValueSqlite3(packVmIpListValue((string)($row['ip'] ?? ''))),
+              sqlValueSqlite3(packVmIpListValue((string)($row['public_ip'] ?? ''))),
               sqlValueSqlite3(trim((string)($row['vm_category'] ?? 'Producao')) ?: 'Producao'),
               sqlValueSqlite3(trim((string)($row['vm_type'] ?? 'Sistemas')) ?: 'Sistemas'),
               sqlValueSqlite3(trim((string)($row['vm_access'] ?? 'Interno')) ?: 'Interno'),
@@ -2533,7 +3527,7 @@ function handleApiRequest(): void {
               sqlValueSqlite3(trim((string)($row['created_at'] ?? date('Y-m-d H:i:s')))),
               sqlValueSqlite3(trim((string)($row['updated_at'] ?? date('Y-m-d H:i:s')))),
             ];
-            $db->exec("INSERT INTO virtual_machines(id,name,ip,vm_category,vm_type,vm_access,vm_administration,vm_instances,vm_language,vm_target_version,vm_app_server,vm_web_server,vm_containerization,vm_container_tool,vm_runtime_port,vm_tech,diagnostic_json_ref,diagnostic_json_updated_at,diagnostic_json_ref_r,diagnostic_json_updated_at_r,os_name,os_version,vcpus,ram,disk,archived,archived_at,created_at,updated_at) VALUES(" . implode(',', $values) . ")");
+            $db->exec("INSERT INTO virtual_machines(id,name,ip,public_ip,vm_category,vm_type,vm_access,vm_administration,vm_instances,vm_language,vm_target_version,vm_app_server,vm_web_server,vm_containerization,vm_container_tool,vm_runtime_port,vm_tech,diagnostic_json_ref,diagnostic_json_updated_at,diagnostic_json_ref_r,diagnostic_json_updated_at_r,os_name,os_version,vcpus,ram,disk,archived,archived_at,created_at,updated_at) VALUES(" . implode(',', $values) . ")");
           }
 
           foreach ($systemsRows as $row) {
@@ -2703,7 +3697,8 @@ function handleApiRequest(): void {
             $values = [
               sqlValuePdo($db, $id),
               sqlValuePdo($db, normalizeUtf8Text(trim((string)($row['name'] ?? '')))),
-              sqlValuePdo($db, trim((string)($row['ip'] ?? ''))),
+              sqlValuePdo($db, packVmIpListValue((string)($row['ip'] ?? ''))),
+              sqlValuePdo($db, packVmIpListValue((string)($row['public_ip'] ?? ''))),
               sqlValuePdo($db, trim((string)($row['vm_category'] ?? 'Producao')) ?: 'Producao'),
               sqlValuePdo($db, trim((string)($row['vm_type'] ?? 'Sistemas')) ?: 'Sistemas'),
               sqlValuePdo($db, trim((string)($row['vm_access'] ?? 'Interno')) ?: 'Interno'),
@@ -2731,7 +3726,7 @@ function handleApiRequest(): void {
               sqlValuePdo($db, trim((string)($row['created_at'] ?? date('Y-m-d H:i:s')))),
               sqlValuePdo($db, trim((string)($row['updated_at'] ?? date('Y-m-d H:i:s')))),
             ];
-            $db->exec("INSERT INTO virtual_machines(id,name,ip,vm_category,vm_type,vm_access,vm_administration,vm_instances,vm_language,vm_target_version,vm_app_server,vm_web_server,vm_containerization,vm_container_tool,vm_runtime_port,vm_tech,diagnostic_json_ref,diagnostic_json_updated_at,diagnostic_json_ref_r,diagnostic_json_updated_at_r,os_name,os_version,vcpus,ram,disk,archived,archived_at,created_at,updated_at) VALUES(" . implode(',', $values) . ")");
+            $db->exec("INSERT INTO virtual_machines(id,name,ip,public_ip,vm_category,vm_type,vm_access,vm_administration,vm_instances,vm_language,vm_target_version,vm_app_server,vm_web_server,vm_containerization,vm_container_tool,vm_runtime_port,vm_tech,diagnostic_json_ref,diagnostic_json_updated_at,diagnostic_json_ref_r,diagnostic_json_updated_at_r,os_name,os_version,vcpus,ram,disk,archived,archived_at,created_at,updated_at) VALUES(" . implode(',', $values) . ")");
           }
 
           foreach ($systemsRows as $row) {
@@ -2929,7 +3924,10 @@ function handleApiRequest(): void {
       if (!is_array($data)) { echo json_encode(['ok'=>false,'error'=>'Invalid JSON']); return; }
 
       $name = trim((string)($data['name'] ?? ''));
-      $ip = trim((string)($data['ip'] ?? ''));
+      $ipList = normalizeVmIpListValue($data['ip'] ?? '');
+      $ip = implode(', ', $ipList);
+      $publicIpList = normalizeVmIpListValue($data['public_ip'] ?? '');
+      $publicIp = implode(', ', $publicIpList);
       $vmCategory = trim((string)($data['vm_category'] ?? ''));
       $vmType = trim((string)($data['vm_type'] ?? ''));
       $vmAccess = trim((string)($data['vm_access'] ?? ''));
@@ -2964,7 +3962,7 @@ function handleApiRequest(): void {
       $vcpus = trim((string)($data['vcpus'] ?? ''));
       $ram = trim((string)($data['ram'] ?? ''));
       $disk = trim((string)($data['disk'] ?? ''));
-      if ($name === '' || $ip === '') { echo json_encode(['ok'=>false,'error'=>'Nome e IP sao obrigatorios']); return; }
+      if ($name === '' || count($ipList) === 0) { echo json_encode(['ok'=>false,'error'=>'Nome e ao menos um IP sao obrigatorios']); return; }
       $allowedCategories = ['Producao','Homologacao','Desenvolvimento'];
       if (!in_array($vmCategory, $allowedCategories, true)) { $vmCategory = 'Producao'; }
       $allowedTypes = ['Sistemas','SGBD'];
@@ -2976,6 +3974,17 @@ function handleApiRequest(): void {
       if ($vmType === 'SGBD' && count($vmInstancesList) === 0) {
         echo json_encode(['ok'=>false,'error'=>'Para VM do tipo SGBD informe ao menos uma instancia com IP.']);
         return;
+      }
+      if (count($vmInstancesList) > 0) {
+        $allowedIps = array_flip(array_map(static fn($entry) => strtolower((string)$entry), $ipList));
+        foreach ($vmInstancesList as $instance) {
+          $instanceIp = trim((string)($instance['ip'] ?? ''));
+          if ($instanceIp === '') { continue; }
+          if (!isset($allowedIps[strtolower($instanceIp)])) {
+            echo json_encode(['ok'=>false,'error'=>'As instancias SGBD devem usar IP cadastrado na maquina.'], JSON_UNESCAPED_UNICODE);
+            return;
+          }
+        }
       }
 
       if (!empty($data['id'])) {
@@ -2995,9 +4004,10 @@ function handleApiRequest(): void {
         }
 
         if ($db instanceof SQLite3) {
-          $st = $db->prepare("UPDATE virtual_machines SET name=:name, ip=:ip, vm_category=:vm_category, vm_type=:vm_type, vm_access=:vm_access, vm_administration=:vm_administration, vm_instances=:vm_instances, vm_language=:vm_language, vm_target_version=:vm_target_version, vm_app_server=:vm_app_server, vm_web_server=:vm_web_server, vm_containerization=:vm_containerization, vm_container_tool=:vm_container_tool, vm_runtime_port=:vm_runtime_port, vm_tech=:vm_tech, os_name=:os_name, os_version=:os_version, vcpus=:vcpus, ram=:ram, disk=:disk, updated_at=datetime('now','localtime') WHERE id=:id");
+          $st = $db->prepare("UPDATE virtual_machines SET name=:name, ip=:ip, public_ip=:public_ip, vm_category=:vm_category, vm_type=:vm_type, vm_access=:vm_access, vm_administration=:vm_administration, vm_instances=:vm_instances, vm_language=:vm_language, vm_target_version=:vm_target_version, vm_app_server=:vm_app_server, vm_web_server=:vm_web_server, vm_containerization=:vm_containerization, vm_container_tool=:vm_container_tool, vm_runtime_port=:vm_runtime_port, vm_tech=:vm_tech, os_name=:os_name, os_version=:os_version, vcpus=:vcpus, ram=:ram, disk=:disk, updated_at=datetime('now','localtime') WHERE id=:id");
           $st->bindValue(':name', $name, SQLITE3_TEXT);
           $st->bindValue(':ip', $ip, SQLITE3_TEXT);
+          $st->bindValue(':public_ip', $publicIp, SQLITE3_TEXT);
           $st->bindValue(':vm_category', $vmCategory, SQLITE3_TEXT);
           $st->bindValue(':vm_type', $vmType, SQLITE3_TEXT);
           $st->bindValue(':vm_access', $vmAccess, SQLITE3_TEXT);
@@ -3020,9 +4030,10 @@ function handleApiRequest(): void {
           $st->execute();
           $row = fetchVmByIdSqlite3($db, $id);
         } else {
-          $st = $db->prepare("UPDATE virtual_machines SET name=:name, ip=:ip, vm_category=:vm_category, vm_type=:vm_type, vm_access=:vm_access, vm_administration=:vm_administration, vm_instances=:vm_instances, vm_language=:vm_language, vm_target_version=:vm_target_version, vm_app_server=:vm_app_server, vm_web_server=:vm_web_server, vm_containerization=:vm_containerization, vm_container_tool=:vm_container_tool, vm_runtime_port=:vm_runtime_port, vm_tech=:vm_tech, os_name=:os_name, os_version=:os_version, vcpus=:vcpus, ram=:ram, disk=:disk, updated_at=datetime('now','localtime') WHERE id=:id");
+          $st = $db->prepare("UPDATE virtual_machines SET name=:name, ip=:ip, public_ip=:public_ip, vm_category=:vm_category, vm_type=:vm_type, vm_access=:vm_access, vm_administration=:vm_administration, vm_instances=:vm_instances, vm_language=:vm_language, vm_target_version=:vm_target_version, vm_app_server=:vm_app_server, vm_web_server=:vm_web_server, vm_containerization=:vm_containerization, vm_container_tool=:vm_container_tool, vm_runtime_port=:vm_runtime_port, vm_tech=:vm_tech, os_name=:os_name, os_version=:os_version, vcpus=:vcpus, ram=:ram, disk=:disk, updated_at=datetime('now','localtime') WHERE id=:id");
           $st->bindValue(':name', $name, PDO::PARAM_STR);
           $st->bindValue(':ip', $ip, PDO::PARAM_STR);
+          $st->bindValue(':public_ip', $publicIp, PDO::PARAM_STR);
           $st->bindValue(':vm_category', $vmCategory, PDO::PARAM_STR);
           $st->bindValue(':vm_type', $vmType, PDO::PARAM_STR);
           $st->bindValue(':vm_access', $vmAccess, PDO::PARAM_STR);
@@ -3047,9 +4058,10 @@ function handleApiRequest(): void {
         }
       } else {
         if ($db instanceof SQLite3) {
-          $st = $db->prepare("INSERT INTO virtual_machines(name,ip,vm_category,vm_type,vm_access,vm_administration,vm_instances,vm_language,vm_target_version,vm_app_server,vm_web_server,vm_containerization,vm_container_tool,vm_runtime_port,vm_tech,os_name,os_version,vcpus,ram,disk) VALUES(:name,:ip,:vm_category,:vm_type,:vm_access,:vm_administration,:vm_instances,:vm_language,:vm_target_version,:vm_app_server,:vm_web_server,:vm_containerization,:vm_container_tool,:vm_runtime_port,:vm_tech,:os_name,:os_version,:vcpus,:ram,:disk)");
+          $st = $db->prepare("INSERT INTO virtual_machines(name,ip,public_ip,vm_category,vm_type,vm_access,vm_administration,vm_instances,vm_language,vm_target_version,vm_app_server,vm_web_server,vm_containerization,vm_container_tool,vm_runtime_port,vm_tech,os_name,os_version,vcpus,ram,disk) VALUES(:name,:ip,:public_ip,:vm_category,:vm_type,:vm_access,:vm_administration,:vm_instances,:vm_language,:vm_target_version,:vm_app_server,:vm_web_server,:vm_containerization,:vm_container_tool,:vm_runtime_port,:vm_tech,:os_name,:os_version,:vcpus,:ram,:disk)");
           $st->bindValue(':name', $name, SQLITE3_TEXT);
           $st->bindValue(':ip', $ip, SQLITE3_TEXT);
+          $st->bindValue(':public_ip', $publicIp, SQLITE3_TEXT);
           $st->bindValue(':vm_category', $vmCategory, SQLITE3_TEXT);
           $st->bindValue(':vm_type', $vmType, SQLITE3_TEXT);
           $st->bindValue(':vm_access', $vmAccess, SQLITE3_TEXT);
@@ -3072,9 +4084,10 @@ function handleApiRequest(): void {
           $id = (int)$db->lastInsertRowID();
           $row = fetchVmByIdSqlite3($db, $id);
         } else {
-          $st = $db->prepare("INSERT INTO virtual_machines(name,ip,vm_category,vm_type,vm_access,vm_administration,vm_instances,vm_language,vm_target_version,vm_app_server,vm_web_server,vm_containerization,vm_container_tool,vm_runtime_port,vm_tech,os_name,os_version,vcpus,ram,disk) VALUES(:name,:ip,:vm_category,:vm_type,:vm_access,:vm_administration,:vm_instances,:vm_language,:vm_target_version,:vm_app_server,:vm_web_server,:vm_containerization,:vm_container_tool,:vm_runtime_port,:vm_tech,:os_name,:os_version,:vcpus,:ram,:disk)");
+          $st = $db->prepare("INSERT INTO virtual_machines(name,ip,public_ip,vm_category,vm_type,vm_access,vm_administration,vm_instances,vm_language,vm_target_version,vm_app_server,vm_web_server,vm_containerization,vm_container_tool,vm_runtime_port,vm_tech,os_name,os_version,vcpus,ram,disk) VALUES(:name,:ip,:public_ip,:vm_category,:vm_type,:vm_access,:vm_administration,:vm_instances,:vm_language,:vm_target_version,:vm_app_server,:vm_web_server,:vm_containerization,:vm_container_tool,:vm_runtime_port,:vm_tech,:os_name,:os_version,:vcpus,:ram,:disk)");
           $st->bindValue(':name', $name, PDO::PARAM_STR);
           $st->bindValue(':ip', $ip, PDO::PARAM_STR);
+          $st->bindValue(':public_ip', $publicIp, PDO::PARAM_STR);
           $st->bindValue(':vm_category', $vmCategory, PDO::PARAM_STR);
           $st->bindValue(':vm_type', $vmType, PDO::PARAM_STR);
           $st->bindValue(':vm_access', $vmAccess, PDO::PARAM_STR);

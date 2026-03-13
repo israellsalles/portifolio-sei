@@ -3,6 +3,13 @@ const App = {
   vms: [],
   databases: [],
   tickets: [],
+  dnsNatCache: {},
+  dnsNatLoading: false,
+  dnsSslCache: {},
+  dnsSslLoading: false,
+  dnsWafCache: {},
+  dnsWafLoading: false,
+  vmCsvPreview: null,
   ticketGroupsExpanded: {},
   archived: { systems: [], vms: [] },
   view: 'lista',
@@ -60,6 +67,193 @@ const parseUrlList = (raw) => {
   });
 };
 const joinUrlList = (raw) => parseUrlList(raw).join('\n');
+const parseVmIpList = (raw) => {
+  const values = Array.isArray(raw)
+    ? raw.map((entry) => String(entry ?? '').trim()).filter(Boolean)
+    : String(raw ?? '')
+      .replace(/\r/g, '\n')
+      .split(/[\n,;]+/)
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  const seen = new Set();
+  return values.filter((entry) => {
+    const key = entry.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+const joinVmIpList = (raw) => parseVmIpList(raw).join(', ');
+const dnsHostFromUrl = (rawUrl) => {
+  const raw = String(rawUrl ?? '').trim();
+  if (!raw || raw === '-') return '';
+  const hasScheme = /^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(raw);
+  const candidate = hasScheme ? raw : `https://${raw}`;
+  try {
+    const parsed = new URL(candidate);
+    const host = String(parsed.hostname || '').trim().toLowerCase();
+    if (!host || /[^a-z0-9.-]/i.test(host)) return '';
+    return host;
+  } catch {
+    return '';
+  }
+};
+const dnsSslTargetKeyFromUrl = (rawUrl) => {
+  const raw = String(rawUrl ?? '').trim();
+  if (!raw || raw === '-') return '';
+  const hasScheme = /^[a-zA-Z][a-zA-Z\d+\-.]*:/.test(raw);
+  const candidate = hasScheme ? raw : `https://${raw}`;
+  try {
+    const parsed = new URL(candidate);
+    const protocol = String(parsed.protocol || '').toLowerCase();
+    if (protocol !== 'https:') return '';
+    const host = String(parsed.hostname || '').trim().toLowerCase();
+    if (!host || /[^a-z0-9.-]/i.test(host)) return '';
+    const port = Number(parsed.port || 443);
+    if (!Number.isFinite(port) || port < 1 || port > 65535) return '';
+    return `${host}:${port}`;
+  } catch {
+    return '';
+  }
+};
+const dnsSslFallbackText = (rawUrl) => {
+  const raw = String(rawUrl ?? '').trim();
+  if (!raw || raw === '-') return '-';
+  if (/^http:\/\//i.test(raw)) return 'Sem SSL (HTTP)';
+  return '-';
+};
+const dnsDomainWithoutFirstLabel = (host) => {
+  const value = String(host || '').trim().toLowerCase();
+  if (!value) return '';
+  const parts = value.split('.').filter(Boolean);
+  if (parts.length >= 3) return parts.slice(1).join('.');
+  return value;
+};
+const setSelectOptions = (id, firstLabel, values) => {
+  const el = $(id);
+  if (!el) return;
+  const prev = String(el.value || '');
+  const normalized = [...new Set((values || []).map((x) => String(x || '').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  el.innerHTML = `<option value="">${esc(firstLabel)}</option>` + normalized.map((v)=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');
+  if (prev && normalized.includes(prev)) el.value = prev;
+};
+const populateDnsFilterSelects = (rows) => {
+  const domainValues = [];
+  const internalIpValues = [];
+  const publicIpValues = [];
+  const sslValues = [];
+
+  (rows || []).forEach((row) => {
+    const host = String(row.host || '').trim().toLowerCase();
+    const filteredDomain = dnsDomainWithoutFirstLabel(host);
+    if (filteredDomain) domainValues.push(filteredDomain);
+
+    const internalIp = String(row.ip || '').trim();
+    if (internalIp && internalIp !== '-') internalIpValues.push(internalIp);
+
+    const publicIpRaw = String(row.publicIp || '').trim();
+    if (publicIpRaw && publicIpRaw !== '-' && publicIpRaw.toLowerCase() !== 'consultando...') {
+      publicIpRaw.split(',').map((x) => x.trim()).filter(Boolean).forEach((ip) => publicIpValues.push(ip));
+    }
+
+    const sslValue = String(row.sslValidity || '').trim();
+    if (sslValue && sslValue !== '-' && sslValue.toLowerCase() !== 'consultando...') sslValues.push(sslValue);
+  });
+
+  setSelectOptions('dnsf-domain', 'Dominio: Todos', domainValues);
+  setSelectOptions('dnsf-internal-ip', 'IP Interno: Todos', internalIpValues);
+  setSelectOptions('dnsf-public-ip', 'IP Publico: Todos', publicIpValues);
+  setSelectOptions('dnsf-ssl', 'Validade SSL: Todas', sslValues);
+};
+const dnsFilterValues = () => ({
+  domain: norm($('dnsf-domain')?.value || ''),
+  internalIp: norm($('dnsf-internal-ip')?.value || ''),
+  publicIp: norm($('dnsf-public-ip')?.value || ''),
+  ssl: norm($('dnsf-ssl')?.value || ''),
+});
+const dnsRowMatchesFilters = (row, filters) => {
+  const domain = norm(row.host || '');
+  const internalIp = norm(row.ip || '');
+  const publicIp = norm(row.publicIp || '');
+  const ssl = norm(row.sslValidity || '');
+  if (filters.domain && !(domain === filters.domain || domain.endsWith(`.${filters.domain}`))) return false;
+  if (filters.internalIp && internalIp !== filters.internalIp) return false;
+  if (filters.publicIp && publicIp !== filters.publicIp) return false;
+  if (filters.ssl && ssl !== filters.ssl) return false;
+  return true;
+};
+async function resolveDnsPublicIpsForHosts(hosts){
+  const uniqueHosts = [...new Set((hosts || [])
+    .map((host) => dnsHostFromUrl(host) || String(host || '').trim().toLowerCase())
+    .filter((host) => host && /^[a-z0-9.-]+$/i.test(host)))];
+  const pendingHosts = uniqueHosts.filter((host) => typeof App.dnsNatCache[host] === 'undefined');
+  if (!pendingHosts.length || App.dnsNatLoading) return;
+
+  App.dnsNatLoading = true;
+  try {
+    const result = await api(`dns-public-ip-resolve&hosts=${encodeURIComponent(pendingHosts.join(','))}`);
+    const payload = (result && result.ok && result.data && typeof result.data === 'object') ? result.data : {};
+    pendingHosts.forEach((host) => {
+      const value = String(payload[host] ?? '').trim();
+      App.dnsNatCache[host] = value || '-';
+    });
+  } catch {
+    pendingHosts.forEach((host) => {
+      if (typeof App.dnsNatCache[host] === 'undefined') App.dnsNatCache[host] = '-';
+    });
+  } finally {
+    App.dnsNatLoading = false;
+    if (App.view === 'dns') renderDns();
+  }
+}
+async function resolveDnsSslValidityForTargets(targets){
+  const uniqueTargets = [...new Set((targets || [])
+    .map((target) => String(target || '').trim().toLowerCase())
+    .filter((target) => /^[a-z0-9.-]+:[0-9]{1,5}$/.test(target)))];
+  const pendingTargets = uniqueTargets.filter((target) => typeof App.dnsSslCache[target] === 'undefined');
+  if (!pendingTargets.length || App.dnsSslLoading) return;
+
+  App.dnsSslLoading = true;
+  try {
+    const result = await api(`dns-ssl-validity-resolve&targets=${encodeURIComponent(pendingTargets.join(','))}`);
+    const payload = (result && result.ok && result.data && typeof result.data === 'object') ? result.data : {};
+    pendingTargets.forEach((target) => {
+      const value = String(payload[target] ?? '').trim();
+      App.dnsSslCache[target] = value || '-';
+    });
+  } catch {
+    pendingTargets.forEach((target) => {
+      if (typeof App.dnsSslCache[target] === 'undefined') App.dnsSslCache[target] = '-';
+    });
+  } finally {
+    App.dnsSslLoading = false;
+    if (App.view === 'dns') renderDns();
+  }
+}
+async function resolveDnsInternalIpsForHosts(hosts){
+  const uniqueHosts = [...new Set((hosts || [])
+    .map((host) => dnsHostFromUrl(host) || String(host || '').trim().toLowerCase())
+    .filter((host) => host && /^[a-z0-9.-]+$/i.test(host)))];
+  const pendingHosts = uniqueHosts.filter((host) => typeof App.dnsWafCache[host] === 'undefined');
+  if (!pendingHosts.length || App.dnsWafLoading) return;
+
+  App.dnsWafLoading = true;
+  try {
+    const result = await api(`dns-internal-ip-resolve&hosts=${encodeURIComponent(pendingHosts.join(','))}`);
+    const payload = (result && result.ok && result.data && typeof result.data === 'object') ? result.data : {};
+    pendingHosts.forEach((host) => {
+      const value = String(payload[host] ?? '').trim();
+      App.dnsWafCache[host] = value || '-';
+    });
+  } catch {
+    pendingHosts.forEach((host) => {
+      if (typeof App.dnsWafCache[host] === 'undefined') App.dnsWafCache[host] = '-';
+    });
+  } finally {
+    App.dnsWafLoading = false;
+    if (App.view === 'dns') renderDns();
+  }
+}
 const normalizePortInput = (raw) => {
   const source = Array.isArray(raw)
     ? raw.map((entry) => String(entry ?? '')).join(',')
@@ -194,6 +388,8 @@ function applyAuthState(){
   const backupBtn = $('btn-backup');
   const backupExportJsonBtn = $('backup-export-json');
   const backupImportBtn = $('backup-import-btn');
+  const vmCsvExportBtn = $('vm-csv-export-btn');
+  const vmCsvImportBtn = $('vm-csv-import-btn');
   const authenticated = App.auth.authenticated && App.auth.user;
 
   if (authenticated) {
@@ -227,6 +423,8 @@ function applyAuthState(){
   }
   if (backupExportJsonBtn) backupExportJsonBtn.classList.toggle('hidden', !adminNow);
   if (backupImportBtn) backupImportBtn.classList.toggle('hidden', !adminNow);
+  if (vmCsvExportBtn) vmCsvExportBtn.disabled = !canEditNow;
+  if (vmCsvImportBtn) vmCsvImportBtn.disabled = !canEditNow;
 }
 
 function ensureCanEdit(message='Perfil sem permissao de edicao.'){
@@ -403,12 +601,248 @@ async function onBackupFileChange(ev){
   }
 }
 
+function vmCsvActionMeta(action){
+  const key = String(action || '').trim().toLowerCase();
+  if (key === 'update') return { label: 'Atualizar', cls: 'vm-csv-action-update' };
+  if (key === 'create') return { label: 'Criar', cls: 'vm-csv-action-create' };
+  if (key === 'error') return { label: 'Erro', cls: 'vm-csv-action-error' };
+  return { label: 'Ignorar', cls: 'vm-csv-action-skip' };
+}
+
+const VM_CSV_CREATE_OPTIONS = {
+  vm_category: ['Producao', 'Homologacao', 'Desenvolvimento'],
+  vm_type: ['Sistemas', 'SGBD'],
+  vm_access: ['Interno', 'Externo'],
+  vm_administration: ['SEI', 'PRODEB']
+};
+
+function vmCsvNormalizedCreateValue(field, rawValue){
+  const options = VM_CSV_CREATE_OPTIONS[field] || [];
+  const value = String(rawValue || '').trim();
+  if (options.includes(value)) return value;
+  return options[0] || '';
+}
+
+function vmCsvCreateSelectHtml(field, selectedValue, rowNumber){
+  const options = VM_CSV_CREATE_OPTIONS[field] || [];
+  const normalized = vmCsvNormalizedCreateValue(field, selectedValue);
+  return `
+    <select data-vm-csv-row="${rowNumber}" data-vm-csv-field="${field}">
+      ${options.map((option) => `<option value="${esc(option)}"${option === normalized ? ' selected' : ''}>${esc(option)}</option>`).join('')}
+    </select>
+  `;
+}
+
+function vmCsvCreateConfigCell(item, next){
+  if (String(item?.action || '').toLowerCase() !== 'create') return '-';
+  const rowNumber = Number(item?.row_number || 0);
+  if (!rowNumber) return '-';
+  const vmCategory = vmCsvNormalizedCreateValue('vm_category', next?.vm_category || 'Producao');
+  const vmType = vmCsvNormalizedCreateValue('vm_type', next?.vm_type || 'Sistemas');
+  const vmAccess = vmCsvNormalizedCreateValue('vm_access', next?.vm_access || 'Interno');
+  const vmAdministration = vmCsvNormalizedCreateValue('vm_administration', next?.vm_administration || 'SEI');
+  return `
+    <div class="vm-csv-create-config">
+      <label>Categoria ${vmCsvCreateSelectHtml('vm_category', vmCategory, rowNumber)}</label>
+      <label>Tipo ${vmCsvCreateSelectHtml('vm_type', vmType, rowNumber)}</label>
+      <label>Acesso ${vmCsvCreateSelectHtml('vm_access', vmAccess, rowNumber)}</label>
+      <label>Administracao ${vmCsvCreateSelectHtml('vm_administration', vmAdministration, rowNumber)}</label>
+    </div>
+  `;
+}
+
+function collectVmCsvCreateOverrides(){
+  const overrides = {};
+  document.querySelectorAll('#vm-csv-preview-body select[data-vm-csv-row][data-vm-csv-field]').forEach((selectEl) => {
+    const rowNumber = Number(selectEl.getAttribute('data-vm-csv-row') || 0);
+    const field = String(selectEl.getAttribute('data-vm-csv-field') || '').trim();
+    if (!rowNumber || !field) return;
+    if (!overrides[rowNumber]) {
+      overrides[rowNumber] = {};
+    }
+    overrides[rowNumber][field] = vmCsvNormalizedCreateValue(field, selectEl.value);
+  });
+  return overrides;
+}
+
+function vmCsvDetailHtml(item, changeDetails){
+  const reason = String(item?.reason || '').trim();
+  let lines = [];
+  if (reason) {
+    const splitLines = reason.split('|').map((part) => String(part || '').trim()).filter(Boolean);
+    lines = splitLines.length > 1 ? splitLines : [reason];
+  } else if (Array.isArray(changeDetails) && changeDetails.length) {
+    lines = changeDetails;
+  } else {
+    lines = ['-'];
+  }
+  return `<div class="vm-csv-detail-lines">${lines.map((line) => `<div>${esc(line)}</div>`).join('')}</div>`;
+}
+
+function renderVmCsvPreview(data){
+  const summaryEl = $('vm-csv-preview-summary');
+  const bodyEl = $('vm-csv-preview-body');
+  const applyBtn = $('vm-csv-apply-btn');
+  if (!summaryEl || !bodyEl || !applyBtn) return;
+
+  const summary = data?.summary || {};
+  const rowsTotal = Number(summary.rows_total || 0);
+  const updates = Number(summary.update || 0);
+  const creates = Number(summary.create || 0);
+  const skips = Number(summary.skip || 0);
+  const errors = Number(summary.error || 0);
+
+  summaryEl.innerHTML = `
+    <div class="vm-csv-preview-stat"><span>Total de linhas</span><strong>${rowsTotal}</strong></div>
+    <div class="vm-csv-preview-stat"><span>Atualizar</span><strong>${updates}</strong></div>
+    <div class="vm-csv-preview-stat"><span>Criar</span><strong>${creates}</strong></div>
+    <div class="vm-csv-preview-stat"><span>Ignorar</span><strong>${skips}</strong></div>
+    <div class="vm-csv-preview-stat"><span>Erros</span><strong>${errors}</strong></div>
+  `;
+
+  const items = Array.isArray(data?.items) ? data.items : [];
+  if (!items.length) {
+    bodyEl.innerHTML = '<tr><td colspan="11" style="color:var(--muted)">Nenhuma linha válida encontrada no CSV.</td></tr>';
+  } else {
+    bodyEl.innerHTML = items.map((item) => {
+      const actionMeta = vmCsvActionMeta(item?.action);
+      const next = item?.next || {};
+      const current = item?.current || {};
+      const changedFields = Array.isArray(item?.changed_fields) ? item.changed_fields : [];
+      const labels = {
+        name: 'Nome',
+        ip: 'IP',
+        vm_administration: 'Administracao',
+        os_name: 'SO',
+        vcpus: 'vCPU',
+        ram_csv: 'Memoria',
+        disk_csv: 'Storage'
+      };
+      const changeDetails = changedFields.map((field) => {
+        const oldValue = String(current?.[field] || '-');
+        const newValue = String(next?.[field] || '-');
+        return `${labels[field] || field}: ${oldValue} -> ${newValue}`;
+      });
+      const detailHtml = vmCsvDetailHtml(item, changeDetails);
+      const createConfig = vmCsvCreateConfigCell(item, next);
+      return `
+        <tr>
+          <td>${Number(item?.row_number || 0) || '-'}</td>
+          <td><span class="vm-csv-action-pill ${actionMeta.cls}">${actionMeta.label}</span></td>
+          <td>${createConfig}</td>
+          <td>${esc(String(item?.name || '-'))}</td>
+          <td>${esc(String(next.ip || '-'))}</td>
+          <td>${esc(String(next.vm_administration || '-'))}</td>
+          <td>${esc(String(next.os_name || '-'))}</td>
+          <td>${esc(String(next.vcpus || '-'))}</td>
+          <td>${esc(String(next.ram_csv || '-'))}</td>
+          <td>${esc(String(next.disk_csv || '-'))}</td>
+          <td>${detailHtml}</td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  const applyRows = Array.isArray(data?.apply_rows) ? data.apply_rows : [];
+  applyBtn.disabled = applyRows.length === 0;
+}
+
+async function exportMachinesCsv(){
+  if (!ensureCanEdit()) return;
+  try {
+    const result = await api('vm-csv-export');
+    if (!result.ok) throw new Error(result.error || 'Falha ao exportar CSV de maquinas');
+    const filename = String(result?.data?.filename || `maquinas_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.csv`);
+    const mime = String(result?.data?.mime || 'text/csv;charset=utf-8');
+    const content = String(result?.data?.content || '');
+    downloadTextFile(filename, content, mime);
+    toast('CSV de maquinas exportado.');
+  } catch (error) {
+    toast('Erro ao exportar CSV de maquinas: ' + (error.message || '?'), true);
+  }
+}
+
+function triggerMachinesCsvImport(){
+  if (!ensureCanEdit()) return;
+  $('vm-csv-file')?.click();
+}
+
+async function onMachinesCsvFileChange(ev){
+  if (!ensureCanEdit()) return;
+  const file = ev?.target?.files?.[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    if (!String(text || '').trim()) {
+      throw new Error('Arquivo CSV vazio.');
+    }
+    const result = await api('vm-csv-import-preview', {
+      filename: String(file.name || ''),
+      csv_content: text
+    });
+    if (!result.ok) throw new Error(result.error || 'Falha ao gerar pré-visualizacao');
+    App.vmCsvPreview = result.data || null;
+    renderVmCsvPreview(App.vmCsvPreview);
+    $('mvmcsvpreview')?.classList.remove('hidden');
+  } catch (error) {
+    App.vmCsvPreview = null;
+    toast('Erro ao ler CSV de maquinas: ' + (error.message || '?'), true);
+  } finally {
+    if (ev?.target) ev.target.value = '';
+  }
+}
+
+async function confirmMachinesCsvImport(){
+  if (!ensureCanEdit()) return;
+  const previewRows = Array.isArray(App.vmCsvPreview?.apply_rows) ? App.vmCsvPreview.apply_rows : [];
+  const createOverrides = collectVmCsvCreateOverrides();
+  const payloadRows = previewRows.map((row) => {
+    if (!row || typeof row !== 'object') return row;
+    if (String(row.action || '').toLowerCase() !== 'create') return { ...row };
+    const rowNumber = Number(row.row_number || 0);
+    const override = rowNumber ? (createOverrides[rowNumber] || null) : null;
+    if (!override) return { ...row };
+    return {
+      ...row,
+      vm_category: vmCsvNormalizedCreateValue('vm_category', override.vm_category || row.vm_category),
+      vm_type: vmCsvNormalizedCreateValue('vm_type', override.vm_type || row.vm_type),
+      vm_access: vmCsvNormalizedCreateValue('vm_access', override.vm_access || row.vm_access),
+      vm_administration: vmCsvNormalizedCreateValue('vm_administration', override.vm_administration || row.vm_administration)
+    };
+  });
+  if (!payloadRows.length) {
+    toast('Nenhuma alteracao para aplicar.', true);
+    return;
+  }
+  if (!confirm('Confirmar atualizacao das maquinas com base na pre-visualizacao?')) return;
+  try {
+    const result = await api('vm-csv-import-apply', { rows: payloadRows });
+    if (!result.ok) throw new Error(result.error || 'Falha ao atualizar maquinas');
+    const summary = result?.data?.summary || {};
+    const updated = Number(summary.updated || 0);
+    const created = Number(summary.created || 0);
+    const skipped = Number(summary.skipped || 0);
+    await refreshAll();
+    App.vmCsvPreview = null;
+    closeModal('mvmcsvpreview');
+    toast(`Importacao concluida: ${updated} atualizada(s), ${created} criada(s), ${skipped} ignorada(s).`);
+  } catch (error) {
+    toast('Erro ao aplicar importacao CSV: ' + (error.message || '?'), true);
+  }
+}
+
 function closeModal(id){
   const el = $(id);
   if (!el) return;
   el.classList.add('hidden');
   if (id === 'mauth' && $('auth-password')) $('auth-password').value = '';
   if (id === 'mpassword') resetPasswordForm();
+  if (id === 'mvmcsvpreview') {
+    App.vmCsvPreview = null;
+    if ($('vm-csv-preview-summary')) $('vm-csv-preview-summary').innerHTML = '';
+    if ($('vm-csv-preview-body')) $('vm-csv-preview-body').innerHTML = '';
+    if ($('vm-csv-apply-btn')) $('vm-csv-apply-btn').disabled = true;
+  }
 }
 
 function closeBg(ev,id){
@@ -430,7 +864,26 @@ function vmIp(item, role=false){
   const isHomolog = !isDev && (role === true || mode.includes('homo'));
   const key = isDev ? 'vm_dev_ip' : (isHomolog ? 'vm_homolog_ip' : 'vm_ip');
   const legacyKey = isDev ? 'ip_dev' : (isHomolog ? 'ip_homolog' : 'ip');
-  return String(item?.[key] || item?.[legacyKey] || '').trim() || '-';
+  const raw = String(item?.[key] || item?.[legacyKey] || '').trim();
+  if (!raw) return '-';
+  const ips = parseVmIpList(raw);
+  if (!ips.length) return raw;
+  if (ips.length === 1) return ips[0];
+  return `${ips[0]} (+${ips.length - 1})`;
+}
+
+function vmPublicIp(item, role=false){
+  const mode = role === true ? 'homolog' : String(role ?? '').trim().toLowerCase();
+  const isDev = mode === 'dev' || mode.includes('desenv');
+  const isHomolog = !isDev && (role === true || mode.includes('homo'));
+  const key = isDev ? 'vm_dev_public_ip' : (isHomolog ? 'vm_homolog_public_ip' : 'vm_public_ip');
+  const legacyKey = isDev ? 'public_ip_dev' : (isHomolog ? 'public_ip_homolog' : 'public_ip');
+  const raw = String(item?.[key] || item?.[legacyKey] || '').trim();
+  if (!raw) return '-';
+  const ips = parseVmIpList(raw);
+  if (!ips.length) return raw;
+  if (ips.length === 1) return ips[0];
+  return `${ips[0]} (+${ips.length - 1})`;
 }
 
 function vmById(id){
@@ -474,11 +927,38 @@ function relationVmSummary(item, resolver){
   return `Prod: ${prodText || '-'} | Hml: ${hmlText || '-'} | Dev: ${devText || '-'}`;
 }
 
+function vmIpList(vm){
+  return parseVmIpList(vm?.ip || '');
+}
+
+function vmPublicIpList(vm){
+  return parseVmIpList(vm?.public_ip || '');
+}
+
+function vmPrimaryIp(vm){
+  const ips = vmIpList(vm);
+  return ips.length ? ips[0] : '';
+}
+
+function vmIpSummary(vm){
+  const ips = vmIpList(vm);
+  if (!ips.length) return String(vm?.ip || '').trim() || '-';
+  if (ips.length === 1) return ips[0];
+  return `${ips[0]} (+${ips.length - 1})`;
+}
+
+function vmPublicIpSummary(vm){
+  const ips = vmPublicIpList(vm);
+  if (!ips.length) return String(vm?.public_ip || '').trim() || '-';
+  if (ips.length === 1) return ips[0];
+  return `${ips[0]} (+${ips.length - 1})`;
+}
+
 function vmLabel(vm){
   const name = String(vm?.name || '').trim();
-  const ip = String(vm?.ip || '').trim();
+  const ip = vmIpSummary(vm);
   if (!name && !ip) return '-';
-  if (name && ip) return `${name} (${ip})`;
+  if (name && ip && ip !== '-') return `${name} (${ip})`;
   return name || ip;
 }
 
@@ -808,6 +1288,98 @@ function parseVmInstancesInput(text){
   return out;
 }
 
+function vmFormIpList(){
+  return parseVmIpList($('fvmip')?.value || '');
+}
+
+function vmInstanceIpOptionsHtml(selectedIp=''){
+  const selected = String(selectedIp || '').trim();
+  const ips = vmFormIpList();
+  if (!ips.length) {
+    const fallback = selected
+      ? `<option value="${esc(selected)}" selected>${esc(selected)} (fora da lista)</option>`
+      : '<option value="">Cadastre IP da maquina...</option>';
+    return fallback;
+  }
+  const hasSelected = selected !== '' && ips.some((ip) => ip === selected);
+  let html = '<option value="">Selecionar IP...</option>';
+  html += ips.map((ip) => `<option value="${esc(ip)}"${ip === selected ? ' selected' : ''}>${esc(ip)}</option>`).join('');
+  if (selected && !hasSelected) {
+    html += `<option value="${esc(selected)}" selected>${esc(selected)} (fora da lista)</option>`;
+  }
+  return html;
+}
+
+function addVmInstanceRow(instance=null){
+  const rowsEl = $('fvminstances_rows');
+  if (!rowsEl) return;
+  const name = String(instance?.name || '').trim();
+  const ip = String(instance?.ip || '').trim();
+  const row = document.createElement('div');
+  row.className = 'vm-instance-row';
+  row.innerHTML = `
+    <input class="vm-instance-name" placeholder="Tecnologia (Ex: MySQL)" value="${esc(name)}">
+    <select class="vm-instance-ip">${vmInstanceIpOptionsHtml(ip)}</select>
+    <button type="button" class="btn" onclick="removeVmInstanceRow(this)">Remover</button>
+  `;
+  rowsEl.appendChild(row);
+}
+
+function removeVmInstanceRow(trigger){
+  const row = trigger?.closest?.('.vm-instance-row');
+  if (!row) return;
+  const rowsEl = $('fvminstances_rows');
+  row.remove();
+  if (rowsEl && !rowsEl.querySelector('.vm-instance-row')) addVmInstanceRow();
+}
+
+function syncVmInstanceIpOptions(){
+  const rowsEl = $('fvminstances_rows');
+  if (!rowsEl) return;
+  rowsEl.querySelectorAll('.vm-instance-ip').forEach((selectEl) => {
+    const current = String(selectEl.value || '').trim();
+    selectEl.innerHTML = vmInstanceIpOptionsHtml(current);
+    if (current && [...selectEl.options].some((opt) => opt.value === current)) {
+      selectEl.value = current;
+    }
+  });
+}
+
+function setVmInstanceRows(instances=[]){
+  const rowsEl = $('fvminstances_rows');
+  if (!rowsEl) return;
+  rowsEl.innerHTML = '';
+  if (Array.isArray(instances) && instances.length) {
+    instances.forEach((inst) => addVmInstanceRow(inst));
+    return;
+  }
+  addVmInstanceRow();
+}
+
+function readVmInstanceRows(){
+  const rows = [...document.querySelectorAll('#fvminstances_rows .vm-instance-row')];
+  const out = [];
+  const seen = new Set();
+  let invalidRow = false;
+  rows.forEach((row) => {
+    const nameInput = row.querySelector('.vm-instance-name');
+    const ipSelect = row.querySelector('.vm-instance-ip');
+    const rawName = String(nameInput?.value || '').trim();
+    const rawIp = String(ipSelect?.value || '').trim();
+    if (!rawName && !rawIp) return;
+    if (!rawIp) {
+      invalidRow = true;
+      return;
+    }
+    const name = rawName || `Instancia ${out.length + 1}`;
+    const key = `${name.toLowerCase()}|${rawIp.toLowerCase()}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ name, ip: rawIp });
+  });
+  return { instances: out, invalidRow };
+}
+
 function encodeInstanceOption(instance){
   const name = encodeURIComponent(String(instance?.name || '').trim());
   const ip = encodeURIComponent(String(instance?.ip || '').trim());
@@ -1068,12 +1640,19 @@ function populateVmTabFilters(){
     el.innerHTML = `<option value="">${first}</option>` + list.map((x)=>`<option>${esc(x)}</option>`).join('');
     if (prev && list.includes(prev)) el.value = prev;
   };
+  const vmOsList = [...new Set(
+    App.vms
+      .map((vm) => String(vm?.os_name || '').trim())
+      .filter(Boolean)
+  )].sort((a,b)=>a.localeCompare(b));
   fill('vmcatf', 'Categoria: Todas', ['Producao','Homologacao','Desenvolvimento']);
   fill('vmtypef', 'Tipo: Todos', ['Sistemas','SGBD']);
+  fill('vmosf', 'SO: Todos', vmOsList);
   fill('vmaccessf', 'Acesso: Todos', ['Interno','Externo']);
   fill('vmadminf', 'Administracao: Todos', ['SEI','PRODEB']);
   fill('vmrcatf', 'Categoria: Todas', ['Producao','Homologacao','Desenvolvimento']);
   fill('vmrtypef', 'Tipo: Todos', ['Sistemas','SGBD']);
+  fill('vmrosf', 'SO: Todos', vmOsList);
   fill('vmraccessf', 'Acesso: Todos', ['Interno','Externo']);
   fill('vmradminf', 'Administracao: Todos', ['SEI','PRODEB']);
 }
@@ -1369,9 +1948,9 @@ function vmInstanceOptionsByVmId(vmId){
   if (!vm) return [];
   const instances = vmInstances(vm);
   if (instances.length) return instances;
-  const ip = String(vm?.ip || '').trim();
-  if (!ip) return [];
-  return [{ name: 'Instancia principal', ip }];
+  const ips = vmIpList(vm);
+  if (!ips.length) return [];
+  return ips.map((ip) => ({ name: 'Instancia principal', ip }));
 }
 
 function fillDbInstanceSelect(selectId, vmId, selectedName='', selectedIp=''){
@@ -1415,6 +1994,13 @@ function syncDbHomologIp(){
 
 function systemDatabases(systemId){
   return App.databases.filter((d) => Number(d.system_id) === Number(systemId));
+}
+
+function dbProductionAdministration(db){
+  const prodVm = vmById(db?.vm_id);
+  if (prodVm) return vmAdministrationLabel(prodVm);
+  const raw = String(db?.vm_administration || '').trim();
+  return raw || '-';
 }
 
 function databaseNamesText(systemId){
@@ -1507,9 +2093,6 @@ function filteredItems(){
       i.support,
       i.support_contact,
       i.analytics,
-      i.ssl,
-      i.waf,
-      i.bundle,
       i.directory,
       i.size,
       i.repository,
@@ -1738,9 +2321,9 @@ function renderList(list){
     $('list-main-body').innerHTML = '<tr><td colspan="11" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
     $('list-desc-body').innerHTML = '<tr><td colspan="7" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
     $('list-infra-body').innerHTML = '<tr><td colspan="11" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
-    $('list-db-body').innerHTML = '<tr><td colspan="10" style="color:var(--muted)">Nenhuma base de dados encontrada.</td></tr>';
+    $('list-db-body').innerHTML = '<tr><td colspan="11" style="color:var(--muted)">Nenhuma base de dados encontrada.</td></tr>';
     $('list-support-body').innerHTML = '<tr><td colspan="8" style="color:var(--muted)">Nenhum contato cadastrado.</td></tr>';
-    $('list-ops-body').innerHTML = '<tr><td colspan="8" style="color:var(--muted)">Nenhum dado de deploy cadastrado.</td></tr>';
+    $('list-ops-body').innerHTML = '<tr><td colspan="5" style="color:var(--muted)">Nenhum dado de deploy cadastrado.</td></tr>';
     $('list-docs-body').innerHTML = '<tr><td colspan="5" style="color:var(--muted)">Nenhuma documentação cadastrada.</td></tr>';
     $('list-cards').innerHTML = '<div class="list-mobile-card"><div class="list-mobile-value" style="color:var(--muted)">Nenhum sistema encontrado.</div></div>';
     return;
@@ -1802,19 +2385,21 @@ function renderList(list){
     .sort((a,b) => String(a.db_name || '').localeCompare(String(b.db_name || '')));
 
   if (!dbList.length) {
-    $('list-db-body').innerHTML = '<tr><td colspan="10" style="color:var(--muted)">Nenhuma base de dados encontrada para os filtros aplicados.</td></tr>';
+    $('list-db-body').innerHTML = '<tr><td colspan="11" style="color:var(--muted)">Nenhuma base de dados encontrada para os filtros aplicados.</td></tr>';
   } else {
     $('list-db-body').innerHTML = dbList.map((d) => {
       const systemId = Number(d.system_id);
       const system = systemsById.get(systemId);
       const systemName = String(system?.name || d.system_name || '-');
       const clickable = Number.isFinite(systemId) && systemsById.has(systemId);
+      const administration = dbProductionAdministration(d);
       return `
       <tr${clickable ? ` onclick="openDetail(${systemId})"` : ''}>
         <td><div class="list-name">${esc(systemName)}</div></td>
         <td>${esc(d.db_name || '-')}</td>
         <td>${esc(d.db_user || '-')}</td>
         <td>${esc(String(d.vm_name || '').trim() || '-')}</td>
+        <td>${esc(administration)}</td>
         <td>${esc(dbInstanceIp(d, false))}</td>
         <td>${esc(dbInstanceName(d, false))}</td>
         <td>${esc(String(d.vm_homolog_name || '').trim() || '-')}</td>
@@ -1843,9 +2428,6 @@ function renderList(list){
     <tr onclick="openDetail(${i.id})">
       <td><div class="list-name">${esc(i.name)}</div></td>
       <td>${esc(i.analytics || '-')}</td>
-      <td>${esc(i.ssl || '-')}</td>
-      <td>${esc(i.waf || '-')}</td>
-      <td>${esc(i.bundle || '-')}</td>
       <td>${esc(i.directory || '-')}</td>
       <td>${esc(i.size || '-')}</td>
       <td>${esc(i.repository || '-')}</td>
@@ -1897,9 +2479,6 @@ function renderList(list){
         <div class="list-mobile-item"><span class="list-mobile-label">Descricao</span><span class="list-mobile-value">${esc(i.description || '-')}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Observacoes</span><span class="list-mobile-value">${esc(i.notes || '-')}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Analytics</span><span class="list-mobile-value">${esc(i.analytics || '-')}</span></div>
-        <div class="list-mobile-item"><span class="list-mobile-label">SSL</span><span class="list-mobile-value">${esc(i.ssl || '-')}</span></div>
-        <div class="list-mobile-item"><span class="list-mobile-label">WAF</span><span class="list-mobile-value">${esc(i.waf || '-')}</span></div>
-        <div class="list-mobile-item"><span class="list-mobile-label">Bundle</span><span class="list-mobile-value">${esc(i.bundle || '-')}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Diretorio</span><span class="list-mobile-value">${esc(i.directory || '-')}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Tamanho</span><span class="list-mobile-value">${esc(i.size || '-')}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Repositorio</span><span class="list-mobile-value">${esc(i.repository || '-')}</span></div>
@@ -1976,21 +2555,22 @@ function renderSystemsCards(list){
             <div class="system-info-sub">${[String(i.system_name || '').trim(), String(i.version || '').trim()].filter(Boolean).map((part) => esc(part)).join(' ') || '-'}</div>
           </div>
           <div class="system-info-head-side">
-            ${techMarkup.startsWith('<span class="system-info-empty">')
-              ? techMarkup
-              : `<div class="tags">${techMarkup}</div>`}
+            <div class="system-info-footer-field">
+              <strong>${esc(i.responsible_sector || '-')}</strong>
+            </div>
           </div>
         </div>
-        ${systemUrlList(i, false).length
-          ? `<div class="system-info-url-banner">${linkListHtml(systemUrlList(i, false))}</div>`
-          : ''}
-        <div class="system-info-desc-footer">
-          <strong class="system-info-text">${esc(i.description || '-')}</strong>
+        <div class="system-info-url-desc-row">
+          <div class="system-info-url-banner">${linkListHtml(systemUrlList(i, false))}</div>
+          <div class="system-info-desc-footer">
+            <strong class="system-info-text">${esc(i.description || '-')}</strong>
+          </div>
         </div>
 
         <section class="system-info-section system-info-section-tech">
           <div class="system-info-title">Informacoes Tecnicas</div>
           <div class="system-info-grid">
+            <div class="system-info-field"><span>Linguagem</span>${techMarkup.startsWith('<span class="system-info-empty">') ? techMarkup : `<div class="tags">${techMarkup}</div>`}</div>
             <div class="system-info-field"><span>Categoria</span><strong>${esc(i.category || '-')}</strong></div>
             <div class="system-info-field"><span>Grupo</span><strong>${esc(i.system_group || '-')}</strong></div>
             <div class="system-info-field"><span>Criticidade</span><strong class="crit-${critKind(i.criticality)}">${esc(i.criticality || '-')}</strong></div>
@@ -2043,9 +2623,6 @@ function renderSystemsCards(list){
           <div class="system-info-title">Deploy e Empacotamento</div>
           <div class="system-info-grid">
             <div class="system-info-field"><span>Analytics</span><strong>${esc(i.analytics || '-')}</strong></div>
-            <div class="system-info-field"><span>SSL</span><strong>${esc(i.ssl || '-')}</strong></div>
-            <div class="system-info-field"><span>WAF</span><strong>${esc(i.waf || '-')}</strong></div>
-            <div class="system-info-field"><span>Bundle</span><strong>${esc(i.bundle || '-')}</strong></div>
             <div class="system-info-field"><span>Diretorio</span><strong>${esc(i.directory || '-')}</strong></div>
             <div class="system-info-field"><span>Tamanho</span><strong>${esc(i.size || '-')}</strong></div>
             <div class="system-info-field"><span>Repositorio</span><strong>${esc(i.repository || '-')}</strong></div>
@@ -2061,20 +2638,6 @@ function renderSystemsCards(list){
             ${docField('manual', 'Manual/Procedimentos')}
           </div>
         </section>
-
-        <div class="system-info-foot" onclick="event.stopPropagation()">
-          <div class="system-info-foot-bottom">
-            <div class="system-info-foot-main">
-            <div class="system-info-tech-footer">
-            </div>
-            </div>
-            <div class="system-info-actions">
-              <div class="system-info-footer-field">
-                <strong>${esc(i.responsible_sector || '-')}</strong>
-              </div>
-            </div>
-          </div>
-        </div>
       </article>
     `;
   }).join('');
@@ -2109,17 +2672,20 @@ function renderDatabases(){
   table?.classList.toggle('readonly', !editable);
   const list = [...App.databases].sort((a,b)=>String(a.db_name || '').localeCompare(String(b.db_name || '')));
   if (!list.length) {
-    $('db-body').innerHTML = '<tr><td colspan="10" style="color:var(--muted)">Nenhuma base de dados cadastrada.</td></tr>';
+    $('db-body').innerHTML = '<tr><td colspan="11" style="color:var(--muted)">Nenhuma base de dados cadastrada.</td></tr>';
     $('db-cards').innerHTML = '<div class="db-mobile-card"><div class="db-mobile-value" style="color:var(--muted)">Nenhuma base de dados cadastrada.</div></div>';
     return;
   }
 
-  $('db-body').innerHTML = list.map((d) => `
+  $('db-body').innerHTML = list.map((d) => {
+    const administration = dbProductionAdministration(d);
+    return `
     <tr${editable ? ` onclick="openDbFormById(${d.id})"` : ''}>
       <td>${esc(d.system_name || '-')}</td>
       <td>${esc(d.db_name || '-')}</td>
       <td>${esc(d.db_user || '-')}</td>
       <td>${esc(String(d.vm_name || '').trim() || '-')}</td>
+      <td>${esc(administration)}</td>
       <td>${esc(dbInstanceIp(d, false))}</td>
       <td>${esc(dbInstanceName(d, false))}</td>
       <td>${esc(String(d.vm_homolog_name || '').trim() || '-')}</td>
@@ -2127,9 +2693,12 @@ function renderDatabases(){
       <td>${esc(dbInstanceName(d, true))}</td>
       <td>${esc(d.notes || '-')}</td>
     </tr>
-  `).join('');
+  `;
+  }).join('');
 
-  $('db-cards').innerHTML = list.map((d) => `
+  $('db-cards').innerHTML = list.map((d) => {
+    const administration = dbProductionAdministration(d);
+    return `
     <div class="db-mobile-card">
       <div class="db-mobile-head">
         <div class="db-mobile-title">${esc(d.db_name || '-')}</div>
@@ -2141,6 +2710,7 @@ function renderDatabases(){
         <div class="db-mobile-item"><span class="db-mobile-label">SGBD Producao</span><span class="db-mobile-value">${esc(dbEngineVersionLabel(d, false))}</span></div>
         <div class="db-mobile-item"><span class="db-mobile-label">SGBD Homologacao</span><span class="db-mobile-value">${esc(dbEngineVersionLabel(d, true))}</span></div>
         <div class="db-mobile-item"><span class="db-mobile-label">Maquina</span><span class="db-mobile-value">${esc(String(d.vm_name || '').trim() || '-')}</span></div>
+        <div class="db-mobile-item"><span class="db-mobile-label">Administracao</span><span class="db-mobile-value">${esc(administration)}</span></div>
         <div class="db-mobile-item"><span class="db-mobile-label">Instancia SGBD</span><span class="db-mobile-value">${esc(dbInstanceName(d, false))}</span></div>
         <div class="db-mobile-item"><span class="db-mobile-label">VM Homologacao</span><span class="db-mobile-value">${esc(String(d.vm_homolog_name || '').trim() || '-')}</span></div>
         <div class="db-mobile-item"><span class="db-mobile-label">IP da Instancia</span><span class="db-mobile-value">${esc(dbInstanceIp(d, false))}</span></div>
@@ -2152,53 +2722,118 @@ function renderDatabases(){
         <button class="act" onclick="openDbFormById(${d.id})">&#9998;</button>
       </div>` : ''}
     </div>
-  `).join('');
+  `;
+  }).join('');
 }
 
 function renderDns(){
   const body = $('dns-body');
   const cards = $('dns-cards');
   if (!body || !cards) return;
+  const filters = dnsFilterValues();
 
   const systems = [...App.items].sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')));
   if (!systems.length) {
-    body.innerHTML = '<tr><td colspan="2" style="color:var(--muted)">Nenhum sistema cadastrado.</td></tr>';
+    body.innerHTML = '<tr><td colspan="6" style="color:var(--muted)">Nenhum sistema cadastrado.</td></tr>';
     cards.innerHTML = '<div class="db-mobile-card"><div class="db-mobile-value" style="color:var(--muted)">Nenhum sistema cadastrado.</div></div>';
     return;
   }
 
-  const rows = systems.flatMap((i) => {
+  const allRows = systems.flatMap((i) => {
     const prodIp = vmIp(i, false);
+    const prodPublicIp = vmPublicIp(i, false);
     const hmlIp = vmIp(i, true);
-    const prodRows = systemUrlList(i, false).map((url) => ({ id: Number(i.id), url, ip: prodIp }));
-    const hmlRows = systemUrlList(i, true).map((url) => ({ id: Number(i.id), url, ip: hmlIp }));
+    const hmlPublicIp = vmPublicIp(i, true);
+    const hasBundle = String(i.bundle || '').trim() !== '';
+    const bundleStatus = hasBundle ? 'Ativo' : '-';
+    const prodRows = systemUrlList(i, false).map((url) => ({ id: Number(i.id), url, ip: prodIp, manualPublicIp: prodPublicIp, bundleStatus }));
+    const hmlRows = systemUrlList(i, true).map((url) => ({ id: Number(i.id), url, ip: hmlIp, manualPublicIp: hmlPublicIp, bundleStatus }));
 
     if (!prodRows.length && String(prodIp).trim() !== '' && String(prodIp).trim() !== '-') {
-      prodRows.push({ id: Number(i.id), url: '', ip: prodIp });
+      prodRows.push({ id: Number(i.id), url: '', ip: prodIp, manualPublicIp: prodPublicIp, bundleStatus });
     }
     if (!hmlRows.length && String(hmlIp).trim() !== '' && String(hmlIp).trim() !== '-') {
-      hmlRows.push({ id: Number(i.id), url: '', ip: hmlIp });
+      hmlRows.push({ id: Number(i.id), url: '', ip: hmlIp, manualPublicIp: hmlPublicIp, bundleStatus });
     }
 
     return [...prodRows, ...hmlRows];
+  }).map((r) => {
+    const host = dnsHostFromUrl(r.url);
+    const sslTarget = dnsSslTargetKeyFromUrl(r.url);
+    const manualPublicIp = String(r.manualPublicIp || '').trim();
+    const hasManualNat = manualPublicIp !== '' && manualPublicIp !== '-';
+    const cacheHasHost = Boolean(host) && Object.prototype.hasOwnProperty.call(App.dnsNatCache, host);
+    const cacheHasSsl = Boolean(sslTarget) && Object.prototype.hasOwnProperty.call(App.dnsSslCache, sslTarget);
+    const cacheHasWaf = Boolean(host) && Object.prototype.hasOwnProperty.call(App.dnsWafCache, host);
+    const resolvedPublicIp = cacheHasHost ? String(App.dnsNatCache[host] || '').trim() : '';
+    const resolvedSsl = cacheHasSsl ? String(App.dnsSslCache[sslTarget] || '').trim() : '';
+    const resolvedWaf = cacheHasWaf ? String(App.dnsWafCache[host] || '').trim() : '';
+    const publicIp = hasManualNat
+      ? manualPublicIp
+      : (cacheHasHost ? (resolvedPublicIp || '-') : (host ? 'Consultando...' : '-'));
+    const sslValidity = cacheHasSsl ? (resolvedSsl || '-') : (sslTarget ? 'Consultando...' : dnsSslFallbackText(r.url));
+    const wafInfo = !host
+      ? '-'
+      : (cacheHasWaf ? ((resolvedWaf && resolvedWaf !== '-') ? `Ativo (${resolvedWaf})` : '-') : 'Consultando...');
+    return { ...r, host, sslTarget, publicIp, manualPublicIp, sslValidity, wafInfo };
   }).filter((r) => {
     const url = String(r.url || '').trim();
     const ip = String(r.ip || '').trim();
+    const publicIp = String(r.publicIp || '').trim();
+    const wafInfo = String(r.wafInfo || '').trim();
+    const sslValidity = String(r.sslValidity || '').trim();
     const hasUrl = url !== '' && url !== '-';
     const hasIp = ip !== '' && ip !== '-';
-    return hasUrl || hasIp;
+    const hasPublicIp = publicIp !== '' && publicIp !== '-';
+    const hasWaf = wafInfo !== '' && wafInfo !== '-';
+    const hasSsl = sslValidity !== '' && sslValidity !== '-';
+    return hasUrl || hasIp || hasPublicIp || hasWaf || hasSsl;
   });
+  populateDnsFilterSelects(allRows);
+
+  const rows = allRows.filter((r) => dnsRowMatchesFilters(r, filters));
 
   if (!rows.length) {
-    body.innerHTML = '<tr><td colspan="2" style="color:var(--muted)">Nenhum registro DNS com URL/IP informado.</td></tr>';
-    cards.innerHTML = '<div class="db-mobile-card"><div class="db-mobile-value" style="color:var(--muted)">Nenhum registro DNS com URL/IP informado.</div></div>';
+    const hasFilter = Boolean(filters.domain || filters.internalIp || filters.publicIp || filters.ssl);
+    const msg = hasFilter
+      ? 'Nenhum registro DNS encontrado para os filtros informados.'
+      : 'Nenhum registro DNS com URL/IP informado.';
+    body.innerHTML = `<tr><td colspan="6" style="color:var(--muted)">${esc(msg)}</td></tr>`;
+    cards.innerHTML = `<div class="db-mobile-card"><div class="db-mobile-value" style="color:var(--muted)">${esc(msg)}</div></div>`;
     return;
   }
+
+  const unresolvedHosts = [...new Set(allRows
+    .filter((r) => {
+      const manualPublicIp = String(r.manualPublicIp || '').trim();
+      if (manualPublicIp !== '' && manualPublicIp !== '-') return false;
+      return Boolean(r.host) && typeof App.dnsNatCache[r.host] === 'undefined';
+    })
+    .map((r) => r.host)
+    .filter(Boolean)
+  )];
+  if (unresolvedHosts.length) { resolveDnsPublicIpsForHosts(unresolvedHosts); }
+  const unresolvedSslTargets = [...new Set(allRows
+    .filter((r) => Boolean(r.sslTarget) && typeof App.dnsSslCache[r.sslTarget] === 'undefined')
+    .map((r) => r.sslTarget)
+    .filter(Boolean)
+  )];
+  if (unresolvedSslTargets.length) { resolveDnsSslValidityForTargets(unresolvedSslTargets); }
+  const unresolvedWafHosts = [...new Set(allRows
+    .filter((r) => Boolean(r.host) && typeof App.dnsWafCache[r.host] === 'undefined')
+    .map((r) => r.host)
+    .filter(Boolean)
+  )];
+  if (unresolvedWafHosts.length) { resolveDnsInternalIpsForHosts(unresolvedWafHosts); }
 
   body.innerHTML = rows.map((r) => `
     <tr onclick="openDetail(${r.id})">
       <td>${linkHtml(r.url)}</td>
       <td>${esc(r.ip || '-')}</td>
+      <td>${esc(r.wafInfo || '-')}</td>
+      <td>${esc(r.publicIp || '-')}</td>
+      <td>${esc(r.sslValidity || '-')}</td>
+      <td>${esc(r.bundleStatus || '-')}</td>
     </tr>
   `).join('');
 
@@ -2206,7 +2841,11 @@ function renderDns(){
     <div class="dns-mobile-card" onclick="openDetail(${r.id})">
       <div class="db-mobile-grid">
         <div class="db-mobile-item"><span class="db-mobile-label">URL</span><span class="db-mobile-value">${linkHtml(r.url)}</span></div>
-        <div class="db-mobile-item"><span class="db-mobile-label">IP</span><span class="db-mobile-value">${esc(r.ip || '-')}</span></div>
+        <div class="db-mobile-item"><span class="db-mobile-label">IP Interno</span><span class="db-mobile-value">${esc(r.ip || '-')}</span></div>
+        <div class="db-mobile-item"><span class="db-mobile-label">WAF (IP Resolvido)</span><span class="db-mobile-value">${esc(r.wafInfo || '-')}</span></div>
+        <div class="db-mobile-item"><span class="db-mobile-label">IP Publico (NAT)</span><span class="db-mobile-value">${esc(r.publicIp || '-')}</span></div>
+        <div class="db-mobile-item"><span class="db-mobile-label">Validade SSL</span><span class="db-mobile-value">${esc(r.sslValidity || '-')}</span></div>
+        <div class="db-mobile-item"><span class="db-mobile-label">Cert. Bundle</span><span class="db-mobile-value">${esc(r.bundleStatus || '-')}</span></div>
       </div>
     </div>
   `).join('');
@@ -2272,7 +2911,7 @@ function renderVmReport(sourceVms = null){
             <article class="vm-report-item">
               <div class="vm-report-top">
                 <div class="vm-report-title">${esc(vm.name)}</div>
-                <div class="vm-report-ip">IP ${esc(vm.ip || '-')}</div>
+                <div class="vm-report-ip">IP ${esc(vmIpSummary(vm))}</div>
               </div>
               ${osLabel ? `<div class="vm-report-sub">SO: ${esc(osLabel)}</div>` : ''}
               ${specs.length ? `<div class="tags">${specs.map((s)=>`<span class="tag">${esc(s)}</span>`).join('')}</div>` : ''}
@@ -2332,12 +2971,14 @@ function filterVmsByCriteria(vms, criteria={}){
   const vmq = String(criteria.q || '').toLowerCase();
   const vmcatf = String(criteria.category || '').trim();
   const vmtypef = String(criteria.type || '').trim();
+  const vmosf = String(criteria.os || '').trim();
   const vmaccessf = String(criteria.access || '').trim();
   const vmadminf = String(criteria.administration || '').trim();
 
   return vms.filter((vm) => {
     if (vmcatf && vmCategoryLabel(vm) !== vmcatf) return false;
     if (vmtypef && vmTypeLabel(vm) !== vmtypef) return false;
+    if (vmosf && norm(vm?.os_name || '') !== norm(vmosf)) return false;
     if (vmaccessf && vmAccessLabel(vm) !== vmaccessf) return false;
     if (vmadminf && vmAdministrationLabel(vm) !== vmadminf) return false;
     if (!vmq) return true;
@@ -2350,6 +2991,7 @@ function filterVmsByCriteria(vms, criteria={}){
     return [
       vm.name,
       vm.ip,
+      vm.public_ip,
       vm.os_name,
       vm.vcpus,
       vm.ram,
@@ -2386,6 +3028,7 @@ function renderMachines(){
     q: $('vmq')?.value || '',
     category: $('vmcatf')?.value || '',
     type: $('vmtypef')?.value || '',
+    os: $('vmosf')?.value || '',
     access: $('vmaccessf')?.value || '',
     administration: $('vmadminf')?.value || ''
   });
@@ -2437,7 +3080,7 @@ function renderMachines(){
         return `
           <tr${editable ? ` onclick="openVmFormById(${vm.id})"` : ''}>
             <td class="vm-name-col">${esc(vm.name)}</td>
-            <td class="vm-ip-col">${esc(vm.ip || '-')}</td>
+            <td class="vm-ip-col">${esc(vmIpSummary(vm))}</td>
             <td>${esc(vmCategoryLabel(vm))}</td>
             <td>${esc(vmTypeLabel(vm))}</td>
             <td>${esc(vmAccessLabel(vm))}</td>
@@ -2471,7 +3114,7 @@ function renderMachines(){
         return `
           <div class="vm-mobile-card">
             <div class="vm-mobile-title">${esc(vm.name)}</div>
-            <div class="vm-mobile-ip">${esc(vm.ip || '-')}</div>
+            <div class="vm-mobile-ip">${esc(vmIpSummary(vm))}</div>
             <div class="vm-mobile-ip">Categoria: ${esc(vmCategoryLabel(vm))} | Tipo: ${esc(vmTypeLabel(vm))}</div>
             <div class="vm-mobile-ip">Acesso: ${esc(vmAccessLabel(vm))} | Administracao: ${esc(vmAdministrationLabel(vm))}</div>
             ${vm.os_name ? `<div class="vm-mobile-ip">SO: ${esc(vm.os_name)}</div>` : ''}
@@ -2519,6 +3162,7 @@ function renderVmReportTab(){
     q: $('vmrq')?.value || '',
     category: $('vmrcatf')?.value || '',
     type: $('vmrtypef')?.value || '',
+    os: $('vmrosf')?.value || '',
     access: $('vmraccessf')?.value || '',
     administration: $('vmradminf')?.value || ''
   });
@@ -2558,7 +3202,7 @@ function renderArchived(){
     $('archived-vms-body').innerHTML = vms.map((vm) => `
       <tr>
         <td>${esc(vm.name || '-')}</td>
-        <td>${esc(vm.ip || '-')}</td>
+        <td>${esc(vmIpSummary(vm))}</td>
         <td>${Number(vm.system_count || 0)}</td>
         <td>${esc(vm.archived_at || '-')}</td>
         <td>${editable ? `<div class="actions"><button class="act" onclick="restoreVm(${vm.id})">&#8634;</button>${admin ? `<button class="act del" onclick="deleteVmPermanent(${vm.id})">&#128465;</button>` : ''}</div>` : '-'}</td>
@@ -2833,9 +3477,6 @@ function openForm(item=null){
   $('fsupport').value = item?.support || '';
   $('fsupport_contact').value = item?.support_contact || '';
   $('fanalytics').value = item?.analytics || '';
-  $('fssl').value = item?.ssl || '';
-  $('fwaf').value = item?.waf || '';
-  $('fbundle').value = item?.bundle || '';
   $('fdirectory').value = item?.directory || '';
   $('fsize').value = item?.size || '';
   $('frepository').value = item?.repository || '';
@@ -2895,7 +3536,7 @@ function openVmReadOnlyById(id){
   setView('maquinas');
   const vmSearch = $('vmq');
   if (vmSearch) {
-    vmSearch.value = vm ? `${vm.name} ${vm.ip || ''}`.trim() : String(vmId);
+    vmSearch.value = vm ? `${vm.name} ${joinVmIpList(vm.ip || '')}`.trim() : String(vmId);
     renderMachines();
   }
 }
@@ -2937,9 +3578,9 @@ async function saveSystem(){
     support:$('fsupport').value.trim(),
     support_contact:$('fsupport_contact').value.trim(),
     analytics:$('fanalytics').value.trim(),
-    ssl:$('fssl').value.trim(),
-    waf:$('fwaf').value.trim(),
-    bundle:$('fbundle').value.trim(),
+    ssl:'',
+    waf:'',
+    bundle:'',
     directory:$('fdirectory').value.trim(),
     size:$('fsize').value.trim(),
     repository:$('frepository').value.trim(),
@@ -3127,9 +3768,15 @@ function openVmForm(vm=null){
   const isEdit = Boolean(vm?.id);
   $('vmtitle').textContent = vm ? 'Editar Maquina' : 'Nova Maquina';
   $('barchive-vm')?.classList.toggle('hidden', !isEdit);
+  const vmInstList = vmInstances(vm);
+  const mergedVmIps = [...new Set([
+    ...vmIpList(vm),
+    ...vmInstList.map((inst) => String(inst?.ip || '').trim()).filter(Boolean)
+  ])];
   $('fvmid').value = vm?.id || '';
   $('fvmname').value = vm?.name || '';
-  $('fvmip').value = vm?.ip || '';
+  $('fvmip').value = mergedVmIps.join(', ');
+  $('fvmpublicip').value = vmPublicIpList(vm).join(', ');
   $('fvmcategory').value = vmCategoryLabel(vm);
   $('fvmtype').value = vmTypeLabel(vm);
   $('fvmaccess').value = vmAccessLabel(vm);
@@ -3143,7 +3790,8 @@ function openVmForm(vm=null){
   $('fvmwebserver').value = vmWebServerList(vm).join(', ');
   $('fvmcontainertool').value = vmContainerToolList(vm).join(', ');
   $('fvmruntimeport').value = vmRuntimePortText(vm);
-  $('fvminstances').value = vmInstancesText(vm);
+  setVmInstanceRows(vmInstList);
+  syncVmInstanceIpOptions();
   $('mvm').classList.remove('hidden');
 }
 
@@ -3155,11 +3803,18 @@ function archiveCurrentVm(){
 
 async function saveVm(){
   if (!ensureCanEdit()) return;
-  const instances = parseVmInstancesInput($('fvminstances').value);
+  const ipList = vmFormIpList();
+  const vmInstancesPayload = readVmInstanceRows();
+  const instances = vmInstancesPayload.instances;
+  if (vmInstancesPayload.invalidRow) {
+    toast('Preencha o IP de todas as instancias SGBD informadas.', true);
+    return;
+  }
   const data = {
     id: $('fvmid').value || null,
     name: $('fvmname').value.trim(),
-    ip: $('fvmip').value.trim(),
+    ip: ipList.join(', '),
+    public_ip: parseVmIpList($('fvmpublicip')?.value || '').join(', '),
     vm_category: $('fvmcategory').value.trim(),
     vm_type: $('fvmtype').value.trim(),
     vm_access: $('fvmaccess').value.trim(),
@@ -3178,8 +3833,8 @@ async function saveVm(){
     vm_tech: $('fvmtech').value.split(',').map((x)=>x.trim()).filter(Boolean),
   };
 
-  if (!data.name || !data.ip) {
-    toast('Informe nome e IP da maquina.', true);
+  if (!data.name || !ipList.length) {
+    toast('Informe nome e ao menos um IP da maquina.', true);
     return;
   }
   const normalizedVmPorts = normalizePortInput(data.vm_runtime_port);
@@ -3308,6 +3963,12 @@ async function refreshAll(){
   App.databases = dbRes.data || [];
   App.tickets = ticketsRes.data || [];
   App.archived = archivedRes.data || { systems: [], vms: [] };
+  App.dnsNatCache = {};
+  App.dnsNatLoading = false;
+  App.dnsSslCache = {};
+  App.dnsSslLoading = false;
+  App.dnsWafCache = {};
+  App.dnsWafLoading = false;
   App.vms.sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')));
   populateFilters();
   populateVmTabFilters();
@@ -3319,7 +3980,7 @@ async function refreshAll(){
 }
 
 function activeModalId(){
-  const ids = ['mauth','mpassword','mbackup','mdb','mvm','mform','mdetail'];
+  const ids = ['mauth','mpassword','mbackup','mvmcsvpreview','mdb','mvm','mform','mdetail'];
   for (const id of ids) {
     const el = $(id);
     if (el && !el.classList.contains('hidden')) return id;
@@ -3344,6 +4005,7 @@ function handleModalKeyboardShortcuts(ev){
   if (tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON') return;
   if (modalId === 'mdetail') return;
   if (modalId === 'mbackup') return;
+  if (modalId === 'mvmcsvpreview') return;
 
   ev.preventDefault();
   if (modalId === 'mauth') { login(); return; }
@@ -3375,9 +4037,11 @@ $('pwd-save')?.addEventListener('click', () => changePassword());
 $('btn-export')?.addEventListener('click', () => openBackupModal());
 $('btn-backup')?.addEventListener('click', () => triggerBackupImport());
 $('backup-file')?.addEventListener('change', (ev) => onBackupFileChange(ev));
+$('vm-csv-file')?.addEventListener('change', (ev) => onMachinesCsvFileChange(ev));
 $('backup-export-json')?.addEventListener('click', () => exportBackup());
 $('backup-import-btn')?.addEventListener('click', () => triggerBackupImport());
 $('bcall-save')?.addEventListener('click', () => saveTicket());
 $('bcall-cancel')?.addEventListener('click', () => resetTicketForm());
+$('fvmip')?.addEventListener('input', () => syncVmInstanceIpOptions());
 
 boot();

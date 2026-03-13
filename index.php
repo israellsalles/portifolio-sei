@@ -115,7 +115,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         <div class="list-section-title">4. Bases de Dados</div>
         <div class="table-wrap">
           <table class="list-db-table list-compact-table">
-            <thead><tr><th>Nome</th><th>Base de Dados</th><th>Usuario do Banco</th><th>Maquina</th><th>IP da Instancia</th><th>Instancia SGBD</th><th>VM Homologacao</th><th>IP da Instancia Homologacao</th><th>Instancia SGBD Homologacao</th><th>Observacoes</th></tr></thead>
+            <thead><tr><th>Nome</th><th>Base de Dados</th><th>Usuario do Banco</th><th>Maquina</th><th>Administracao</th><th>IP da Instancia</th><th>Instancia SGBD</th><th>VM Homologacao</th><th>IP da Instancia Homologacao</th><th>Instancia SGBD Homologacao</th><th>Observacoes</th></tr></thead>
             <tbody id="list-db-body"></tbody>
           </table>
         </div>
@@ -133,7 +133,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         <div class="list-section-title">6. Deploy e Empacotamento</div>
         <div class="table-wrap">
           <table class="list-ops-table list-compact-table">
-            <thead><tr><th>Nome</th><th>Analytics</th><th>SSL</th><th>WAF</th><th>Bundle</th><th>Diretorio</th><th>Tamanho</th><th>Repositorio</th></tr></thead>
+            <thead><tr><th>Nome</th><th>Analytics</th><th>Diretorio</th><th>Tamanho</th><th>Repositorio</th></tr></thead>
             <tbody id="list-ops-body"></tbody>
           </table>
         </div>
@@ -170,12 +170,38 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
       <div class="panel-head">
         <h3>DNS (URL x IP)</h3>
       </div>
-      <div class="table-wrap">
-        <table class="dns-table compact-table">
-          <thead><tr><th>URL</th><th>IP</th></tr></thead>
-          <tbody id="dns-body"></tbody>
-        </table>
+      <div class="dns-filters">
+        <div class="field dns-filter-field">
+          <label>Dominio</label>
+          <select id="dnsf-domain" onchange="renderDns()">
+            <option value="">Dominio: Todos</option>
+          </select>
+        </div>
+        <div class="field dns-filter-field">
+          <label>IP Interno</label>
+          <select id="dnsf-internal-ip" onchange="renderDns()">
+            <option value="">IP Interno: Todos</option>
+          </select>
+        </div>
+        <div class="field dns-filter-field">
+          <label>IP Publico</label>
+          <select id="dnsf-public-ip" onchange="renderDns()">
+            <option value="">IP Publico: Todos</option>
+          </select>
+        </div>
+        <div class="field dns-filter-field">
+          <label>Validade SSL</label>
+          <select id="dnsf-ssl" onchange="renderDns()">
+            <option value="">Validade SSL: Todas</option>
+          </select>
+        </div>
       </div>
+        <div class="table-wrap">
+          <table class="dns-table compact-table">
+          <thead><tr><th>URL</th><th>IP Interno</th><th>WAF (IP Resolvido)</th><th>IP Publico (NAT)</th><th>Validade SSL</th><th>Cert. Bundle</th></tr></thead>
+          <tbody id="dns-body"></tbody>
+          </table>
+        </div>
       <div id="dns-cards" class="dns-mobile-cards"></div>
     </div>
   </section>
@@ -186,7 +212,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
       </div>
       <div class="table-wrap">
         <table class="bases-table compact-table">
-          <thead><tr><th>Sistema</th><th>Base de Dados</th><th>Usuario do Banco</th><th>Maquina</th><th>IP da Instancia</th><th>Instancia SGBD</th><th>VM Homologacao</th><th>IP da Instancia Homologacao</th><th>Instancia SGBD Homologacao</th><th>Observacoes</th></tr></thead>
+          <thead><tr><th>Sistema</th><th>Base de Dados</th><th>Usuario do Banco</th><th>Maquina</th><th>Administracao</th><th>IP da Instancia</th><th>Instancia SGBD</th><th>VM Homologacao</th><th>IP da Instancia Homologacao</th><th>Instancia SGBD Homologacao</th><th>Observacoes</th></tr></thead>
           <tbody id="db-body"></tbody>
         </table>
       </div>
@@ -255,11 +281,17 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
     <div class="panel">
       <div class="panel-head">
         <h3>Maquinas Virtuais</h3>
+        <div class="form-actions vm-csv-actions">
+          <button id="vm-csv-export-btn" class="btn" type="button" onclick="exportMachinesCsv()">Exportar CSV</button>
+          <button id="vm-csv-import-btn" class="btn btn-save" type="button" onclick="triggerMachinesCsvImport()">Importar CSV</button>
+          <div class="vm-csv-note">Nota: ao importar CSV, mantenha a ordem dos campos e os nomes dos cabeçalhos exatamente como no arquivo exportado.</div>
+        </div>
       </div>
       <div class="toolbar vm-filters">
         <input id="vmq" class="search vm-filter-search" type="text" placeholder="Buscar maquina, IP, SO..." oninput="renderMachines()">
         <select id="vmcatf" onchange="renderMachines()"></select>
         <select id="vmtypef" onchange="renderMachines()"></select>
+        <select id="vmosf" onchange="renderMachines()"></select>
         <select id="vmaccessf" onchange="renderMachines()"></select>
         <select id="vmadminf" onchange="renderMachines()"></select>
         <span id="vm-result-count" class="result-count"></span>
@@ -276,6 +308,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         <input id="vmrq" class="search vm-filter-search" type="text" placeholder="Buscar maquina, IP, SO..." oninput="renderVmReportTab()">
         <select id="vmrcatf" onchange="renderVmReportTab()"></select>
         <select id="vmrtypef" onchange="renderVmReportTab()"></select>
+        <select id="vmrosf" onchange="renderVmReportTab()"></select>
         <select id="vmraccessf" onchange="renderVmReportTab()"></select>
         <select id="vmradminf" onchange="renderVmReportTab()"></select>
         <span id="vmr-result-count" class="result-count"></span>
@@ -307,6 +340,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
   </section>
 </main>
 <input id="backup-file" type="file" accept=".json,application/json" class="hidden">
+<input id="vm-csv-file" type="file" accept=".csv,text/csv" class="hidden">
 <div id="mauth" class="modal-bg hidden" onclick="closeModal('mauth')">
   <div class="modal auth-modal" onclick="event.stopPropagation()">
     <div class="modal-head">
@@ -320,6 +354,41 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         <button id="auth-login" class="btn btn-save" type="button">Entrar</button>
       </div>
       <div class="auth-hint">Login disponivel para perfis: edicao e admin.</div>
+    </div>
+  </div>
+</div>
+<div id="mvmcsvpreview" class="modal-bg hidden">
+  <div class="modal modal-vm-csv-preview" onclick="event.stopPropagation()">
+    <div class="modal-head">
+      <div class="modal-title">Pré-visualização de Importação de Máquinas</div>
+      <button class="close" onclick="closeModal('mvmcsvpreview')">&#10005;</button>
+    </div>
+    <div class="form">
+      <div id="vm-csv-preview-summary" class="vm-csv-preview-summary"></div>
+      <div class="table-wrap">
+        <table class="vm-csv-preview-table compact-table">
+          <thead>
+            <tr>
+              <th>Linha</th>
+              <th>Ação</th>
+              <th>Novo Cadastro</th>
+              <th>Máquina</th>
+              <th>IPs</th>
+              <th>Administração</th>
+              <th>Sistema Operacional</th>
+              <th>vCPU</th>
+              <th>Memória<br>(GB)</th>
+              <th>Storage<br>(GB)</th>
+              <th>Detalhe</th>
+            </tr>
+          </thead>
+          <tbody id="vm-csv-preview-body"></tbody>
+        </table>
+      </div>
+      <div class="form-actions">
+        <button class="btn" type="button" onclick="closeModal('mvmcsvpreview')">Cancelar</button>
+        <button id="vm-csv-apply-btn" class="btn btn-save" type="button" onclick="confirmMachinesCsvImport()">Confirmar Atualização</button>
+      </div>
     </div>
   </div>
 </div>
@@ -392,11 +461,6 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
       </div>
       <div class="row3">
         <div class="field"><label>Analytics</label><input id="fanalytics" placeholder="Ex: GA4 / Matomo"></div>
-        <div class="field"><label>SSL</label><input id="fssl" placeholder="Ex: Let's Encrypt / Cert gov"></div>
-        <div class="field"><label>WAF</label><input id="fwaf" placeholder="Ex: Cloudflare / ModSecurity"></div>
-      </div>
-      <div class="row3">
-        <div class="field"><label>Bundle</label><input id="fbundle" placeholder="Ex: dist.zip / release.tar.gz"></div>
         <div class="field"><label>Diretorio</label><input id="fdirectory" placeholder="Ex: /var/www/sistema"></div>
         <div class="field"><label>Tamanho</label><input id="fsize" placeholder="Ex: 1.2 GB"></div>
       </div>
@@ -517,7 +581,11 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
       <input id="fvmid" type="hidden">
       <div class="row2">
         <div class="field"><label>Nome da Maquina *</label><input id="fvmname" placeholder="Ex: vm-sei-prod-01"></div>
-        <div class="field"><label>IP *</label><input id="fvmip" placeholder="Ex: 10.0.0.15"></div>
+        <div class="field"><label>IPs * (uma por linha ou virgula)</label><textarea id="fvmip" placeholder="Ex: 10.0.0.15&#10;10.0.0.16"></textarea></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>IP Publico / NAT (opcional, uma por linha ou virgula)</label><textarea id="fvmpublicip" placeholder="Ex: 177.10.10.15&#10;177.10.10.16"></textarea></div>
+        <div class="field"><label>&nbsp;</label></div>
       </div>
       <div class="row2">
         <div class="field"><label>Categoria da VM *</label><select id="fvmcategory"><option>Producao</option><option>Homologacao</option><option>Desenvolvimento</option></select></div>
@@ -549,7 +617,16 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         <div class="field"><label>Porta de Execucao</label><input id="fvmruntimeport" placeholder="Ex: 80, 443, 8080, 3838"></div>
         <div class="field"><label>&nbsp;</label></div>
       </div>
-      <div class="field"><label>Instancias SGBD (uma por linha: Tecnologia - IP)</label><textarea id="fvminstances" placeholder="MySQL - 10.28.246.82&#10;PostgreSQL - 10.28.246.81"></textarea></div>
+      <div class="field">
+        <label>Instancias SGBD</label>
+        <div class="vm-instance-editor">
+          <div id="fvminstances_rows" class="vm-instance-list"></div>
+          <div class="form-actions">
+            <button type="button" class="btn" onclick="addVmInstanceRow()">+ Instancia</button>
+          </div>
+          <div class="auth-hint">Informe a tecnologia e selecione um IP cadastrado da maquina.</div>
+        </div>
+      </div>
       <div class="form-actions">
         <button class="btn" onclick="closeModal('mvm')">Cancelar</button>
         <button class="btn btn-save" onclick="saveVm()">Salvar Maquina</button>

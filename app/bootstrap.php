@@ -161,6 +161,7 @@ function ensureVmTableSqlite3(SQLite3 $db): void {
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     ip TEXT DEFAULT '',
+    public_ip TEXT DEFAULT '',
     vm_category TEXT DEFAULT 'Producao',
     vm_type TEXT DEFAULT 'Sistemas',
     vm_access TEXT DEFAULT 'Interno',
@@ -192,6 +193,7 @@ function ensureVmTableSqlite3(SQLite3 $db): void {
   $existing = [];
   while ($row = $res->fetchArray(SQLITE3_ASSOC)) { $existing[] = (string)($row['name'] ?? ''); }
   if (!in_array('vm_category', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_category TEXT DEFAULT 'Producao'"); }
+  if (!in_array('public_ip', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN public_ip TEXT DEFAULT ''"); }
   if (!in_array('vm_type', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_type TEXT DEFAULT 'Sistemas'"); }
   if (!in_array('vm_access', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_access TEXT DEFAULT 'Interno'"); }
   if (!in_array('vm_administration', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_administration TEXT DEFAULT 'SEI'"); }
@@ -222,6 +224,7 @@ function ensureVmTablePdo(PDO $db): void {
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     ip TEXT DEFAULT '',
+    public_ip TEXT DEFAULT '',
     vm_category TEXT DEFAULT 'Producao',
     vm_type TEXT DEFAULT 'Sistemas',
     vm_access TEXT DEFAULT 'Interno',
@@ -253,6 +256,7 @@ function ensureVmTablePdo(PDO $db): void {
   $existing = [];
   foreach ($rows as $row) { $existing[] = (string)($row['name'] ?? ''); }
   if (!in_array('vm_category', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_category TEXT DEFAULT 'Producao'"); }
+  if (!in_array('public_ip', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN public_ip TEXT DEFAULT ''"); }
   if (!in_array('vm_type', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_type TEXT DEFAULT 'Sistemas'"); }
   if (!in_array('vm_access', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_access TEXT DEFAULT 'Interno'"); }
   if (!in_array('vm_administration', $existing, true)) { $db->exec("ALTER TABLE virtual_machines ADD COLUMN vm_administration TEXT DEFAULT 'SEI'"); }
