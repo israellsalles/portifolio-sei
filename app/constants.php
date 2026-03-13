@@ -3,7 +3,6 @@
 // Roles de usuario
 define('ROLE_ADMIN',   'admin');
 define('ROLE_EDICAO',  'edicao');
-define('ROLE_LEITURA', 'leitura');
 
 // Status de sistemas
 define('STATUS_ATIVO',       'Ativo');

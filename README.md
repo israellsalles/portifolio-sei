@@ -28,8 +28,8 @@ O projeto centraliza informacoes de:
 - Bases de dados vinculadas a sistemas e VMs
 - Diagnosticos de ambiente por VM com suporte a JSON de PHP e R
 - Itens arquivados (soft delete) com restauracao
-- Visualizacao publica sem login para consultas
-- Controle de acesso por login para perfis de edicao/admin
+- Acesso inicial publico em modo visualizacao (aba `Sistemas`, secoes 1 e 5)
+- Login opcional para perfis com edicao: `editor` e `admin`
 - Exportacoes CSV e backup completo em JSON com restauracao
 - Normalizacao de texto UTF-8 para reduzir problemas de acentuacao legada
 
@@ -69,6 +69,34 @@ A interface oferece multiplas visoes: cards, lista detalhada, DNS, bases, maquin
 - Validacao de instancia com base nas instancias cadastradas na VM
 - Edicao e exclusao permanente de base
 
+### Documentacao de sistemas (PDF)
+
+- Upload de documentos PDF por tipo:
+  - `installation` (instalacao)
+  - `maintenance` (manutencao)
+  - `security` (seguranca)
+  - `manual` (manual/procedimentos)
+- Visualizacao inline do PDF salvo
+- Exclusao de documento por tipo
+- Controle de permissao no backend para upload/remocao
+
+### Chamados
+
+- Registro de chamados vinculados a:
+  - sistema
+  - maquina virtual
+- Edicao e exclusao de chamados existentes
+- Listagem de historico por tipo de alvo
+
+### Importacao/Exportacao CSV de maquinas
+
+- Exportacao de inventario de maquinas em CSV
+- Pre-visualizacao de importacao CSV com validacoes
+- Aplicacao em lote com resumo de:
+  - registros criados
+  - registros atualizados
+  - registros ignorados
+
 ### Diagnostico JSON por VM
 
 - Pagina dedicada: `vm_diagnostic.php?id=<vm_id>`
@@ -92,13 +120,24 @@ Observacao: o acesso a `vm_diagnostic.php` exige usuario autenticado.
 
 ### Controle de acesso
 
-- A aplicacao abre em modo de visualizacao sem exigir login
-- O botao `Login` fica disponivel para perfis com permissao de alteracao
+- Sem login, a aplicacao abre em modo publico de consulta:
+  - somente aba `Sistemas`
+  - somente secoes `1. Sistemas` e `5. Contatos e Suporte`
+  - sem acesso a detalhes, cadastros, importacoes ou exportacoes
+- O botao `Login` direciona para `login.php` para liberar recursos de edicao/admin
 - Perfis com login:
   - `edicao`: cadastro/edicao/arquivamento/restauracao
-  - `admin`: tudo do perfil edicao + exclusoes permanentes + backup completo (exportar/restaurar)
-- O perfil `leitura` continua suportado no backend para compatibilidade, mas nao e semeado por padrao
+  - `admin`: tudo do perfil edicao + exclusoes permanentes + backup completo (exportar/restaurar) + gerenciamento de usuarios
 - Troca de senha do usuario autenticado pela interface
+- Aba `Usuarios` exclusiva de admin para gerenciar contas:
+  - criar usuario
+  - editar login, nome, perfil e status
+  - redefinir senha de outro usuario (esqueceu senha)
+  - excluir usuario
+- Salvaguardas de seguranca no backend:
+  - nao permite excluir o proprio usuario
+  - nao permite desativar o proprio usuario
+  - nao permite remover/excluir o ultimo admin ativo
 - O backend valida permissao por endpoint (nao e apenas bloqueio visual)
 
 ## Arquitetura e stack
@@ -168,11 +207,13 @@ Se nao houver sistemas cadastrados, o app insere 3 exemplos iniciais automaticam
 
 ### Fluxo recomendado
 
-1. Cadastre VMs (aba `Maquinas`)
-2. Cadastre sistemas vinculando VMs por ambiente
-3. Cadastre bases vinculadas a sistemas/VMs
-4. Use `Dashboard` e `Relatorio VM` para analise
-5. Arquive itens antigos em vez de excluir diretamente
+1. Acesse `index.php` para consulta publica (modo visualizacao)
+2. Clique em `Login` para autenticar como `editor` ou `admin` quando precisar editar
+3. Cadastre VMs (aba `Maquinas`)
+4. Cadastre sistemas vinculando VMs por ambiente
+5. Cadastre bases vinculadas a sistemas/VMs
+6. Use `Dashboard` e `Relatorio VM` para analise
+7. Arquive itens antigos em vez de excluir diretamente
 
 ### Usuarios iniciais (seed)
 
@@ -213,35 +254,58 @@ ou
 { "ok": false, "error": "mensagem" }
 ```
 
+Observacao de seguranca:
+
+- Endpoints publicos: `auth-status`, `login`, `logout` e `list`.
+- Todos os demais endpoints exigem autenticacao.
+
 ### Endpoints GET
 
 - `auth-status` - status de autenticacao da sessao atual
-- `list` - lista sistemas ativos (publico, sem login)
-- `vm-list` - lista VMs ativas (publico, sem login)
-- `db-list` - lista bases ativas (publico, sem login)
-- `archived-list` - lista sistemas e VMs arquivados (publico, sem login)
-- `vm-diagnostic-get&id=<vm_id>` - retorna referencia e conteudo do diagnostico da VM
-- `export-csv&scope=systems|vms|databases` - exportacao CSV (requer login)
+- `list` - lista sistemas ativos (publico; sem login retorna apenas secoes 1 e 5)
+- `vm-list` - lista VMs ativas (requer login)
+- `db-list` - lista bases ativas (requer login)
+- `archived-list` - lista sistemas e VMs arquivados (requer login)
+- `ticket-list` - lista chamados (requer login)
+- `dns-public-ip-resolve&hosts=<lista>` - resolve IP publico por host (requer login)
+- `dns-ssl-validity-resolve&targets=<host:porta>` - consulta validade SSL (requer login)
+- `dns-internal-ip-resolve&hosts=<lista>` - resolve IP interno por host (requer login)
+- `system-doc-view&id=<system_id>&doc_type=<tipo>` - abre PDF de documentacao (requer login)
+- `system-php-compat-get&id=<system_id>` - detalha compatibilidade PHP (requer login)
+- `system-r-compat-get&id=<system_id>` - detalha compatibilidade R (requer login)
+- `vm-csv-export` - exporta maquinas em CSV (edicao/admin)
+- `vm-diagnostic-get&id=<vm_id>` - retorna referencia e conteudo do diagnostico da VM (requer login)
+- `export-csv&scope=systems|vms|databases` - exportacao CSV (edicao/admin)
 - `backup-export` - backup completo (admin)
+- `user-list` - lista usuarios (admin)
 
 ### Endpoints POST
 
 - `login` - autentica usuario
 - `logout` - encerra sessao
 - `change-password` - altera a senha do usuario autenticado
-- `save` - cria/atualiza sistema
-- `archive` - arquiva sistema
-- `restore` - restaura sistema
-- `delete` - exclui sistema definitivamente (somente arquivado)
-- `vm-save` - cria/atualiza VM (inclui `vm_language`, `vm_target_version`, `vm_app_server`, `vm_web_server`, `vm_containerization`, `vm_container_tool`, `vm_runtime_port` e `vm_tech`)
-- `vm-archive` - arquiva VM
-- `vm-restore` - restaura VM
-- `vm-delete` - exclui VM definitivamente (somente arquivada)
-- `db-save` - cria/atualiza base de dados
-- `db-delete` - exclui base de dados
-- `vm-diagnostic-save` - salva JSON de diagnostico e vincula na VM (aceita `tech=php|r`)
-- `vm-diagnostic-clear` - remove referencia/arquivo de diagnostico da VM (aceita `tech=php|r`)
+- `save` - cria/atualiza sistema (edicao/admin)
+- `archive` - arquiva sistema (edicao/admin)
+- `restore` - restaura sistema (edicao/admin)
+- `delete` - exclui sistema definitivamente (somente arquivado, admin)
+- `vm-save` - cria/atualiza VM (edicao/admin)
+- `vm-archive` - arquiva VM (edicao/admin)
+- `vm-restore` - restaura VM (edicao/admin)
+- `vm-delete` - exclui VM definitivamente (somente arquivada, admin)
+- `db-save` - cria/atualiza base de dados (edicao/admin)
+- `db-delete` - exclui base de dados (edicao/admin)
+- `vm-diagnostic-save` - salva JSON de diagnostico e vincula na VM (edicao/admin, aceita `tech=php|r`)
+- `vm-diagnostic-clear` - remove referencia/arquivo de diagnostico da VM (edicao/admin, aceita `tech=php|r`)
+- `ticket-save` - cria chamado (edicao/admin)
+- `ticket-update` - atualiza chamado (edicao/admin)
+- `ticket-delete` - remove chamado (edicao/admin)
+- `system-doc-upload` - envia PDF de documentacao de sistema (edicao/admin)
+- `system-doc-delete` - remove PDF de documentacao de sistema (edicao/admin)
+- `vm-csv-import-preview` - pre-valida arquivo CSV de maquinas antes da aplicacao (edicao/admin)
+- `vm-csv-import-apply` - aplica importacao CSV de maquinas (edicao/admin)
 - `backup-restore` - restaura backup JSON completo (admin)
+- `user-save` - cria/atualiza usuario e opcionalmente redefine senha (admin)
+- `user-delete` - exclui usuario (admin, com protecao para ultimo admin ativo)
 
 ## Modelo do JSON de diagnostico
 

@@ -2956,6 +2956,36 @@ tbody tr:hover td{background:#eef4ff}
   flex-wrap:wrap;
   justify-content:flex-end
 }
+#view-usuarios .users-head-actions{
+  margin-left:auto
+}
+#view-usuarios .users-table{
+  width:100%
+}
+#view-usuarios .users-table th:first-child,
+#view-usuarios .users-table td:first-child{
+  width:22%
+}
+#view-usuarios .users-table th:nth-child(2),
+#view-usuarios .users-table td:nth-child(2){
+  width:24%
+}
+#view-usuarios .users-table th:nth-child(3),
+#view-usuarios .users-table td:nth-child(3),
+#view-usuarios .users-table th:nth-child(4),
+#view-usuarios .users-table td:nth-child(4){
+  width:12%;
+  white-space:nowrap
+}
+#view-usuarios .users-table th:nth-child(5),
+#view-usuarios .users-table td:nth-child(5){
+  width:20%;
+  white-space:nowrap
+}
+#view-usuarios .users-table th:nth-child(6),
+#view-usuarios .users-table td:nth-child(6){
+  width:10%
+}
 #view-dns .dns-filter-field label{
   margin-bottom:4px
 }

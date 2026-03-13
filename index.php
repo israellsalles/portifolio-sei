@@ -38,6 +38,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
     <button id="tab-vm-relatorio" class="tab" onclick="setView('vm-relatorio')">&#128202; Relatório VM</button>
     <button id="tab-chamados" class="tab" onclick="setView('chamados')">&#128221; Chamados</button>
     <button id="tab-arquivados" class="tab" onclick="setView('arquivados')">&#128230; Arquivados</button>
+    <button id="tab-usuarios" class="tab hidden" onclick="setView('usuarios')">&#128100; Usuarios</button>
     <button id="tab-dashboard" class="tab" onclick="setView('dashboard')">&#128202; Dashboard</button>
     <button id="tab-diagrama" class="tab" onclick="openDiagramExternal()">&#128279; Diagrama</button>
   </div>
@@ -354,6 +355,31 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
       </div>
     </div>
   </section>
+  <section id="view-usuarios" class="view">
+    <div class="panel">
+      <div class="panel-head">
+        <h3>Gerenciamento de Usuarios</h3>
+        <div class="form-actions users-head-actions">
+          <button id="users-new-btn" class="btn btn-save" type="button" onclick="openUserForm()">Novo Usuario</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="users-table compact-table">
+          <thead>
+            <tr>
+              <th>Usuario</th>
+              <th>Nome Completo</th>
+              <th>Perfil</th>
+              <th>Status</th>
+              <th>Atualizado em</th>
+              <th style="width:140px">Acoes</th>
+            </tr>
+          </thead>
+          <tbody id="users-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
 </main>
 <input id="backup-file" type="file" accept=".json,application/json" class="hidden">
 <input id="vm-csv-file" type="file" accept=".csv,text/csv" class="hidden">
@@ -369,7 +395,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
       <div class="form-actions">
         <button id="auth-login" class="btn btn-save" type="button">Entrar</button>
       </div>
-      <div class="auth-hint">Login disponivel para perfis: edicao e admin.</div>
+      <div class="auth-hint">Login para perfis com edicao: editor e admin.</div>
     </div>
   </div>
 </div>
@@ -420,6 +446,47 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         <button id="pwd-save" class="btn btn-save" type="button">Atualizar Senha</button>
       </div>
       <div class="auth-hint">Use pelo menos 8 caracteres.</div>
+    </div>
+  </div>
+</div>
+<div id="muser" class="modal-bg hidden" onclick="closeModal('muser')">
+  <div class="modal auth-modal" onclick="event.stopPropagation()">
+    <div class="modal-head">
+      <div id="user-form-title" class="modal-title">Novo Usuario</div>
+      <button class="close" onclick="closeModal('muser')">&#10005;</button>
+    </div>
+    <div class="form">
+      <input id="fuser_id" type="hidden">
+      <div class="row2">
+        <div class="field"><label>Usuario *</label><input id="fuser_username" placeholder="ex: novo.usuario"></div>
+        <div class="field"><label>Nome Completo</label><input id="fuser_full_name" placeholder="Nome do usuario"></div>
+      </div>
+      <div class="row2">
+        <div class="field">
+          <label>Perfil *</label>
+          <select id="fuser_role">
+            <option value="edicao">Edicao</option>
+            <option value="admin">Admin</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Status *</label>
+          <select id="fuser_active">
+            <option value="1">Ativo</option>
+            <option value="0">Inativo</option>
+          </select>
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Nova Senha</label><input id="fuser_password" type="password" autocomplete="new-password" placeholder="********"></div>
+        <div class="field"><label>Confirmar Nova Senha</label><input id="fuser_password_confirm" type="password" autocomplete="new-password" placeholder="********"></div>
+      </div>
+      <div id="fuser_password_hint" class="auth-hint">Senha obrigatoria para novo usuario (minimo 8 caracteres).</div>
+      <div class="form-actions">
+        <button class="btn" type="button" onclick="closeModal('muser')">Cancelar</button>
+        <button id="fuser_delete" class="btn btn-danger hidden" type="button" onclick="deleteCurrentUser()">Excluir Usuario</button>
+        <button id="fuser_save" class="btn btn-save" type="button" onclick="saveUser()">Salvar Usuario</button>
+      </div>
     </div>
   </div>
 </div>

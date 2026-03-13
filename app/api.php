@@ -2155,7 +2155,7 @@ function publicUserPayload(array $row): array {
     'id' => (int)($row['id'] ?? 0),
     'username' => trim((string)($row['username'] ?? '')),
     'full_name' => normalizeUtf8Text(trim((string)($row['full_name'] ?? ''))),
-    'role' => normalizeRole((string)($row['role'] ?? 'leitura')),
+    'role' => normalizeRole((string)($row['role'] ?? 'edicao')),
     'active' => (int)($row['active'] ?? 0),
   ];
 }
@@ -2165,6 +2165,8 @@ function sessionAuthUser(): ?array {
   if (!is_array($raw)) { return null; }
   $user = publicUserPayload($raw);
   if ($user['id'] <= 0 || $user['active'] !== 1) { return null; }
+  // Perfil legado de leitura nao deve manter sessao autenticada.
+  if (normalizeRole((string)($user['role'] ?? '')) === 'leitura') { return null; }
   return $user;
 }
 
@@ -2228,6 +2230,177 @@ function fetchUsersForBackupSqlite3(SQLite3 $db): array {
 
 function fetchUsersForBackupPdo(PDO $db): array {
   return $db->query("SELECT id,username,password_hash,full_name,role,active,created_at,updated_at FROM users ORDER BY id ASC")->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function listUsersSqlite3(SQLite3 $db): array {
+  $res = $db->query("SELECT id,username,full_name,role,active,created_at,updated_at FROM users ORDER BY username COLLATE NOCASE");
+  $out = [];
+  while ($row = $res->fetchArray(SQLITE3_ASSOC)) {
+    if (!is_array($row)) { continue; }
+    $out[] = [
+      'id' => (int)($row['id'] ?? 0),
+      'username' => trim((string)($row['username'] ?? '')),
+      'full_name' => normalizeUtf8Text(trim((string)($row['full_name'] ?? ''))),
+      'role' => normalizeRole((string)($row['role'] ?? 'edicao')),
+      'active' => (int)($row['active'] ?? 0),
+      'created_at' => trim((string)($row['created_at'] ?? '')),
+      'updated_at' => trim((string)($row['updated_at'] ?? '')),
+    ];
+  }
+  return $out;
+}
+
+function listUsersPdo(PDO $db): array {
+  $rows = $db->query("SELECT id,username,full_name,role,active,created_at,updated_at FROM users ORDER BY username COLLATE NOCASE")->fetchAll(PDO::FETCH_ASSOC);
+  $out = [];
+  foreach ($rows as $row) {
+    if (!is_array($row)) { continue; }
+    $out[] = [
+      'id' => (int)($row['id'] ?? 0),
+      'username' => trim((string)($row['username'] ?? '')),
+      'full_name' => normalizeUtf8Text(trim((string)($row['full_name'] ?? ''))),
+      'role' => normalizeRole((string)($row['role'] ?? 'edicao')),
+      'active' => (int)($row['active'] ?? 0),
+      'created_at' => trim((string)($row['created_at'] ?? '')),
+      'updated_at' => trim((string)($row['updated_at'] ?? '')),
+    ];
+  }
+  return $out;
+}
+
+function fetchUserByUsernameExcludingIdSqlite3(SQLite3 $db, string $username, int $excludeId = 0): ?array {
+  $name = trim($username);
+  if ($name === '') { return null; }
+  if ($excludeId > 0) {
+    $st = $db->prepare("SELECT id,username,password_hash,full_name,role,active FROM users WHERE lower(username)=lower(:username) AND id<>:id LIMIT 1");
+    $st->bindValue(':id', $excludeId, SQLITE3_INTEGER);
+  } else {
+    $st = $db->prepare("SELECT id,username,password_hash,full_name,role,active FROM users WHERE lower(username)=lower(:username) LIMIT 1");
+  }
+  $st->bindValue(':username', $name, SQLITE3_TEXT);
+  $res = $st->execute();
+  $row = $res ? $res->fetchArray(SQLITE3_ASSOC) : false;
+  return is_array($row) ? $row : null;
+}
+
+function fetchUserByUsernameExcludingIdPdo(PDO $db, string $username, int $excludeId = 0): ?array {
+  $name = trim($username);
+  if ($name === '') { return null; }
+  if ($excludeId > 0) {
+    $st = $db->prepare("SELECT id,username,password_hash,full_name,role,active FROM users WHERE lower(username)=lower(:username) AND id<>:id LIMIT 1");
+    $st->bindValue(':id', $excludeId, PDO::PARAM_INT);
+  } else {
+    $st = $db->prepare("SELECT id,username,password_hash,full_name,role,active FROM users WHERE lower(username)=lower(:username) LIMIT 1");
+  }
+  $st->bindValue(':username', $name, PDO::PARAM_STR);
+  $st->execute();
+  $row = $st->fetch(PDO::FETCH_ASSOC);
+  return is_array($row) ? $row : null;
+}
+
+function countActiveAdminsSqlite3(SQLite3 $db): int {
+  return (int)$db->querySingle("SELECT COUNT(*) FROM users WHERE lower(role)='admin' AND IFNULL(active,0)=1");
+}
+
+function countActiveAdminsPdo(PDO $db): int {
+  return (int)$db->query("SELECT COUNT(*) FROM users WHERE lower(role)='admin' AND IFNULL(active,0)=1")->fetchColumn();
+}
+
+function insertUserSqlite3(SQLite3 $db, string $username, string $passwordHash, string $fullName, string $role, int $active): int {
+  $st = $db->prepare("INSERT INTO users(username,password_hash,full_name,role,active,created_at,updated_at) VALUES(:username,:password_hash,:full_name,:role,:active,datetime('now','localtime'),datetime('now','localtime'))");
+  $st->bindValue(':username', trim($username), SQLITE3_TEXT);
+  $st->bindValue(':password_hash', $passwordHash, SQLITE3_TEXT);
+  $st->bindValue(':full_name', normalizeUtf8Text(trim($fullName)), SQLITE3_TEXT);
+  $st->bindValue(':role', normalizeRole($role), SQLITE3_TEXT);
+  $st->bindValue(':active', $active > 0 ? 1 : 0, SQLITE3_INTEGER);
+  $res = $st->execute();
+  if (!$res) { return 0; }
+  return (int)$db->lastInsertRowID();
+}
+
+function insertUserPdo(PDO $db, string $username, string $passwordHash, string $fullName, string $role, int $active): int {
+  $st = $db->prepare("INSERT INTO users(username,password_hash,full_name,role,active,created_at,updated_at) VALUES(:username,:password_hash,:full_name,:role,:active,datetime('now','localtime'),datetime('now','localtime'))");
+  $st->bindValue(':username', trim($username), PDO::PARAM_STR);
+  $st->bindValue(':password_hash', $passwordHash, PDO::PARAM_STR);
+  $st->bindValue(':full_name', normalizeUtf8Text(trim($fullName)), PDO::PARAM_STR);
+  $st->bindValue(':role', normalizeRole($role), PDO::PARAM_STR);
+  $st->bindValue(':active', $active > 0 ? 1 : 0, PDO::PARAM_INT);
+  $st->execute();
+  return (int)$db->lastInsertId();
+}
+
+function updateUserProfileSqlite3(SQLite3 $db, int $id, string $username, string $fullName, string $role, int $active, ?string $passwordHash = null): bool {
+  if ($passwordHash === null) {
+    $st = $db->prepare("UPDATE users SET username=:username,full_name=:full_name,role=:role,active=:active,updated_at=datetime('now','localtime') WHERE id=:id");
+  } else {
+    $st = $db->prepare("UPDATE users SET username=:username,password_hash=:password_hash,full_name=:full_name,role=:role,active=:active,updated_at=datetime('now','localtime') WHERE id=:id");
+    $st->bindValue(':password_hash', $passwordHash, SQLITE3_TEXT);
+  }
+  $st->bindValue(':username', trim($username), SQLITE3_TEXT);
+  $st->bindValue(':full_name', normalizeUtf8Text(trim($fullName)), SQLITE3_TEXT);
+  $st->bindValue(':role', normalizeRole($role), SQLITE3_TEXT);
+  $st->bindValue(':active', $active > 0 ? 1 : 0, SQLITE3_INTEGER);
+  $st->bindValue(':id', $id, SQLITE3_INTEGER);
+  $res = $st->execute();
+  return (bool)$res;
+}
+
+function updateUserProfilePdo(PDO $db, int $id, string $username, string $fullName, string $role, int $active, ?string $passwordHash = null): bool {
+  if ($passwordHash === null) {
+    $st = $db->prepare("UPDATE users SET username=:username,full_name=:full_name,role=:role,active=:active,updated_at=datetime('now','localtime') WHERE id=:id");
+  } else {
+    $st = $db->prepare("UPDATE users SET username=:username,password_hash=:password_hash,full_name=:full_name,role=:role,active=:active,updated_at=datetime('now','localtime') WHERE id=:id");
+    $st->bindValue(':password_hash', $passwordHash, PDO::PARAM_STR);
+  }
+  $st->bindValue(':username', trim($username), PDO::PARAM_STR);
+  $st->bindValue(':full_name', normalizeUtf8Text(trim($fullName)), PDO::PARAM_STR);
+  $st->bindValue(':role', normalizeRole($role), PDO::PARAM_STR);
+  $st->bindValue(':active', $active > 0 ? 1 : 0, PDO::PARAM_INT);
+  $st->bindValue(':id', $id, PDO::PARAM_INT);
+  $st->execute();
+  return true;
+}
+
+function deleteUserByIdSqlite3(SQLite3 $db, int $id): bool {
+  $st = $db->prepare("DELETE FROM users WHERE id=:id");
+  $st->bindValue(':id', $id, SQLITE3_INTEGER);
+  $res = $st->execute();
+  if (!$res) { return false; }
+  return $db->changes() > 0;
+}
+
+function deleteUserByIdPdo(PDO $db, int $id): bool {
+  $st = $db->prepare("DELETE FROM users WHERE id=:id");
+  $st->bindValue(':id', $id, PDO::PARAM_INT);
+  $st->execute();
+  return $st->rowCount() > 0;
+}
+
+function viewOnlySystemRows(array $rows): array {
+  $out = [];
+  foreach ($rows as $row) {
+    if (!is_array($row)) { continue; }
+    $out[] = [
+      'id' => (int)($row['id'] ?? 0),
+      'name' => normalizeUtf8Text(trim((string)($row['name'] ?? ''))),
+      'category' => normalizeUtf8Text(trim((string)($row['category'] ?? ''))),
+      'system_group' => normalizeUtf8Text(trim((string)($row['system_group'] ?? ''))),
+      'criticality' => normalizeUtf8Text(trim((string)($row['criticality'] ?? ''))),
+      'description' => normalizeUtf8Text(trim((string)($row['description'] ?? ''))),
+      'notes' => normalizeUtf8Text(trim((string)($row['notes'] ?? ''))),
+      'status' => normalizeSystemStatus((string)($row['status'] ?? 'Ativo')),
+      'owner' => normalizeUtf8Text(trim((string)($row['owner'] ?? ''))),
+      'responsible_sector' => normalizeUtf8Text(trim((string)($row['responsible_sector'] ?? ''))),
+      'responsible_coordinator' => normalizeUtf8Text(trim((string)($row['responsible_coordinator'] ?? ''))),
+      'extension_number' => normalizeUtf8Text(trim((string)($row['extension_number'] ?? ''))),
+      'email' => normalizeUtf8Text(trim((string)($row['email'] ?? ''))),
+      'support' => normalizeUtf8Text(trim((string)($row['support'] ?? ''))),
+      'support_contact' => normalizeUtf8Text(trim((string)($row['support_contact'] ?? ''))),
+      'created_at' => trim((string)($row['created_at'] ?? '')),
+      'updated_at' => trim((string)($row['updated_at'] ?? '')),
+    ];
+  }
+  return $out;
 }
 
 function csvEscapeValue(string $value, string $delimiter=','): string {
@@ -2796,6 +2969,7 @@ function handleApiRequest(): void {
     if ($api === 'auth-status') {
       $sessionUser = sessionAuthUser();
       if (!$sessionUser) {
+        unset($_SESSION['auth_user']);
         echo json_encode(['ok' => true, 'data' => ['authenticated' => false, 'user' => null]], JSON_UNESCAPED_UNICODE);
         return;
       }
@@ -2804,6 +2978,11 @@ function handleApiRequest(): void {
         ? fetchUserByIdSqlite3($db, (int)$sessionUser['id'])
         : fetchUserByIdPdo($db, (int)$sessionUser['id']);
       if (!is_array($freshUser) || (int)($freshUser['active'] ?? 0) !== 1) {
+        unset($_SESSION['auth_user']);
+        echo json_encode(['ok' => true, 'data' => ['authenticated' => false, 'user' => null]], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+      if (normalizeRole((string)($freshUser['role'] ?? '')) === 'leitura') {
         unset($_SESSION['auth_user']);
         echo json_encode(['ok' => true, 'data' => ['authenticated' => false, 'user' => null]], JSON_UNESCAPED_UNICODE);
         return;
@@ -2863,6 +3042,10 @@ function handleApiRequest(): void {
         echo json_encode(['ok'=>false,'error'=>'Credenciais invalidas.'], JSON_UNESCAPED_UNICODE);
         return;
       }
+      if (normalizeRole((string)($user['role'] ?? '')) === 'leitura') {
+        echo json_encode(['ok'=>false,'error'=>'Perfil sem permissao de login.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
       if (!password_verify($password, (string)($user['password_hash'] ?? ''))) {
         echo json_encode(['ok'=>false,'error'=>'Credenciais invalidas.'], JSON_UNESCAPED_UNICODE);
         return;
@@ -2893,9 +3076,17 @@ function handleApiRequest(): void {
       return;
     }
 
-    $publicActions = ['list', 'vm-list', 'db-list', 'archived-list', 'ticket-list', 'system-doc-view', 'dns-public-ip-resolve', 'dns-ssl-validity-resolve', 'dns-internal-ip-resolve'];
     $authUser = sessionAuthUser();
-    if (!$authUser && !in_array($api, $publicActions, true)) {
+    if ($api === 'list') {
+      $out = $db instanceof SQLite3 ? fetchSystemsSqlite3($db, false) : fetchSystemsPdo($db, false);
+      if (!$authUser || normalizeRole((string)($authUser['role'] ?? '')) === 'leitura') {
+        $out = viewOnlySystemRows($out);
+      }
+      echo json_encode(['ok'=>true,'data'=>$out], JSON_UNESCAPED_UNICODE);
+      return;
+    }
+
+    if (!$authUser) {
       echo json_encode(['ok'=>false,'error'=>'Autenticacao necessaria.'], JSON_UNESCAPED_UNICODE);
       return;
     }
@@ -2950,21 +3141,175 @@ function handleApiRequest(): void {
       return;
     }
 
-    $adminOnlyActions = ['delete', 'vm-delete', 'backup-export', 'backup-restore'];
+    $adminOnlyActions = ['delete', 'vm-delete', 'backup-export', 'backup-restore', 'user-list', 'user-save', 'user-delete'];
     if (in_array($api, $adminOnlyActions, true) && !roleAtLeast((string)$authUser['role'], 'admin')) {
       echo json_encode(['ok'=>false,'error'=>'Permissao insuficiente para esta acao.'], JSON_UNESCAPED_UNICODE);
       return;
     }
 
-    $editActions = ['save', 'archive', 'restore', 'vm-save', 'vm-archive', 'vm-restore', 'db-save', 'db-delete', 'vm-diagnostic-save', 'vm-diagnostic-clear', 'ticket-save', 'ticket-update', 'ticket-delete', 'system-doc-upload', 'system-doc-delete', 'vm-csv-import-preview', 'vm-csv-import-apply'];
+    $editActions = ['save', 'archive', 'restore', 'vm-save', 'vm-archive', 'vm-restore', 'db-save', 'db-delete', 'vm-diagnostic-save', 'vm-diagnostic-clear', 'ticket-save', 'ticket-update', 'ticket-delete', 'system-doc-upload', 'system-doc-delete', 'vm-csv-export', 'vm-csv-import-preview', 'vm-csv-import-apply', 'export-csv'];
     if (in_array($api, $editActions, true) && !roleAtLeast((string)$authUser['role'], 'edicao')) {
       echo json_encode(['ok'=>false,'error'=>'Perfil apenas leitura.'], JSON_UNESCAPED_UNICODE);
       return;
     }
 
-    if ($api === 'list') {
-      $out = $db instanceof SQLite3 ? fetchSystemsSqlite3($db, false) : fetchSystemsPdo($db, false);
-      echo json_encode(['ok'=>true,'data'=>$out], JSON_UNESCAPED_UNICODE);
+    if ($api === 'user-list') {
+      $method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+      if (!in_array($method, ['GET', 'HEAD'], true)) {
+        echo json_encode(['ok'=>false,'error'=>'Invalid method']);
+        return;
+      }
+      $users = $db instanceof SQLite3 ? listUsersSqlite3($db) : listUsersPdo($db);
+      echo json_encode(['ok'=>true,'data'=>$users], JSON_UNESCAPED_UNICODE);
+      return;
+    }
+
+    if ($api === 'user-save') {
+      if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') { echo json_encode(['ok'=>false,'error'=>'Invalid method']); return; }
+      $data = json_decode((string)file_get_contents('php://input'), true);
+      if (!is_array($data)) { echo json_encode(['ok'=>false,'error'=>'Invalid JSON']); return; }
+
+      $id = (int)($data['id'] ?? 0);
+      $isCreate = $id <= 0;
+      $username = trim((string)($data['username'] ?? ''));
+      $fullName = normalizeUtf8Text(trim((string)($data['full_name'] ?? '')));
+      $role = normalizeRole((string)($data['role'] ?? 'edicao'));
+      if (!in_array($role, ['edicao', 'admin'], true)) { $role = 'edicao'; }
+      $active = boolFromMixed($data['active'] ?? 1) ? 1 : 0;
+      $newPassword = (string)($data['new_password'] ?? '');
+
+      if ($username === '') {
+        echo json_encode(['ok'=>false,'error'=>'Usuario e obrigatorio.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+      if (preg_match('/^[a-zA-Z0-9._-]{3,64}$/', $username) !== 1) {
+        echo json_encode(['ok'=>false,'error'=>'Usuario invalido. Use de 3 a 64 caracteres: letras, numeros, ponto, traco e underscore.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+      if ($isCreate && $newPassword === '') {
+        echo json_encode(['ok'=>false,'error'=>'Senha e obrigatoria para novo usuario.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+      if ($newPassword !== '' && strlen($newPassword) < 8) {
+        echo json_encode(['ok'=>false,'error'=>'A senha deve ter ao menos 8 caracteres.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+
+      $duplicated = $db instanceof SQLite3
+        ? fetchUserByUsernameExcludingIdSqlite3($db, $username, max(0, $id))
+        : fetchUserByUsernameExcludingIdPdo($db, $username, max(0, $id));
+      if (is_array($duplicated)) {
+        echo json_encode(['ok'=>false,'error'=>'Ja existe um usuario com este login.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+
+      if ($isCreate) {
+        $passwordHash = password_hash($newPassword, PASSWORD_DEFAULT);
+        $newId = $db instanceof SQLite3
+          ? insertUserSqlite3($db, $username, $passwordHash, $fullName, $role, $active)
+          : insertUserPdo($db, $username, $passwordHash, $fullName, $role, $active);
+        if ($newId <= 0) {
+          echo json_encode(['ok'=>false,'error'=>'Falha ao criar usuario.'], JSON_UNESCAPED_UNICODE);
+          return;
+        }
+        $created = $db instanceof SQLite3 ? fetchUserByIdSqlite3($db, $newId) : fetchUserByIdPdo($db, $newId);
+        if (!is_array($created)) {
+          echo json_encode(['ok'=>false,'error'=>'Usuario criado, mas falha ao carregar retorno.'], JSON_UNESCAPED_UNICODE);
+          return;
+        }
+        echo json_encode(['ok'=>true,'data'=>publicUserPayload($created)], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+
+      $current = $db instanceof SQLite3 ? fetchUserByIdSqlite3($db, $id) : fetchUserByIdPdo($db, $id);
+      if (!is_array($current)) {
+        echo json_encode(['ok'=>false,'error'=>'Usuario nao encontrado.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+
+      $currentRole = normalizeRole((string)($current['role'] ?? 'edicao'));
+      $currentActive = (int)($current['active'] ?? 0) > 0 ? 1 : 0;
+      $isSelf = (int)($authUser['id'] ?? 0) === $id;
+      if ($isSelf && $active !== 1) {
+        echo json_encode(['ok'=>false,'error'=>'Nao e permitido desativar o proprio usuario.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+      if ($isSelf && $role !== $currentRole) {
+        echo json_encode(['ok'=>false,'error'=>'Nao e permitido alterar o proprio perfil.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+
+      $activeAdmins = $db instanceof SQLite3 ? countActiveAdminsSqlite3($db) : countActiveAdminsPdo($db);
+      $wasActiveAdmin = ($currentRole === 'admin' && $currentActive === 1);
+      $willBeActiveAdmin = ($role === 'admin' && $active === 1);
+      if ($wasActiveAdmin && !$willBeActiveAdmin && $activeAdmins <= 1) {
+        echo json_encode(['ok'=>false,'error'=>'Nao e permitido remover o ultimo admin ativo.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+
+      $passwordHash = null;
+      if ($newPassword !== '') {
+        $passwordHash = password_hash($newPassword, PASSWORD_DEFAULT);
+      }
+
+      $updated = $db instanceof SQLite3
+        ? updateUserProfileSqlite3($db, $id, $username, $fullName, $role, $active, $passwordHash)
+        : updateUserProfilePdo($db, $id, $username, $fullName, $role, $active, $passwordHash);
+      if (!$updated) {
+        echo json_encode(['ok'=>false,'error'=>'Falha ao atualizar usuario.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+
+      $fresh = $db instanceof SQLite3 ? fetchUserByIdSqlite3($db, $id) : fetchUserByIdPdo($db, $id);
+      if (!is_array($fresh)) {
+        echo json_encode(['ok'=>false,'error'=>'Usuario atualizado, mas falha ao carregar retorno.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+      if ($isSelf) {
+        $_SESSION['auth_user'] = publicUserPayload($fresh);
+      }
+
+      echo json_encode(['ok'=>true,'data'=>publicUserPayload($fresh)], JSON_UNESCAPED_UNICODE);
+      return;
+    }
+
+    if ($api === 'user-delete') {
+      if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') { echo json_encode(['ok'=>false,'error'=>'Invalid method']); return; }
+      $data = json_decode((string)file_get_contents('php://input'), true);
+      if (!is_array($data)) { echo json_encode(['ok'=>false,'error'=>'Invalid JSON']); return; }
+      $id = (int)($data['id'] ?? 0);
+      if ($id <= 0) {
+        echo json_encode(['ok'=>false,'error'=>'Usuario invalido.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+      if ($id === (int)($authUser['id'] ?? 0)) {
+        echo json_encode(['ok'=>false,'error'=>'Nao e permitido excluir o proprio usuario.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+
+      $target = $db instanceof SQLite3 ? fetchUserByIdSqlite3($db, $id) : fetchUserByIdPdo($db, $id);
+      if (!is_array($target)) {
+        echo json_encode(['ok'=>false,'error'=>'Usuario nao encontrado.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+
+      $targetRole = normalizeRole((string)($target['role'] ?? 'edicao'));
+      $targetActive = (int)($target['active'] ?? 0) > 0 ? 1 : 0;
+      if ($targetRole === 'admin' && $targetActive === 1) {
+        $activeAdmins = $db instanceof SQLite3 ? countActiveAdminsSqlite3($db) : countActiveAdminsPdo($db);
+        if ($activeAdmins <= 1) {
+          echo json_encode(['ok'=>false,'error'=>'Nao e permitido excluir o ultimo admin ativo.'], JSON_UNESCAPED_UNICODE);
+          return;
+        }
+      }
+
+      $deleted = $db instanceof SQLite3 ? deleteUserByIdSqlite3($db, $id) : deleteUserByIdPdo($db, $id);
+      if (!$deleted) {
+        echo json_encode(['ok'=>false,'error'=>'Falha ao excluir usuario.'], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+
+      echo json_encode(['ok'=>true], JSON_UNESCAPED_UNICODE);
       return;
     }
 
@@ -3707,7 +4052,7 @@ function handleApiRequest(): void {
                 sqlValueSqlite3($username),
                 sqlValueSqlite3($passwordHash),
                 sqlValueSqlite3(trim((string)($row['full_name'] ?? ''))),
-                sqlValueSqlite3(normalizeRole((string)($row['role'] ?? 'leitura'))),
+                sqlValueSqlite3(normalizeRole((string)($row['role'] ?? 'edicao'))),
                 sqlValueSqlite3((int)($row['active'] ?? 0) > 0 ? 1 : 0),
                 sqlValueSqlite3(trim((string)($row['created_at'] ?? date('Y-m-d H:i:s')))),
                 sqlValueSqlite3(trim((string)($row['updated_at'] ?? date('Y-m-d H:i:s')))),
@@ -3909,7 +4254,7 @@ function handleApiRequest(): void {
                 sqlValuePdo($db, $username),
                 sqlValuePdo($db, $passwordHash),
                 sqlValuePdo($db, trim((string)($row['full_name'] ?? ''))),
-                sqlValuePdo($db, normalizeRole((string)($row['role'] ?? 'leitura'))),
+                sqlValuePdo($db, normalizeRole((string)($row['role'] ?? 'edicao'))),
                 sqlValuePdo($db, (int)($row['active'] ?? 0) > 0 ? 1 : 0),
                 sqlValuePdo($db, trim((string)($row['created_at'] ?? date('Y-m-d H:i:s')))),
                 sqlValuePdo($db, trim((string)($row['updated_at'] ?? date('Y-m-d H:i:s')))),

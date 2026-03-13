@@ -813,7 +813,7 @@ function ensureUsersTableSqlite3(SQLite3 $db): void {
     username TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     full_name TEXT DEFAULT '',
-    role TEXT NOT NULL DEFAULT 'leitura',
+    role TEXT NOT NULL DEFAULT 'edicao',
     active INTEGER DEFAULT 1,
     created_at TEXT DEFAULT (datetime('now','localtime')),
     updated_at TEXT DEFAULT (datetime('now','localtime'))
@@ -828,26 +828,27 @@ function ensureUsersTableSqlite3(SQLite3 $db): void {
   $db->exec("CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON login_attempts(ip)");
 
   $count = (int)$db->querySingle('SELECT COUNT(*) FROM users');
-  if ($count > 0) { return; }
+  if ($count === 0) {
+    $adminPass  = getenv('SEI_ADMIN_PASSWORD')  ?: bin2hex(random_bytes(12));
+    $editorPass = getenv('SEI_EDITOR_PASSWORD') ?: bin2hex(random_bytes(12));
+    if (!getenv('SEI_ADMIN_PASSWORD'))  { error_log("[SEI bootstrap] Senha inicial admin: $adminPass"); }
+    if (!getenv('SEI_EDITOR_PASSWORD')) { error_log("[SEI bootstrap] Senha inicial editor: $editorPass"); }
 
-  $adminPass  = getenv('SEI_ADMIN_PASSWORD')  ?: bin2hex(random_bytes(12));
-  $editorPass = getenv('SEI_EDITOR_PASSWORD') ?: bin2hex(random_bytes(12));
-  if (!getenv('SEI_ADMIN_PASSWORD'))  { error_log("[SEI bootstrap] Senha inicial admin: $adminPass"); }
-  if (!getenv('SEI_EDITOR_PASSWORD')) { error_log("[SEI bootstrap] Senha inicial editor: $editorPass"); }
+    $seed = [
+      ['username' => 'admin',  'password' => $adminPass,  'full_name' => 'Administrador', 'role' => ROLE_ADMIN],
+      ['username' => 'editor', 'password' => $editorPass, 'full_name' => 'Editor',        'role' => ROLE_EDICAO],
+    ];
 
-  $seed = [
-    ['username' => 'admin',  'password' => $adminPass,  'full_name' => 'Administrador', 'role' => ROLE_ADMIN],
-    ['username' => 'editor', 'password' => $editorPass, 'full_name' => 'Editor',        'role' => ROLE_EDICAO],
-  ];
-
-  foreach ($seed as $user) {
-    $st = $db->prepare("INSERT INTO users(username,password_hash,full_name,role,active,created_at,updated_at) VALUES(:username,:password_hash,:full_name,:role,1,datetime('now','localtime'),datetime('now','localtime'))");
-    $st->bindValue(':username', $user['username'], SQLITE3_TEXT);
-    $st->bindValue(':password_hash', password_hash($user['password'], PASSWORD_DEFAULT), SQLITE3_TEXT);
-    $st->bindValue(':full_name', $user['full_name'], SQLITE3_TEXT);
-    $st->bindValue(':role', $user['role'], SQLITE3_TEXT);
-    $st->execute();
+    foreach ($seed as $user) {
+      $st = $db->prepare("INSERT INTO users(username,password_hash,full_name,role,active,created_at,updated_at) VALUES(:username,:password_hash,:full_name,:role,1,datetime('now','localtime'),datetime('now','localtime'))");
+      $st->bindValue(':username', $user['username'], SQLITE3_TEXT);
+      $st->bindValue(':password_hash', password_hash($user['password'], PASSWORD_DEFAULT), SQLITE3_TEXT);
+      $st->bindValue(':full_name', $user['full_name'], SQLITE3_TEXT);
+      $st->bindValue(':role', $user['role'], SQLITE3_TEXT);
+      $st->execute();
+    }
   }
+
 }
 
 function ensureUsersTablePdo(PDO $db): void {
@@ -856,7 +857,7 @@ function ensureUsersTablePdo(PDO $db): void {
     username TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     full_name TEXT DEFAULT '',
-    role TEXT NOT NULL DEFAULT 'leitura',
+    role TEXT NOT NULL DEFAULT 'edicao',
     active INTEGER DEFAULT 1,
     created_at TEXT DEFAULT (datetime('now','localtime')),
     updated_at TEXT DEFAULT (datetime('now','localtime'))
@@ -871,26 +872,27 @@ function ensureUsersTablePdo(PDO $db): void {
   $db->exec("CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON login_attempts(ip)");
 
   $count = (int)$db->query("SELECT COUNT(*) FROM users")->fetchColumn();
-  if ($count > 0) { return; }
+  if ($count === 0) {
+    $adminPass  = getenv('SEI_ADMIN_PASSWORD')  ?: bin2hex(random_bytes(12));
+    $editorPass = getenv('SEI_EDITOR_PASSWORD') ?: bin2hex(random_bytes(12));
+    if (!getenv('SEI_ADMIN_PASSWORD'))  { error_log("[SEI bootstrap] Senha inicial admin: $adminPass"); }
+    if (!getenv('SEI_EDITOR_PASSWORD')) { error_log("[SEI bootstrap] Senha inicial editor: $editorPass"); }
 
-  $adminPass  = getenv('SEI_ADMIN_PASSWORD')  ?: bin2hex(random_bytes(12));
-  $editorPass = getenv('SEI_EDITOR_PASSWORD') ?: bin2hex(random_bytes(12));
-  if (!getenv('SEI_ADMIN_PASSWORD'))  { error_log("[SEI bootstrap] Senha inicial admin: $adminPass"); }
-  if (!getenv('SEI_EDITOR_PASSWORD')) { error_log("[SEI bootstrap] Senha inicial editor: $editorPass"); }
+    $seed = [
+      ['username' => 'admin',  'password' => $adminPass,  'full_name' => 'Administrador', 'role' => ROLE_ADMIN],
+      ['username' => 'editor', 'password' => $editorPass, 'full_name' => 'Editor',        'role' => ROLE_EDICAO],
+    ];
 
-  $seed = [
-    ['username' => 'admin',  'password' => $adminPass,  'full_name' => 'Administrador', 'role' => ROLE_ADMIN],
-    ['username' => 'editor', 'password' => $editorPass, 'full_name' => 'Editor',        'role' => ROLE_EDICAO],
-  ];
-
-  $st = $db->prepare("INSERT INTO users(username,password_hash,full_name,role,active,created_at,updated_at) VALUES(:username,:password_hash,:full_name,:role,1,datetime('now','localtime'),datetime('now','localtime'))");
-  foreach ($seed as $user) {
-    $st->bindValue(':username', $user['username'], PDO::PARAM_STR);
-    $st->bindValue(':password_hash', password_hash($user['password'], PASSWORD_DEFAULT), PDO::PARAM_STR);
-    $st->bindValue(':full_name', $user['full_name'], PDO::PARAM_STR);
-    $st->bindValue(':role', $user['role'], PDO::PARAM_STR);
-    $st->execute();
+    $st = $db->prepare("INSERT INTO users(username,password_hash,full_name,role,active,created_at,updated_at) VALUES(:username,:password_hash,:full_name,:role,1,datetime('now','localtime'),datetime('now','localtime'))");
+    foreach ($seed as $user) {
+      $st->bindValue(':username', $user['username'], PDO::PARAM_STR);
+      $st->bindValue(':password_hash', password_hash($user['password'], PASSWORD_DEFAULT), PDO::PARAM_STR);
+      $st->bindValue(':full_name', $user['full_name'], PDO::PARAM_STR);
+      $st->bindValue(':role', $user['role'], PDO::PARAM_STR);
+      $st->execute();
+    }
   }
+
 }
 
 function findOrCreateVmIdSqlite3(SQLite3 $db, string $name, string $ip): ?int {

@@ -2,6 +2,7 @@ const App = {
   items: [],
   vms: [],
   databases: [],
+  users: [],
   tickets: [],
   dnsNatCache: {},
   dnsNatLoading: false,
@@ -25,8 +26,16 @@ const roleRank = (role) => {
   const map = { leitura: 1, edicao: 2, admin: 3 };
   return map[String(role || '').trim().toLowerCase()] || 0;
 };
+const roleLabel = (role) => {
+  const key = String(role || '').trim().toLowerCase();
+  if (key === 'admin') return 'Administrador';
+  if (key === 'edicao') return 'Edicao';
+  if (key === 'leitura') return 'Leitura (legado)';
+  return 'Edicao';
+};
 const canEdit = () => roleRank(App.auth?.user?.role) >= roleRank('edicao');
 const isAdmin = () => roleRank(App.auth?.user?.role) >= roleRank('admin');
+const isReadOnlyProfile = () => !App.auth?.authenticated;
 const safeHrefFromUrl = (rawUrl) => {
   const raw = String(rawUrl ?? '').trim();
   if (!raw) return '';
@@ -388,6 +397,7 @@ async function api(action, body=null){
   if (json.ok === false && /autenticacao/i.test(String(json.error || ''))) {
     setAuthState({ authenticated: false, user: null });
     applyAuthState();
+    setView('lista');
   }
   return json;
 }
@@ -408,8 +418,27 @@ function applyAuthState(){
   const backupBtn = $('btn-backup');
   const backupExportJsonBtn = $('backup-export-json');
   const backupImportBtn = $('backup-import-btn');
+  const usersTab = $('tab-usuarios');
   const vmCsvExportBtn = $('vm-csv-export-btn');
   const vmCsvImportBtn = $('vm-csv-import-btn');
+  const sysCsvExportProdBtn = $('sys-csv-export-prod-btn');
+  const sysCsvExportHmlBtn = $('sys-csv-export-hml-btn');
+  const dnsCsvExportBtn = $('dns-csv-export-btn');
+  const dnsCsvDomainIpBtn = $('dns-csv-domain-ip-btn');
+  const dbCsvExportProdBtn = $('db-csv-export-prod-btn');
+  const dbCsvExportHmlBtn = $('db-csv-export-hml-btn');
+  const tabCards = $('tab-cards');
+  const tabDns = $('tab-dns');
+  const tabMachines = $('tab-maquinas');
+  const tabDatabases = $('tab-bases');
+  const tabVmReport = $('tab-vm-relatorio');
+  const tabTickets = $('tab-chamados');
+  const tabArchived = $('tab-arquivados');
+  const tabDashboard = $('tab-dashboard');
+  const tabDiagram = $('tab-diagrama');
+  const vmFilter = $('vmf');
+  const accessFilter = $('accessf');
+  const adminFilter = $('adminf');
   const authenticated = App.auth.authenticated && App.auth.user;
 
   if (authenticated) {
@@ -428,6 +457,7 @@ function applyAuthState(){
 
   const canEditNow = canEdit();
   const adminNow = isAdmin();
+  const readOnlyNow = isReadOnlyProfile();
   if (topAction) {
     topAction.disabled = !canEditNow;
     topAction.classList.toggle('hidden', !canEditNow);
@@ -441,10 +471,40 @@ function applyAuthState(){
     backupBtn.disabled = !adminNow;
     backupBtn.classList.toggle('hidden', !adminNow);
   }
+  [tabCards, tabDns, tabMachines, tabDatabases, tabVmReport, tabTickets, tabArchived, tabDashboard, tabDiagram]
+    .forEach((tab) => tab?.classList.toggle('hidden', readOnlyNow));
+  if (usersTab) usersTab.classList.toggle('hidden', !adminNow);
+  if (!adminNow) App.users = [];
   if (backupExportJsonBtn) backupExportJsonBtn.classList.toggle('hidden', !adminNow);
   if (backupImportBtn) backupImportBtn.classList.toggle('hidden', !adminNow);
   if (vmCsvExportBtn) vmCsvExportBtn.disabled = !canEditNow;
   if (vmCsvImportBtn) vmCsvImportBtn.disabled = !canEditNow;
+  if (sysCsvExportProdBtn) sysCsvExportProdBtn.disabled = !canEditNow;
+  if (sysCsvExportHmlBtn) sysCsvExportHmlBtn.disabled = !canEditNow;
+  if (sysCsvExportProdBtn) sysCsvExportProdBtn.classList.toggle('hidden', readOnlyNow);
+  if (sysCsvExportHmlBtn) sysCsvExportHmlBtn.classList.toggle('hidden', readOnlyNow);
+  if (dnsCsvExportBtn) dnsCsvExportBtn.disabled = !canEditNow;
+  if (dnsCsvDomainIpBtn) dnsCsvDomainIpBtn.disabled = !canEditNow;
+  if (dbCsvExportProdBtn) dbCsvExportProdBtn.disabled = !canEditNow;
+  if (dbCsvExportHmlBtn) dbCsvExportHmlBtn.disabled = !canEditNow;
+  if (vmFilter) vmFilter.classList.toggle('hidden', readOnlyNow);
+  if (accessFilter) accessFilter.classList.toggle('hidden', readOnlyNow);
+  if (adminFilter) adminFilter.classList.toggle('hidden', readOnlyNow);
+  if (readOnlyNow) {
+    if (vmFilter) vmFilter.value = '';
+    if (accessFilter) accessFilter.value = '';
+    if (adminFilter) adminFilter.value = '';
+  }
+  if (readOnlyNow && App.view !== 'lista') setView('lista');
+  if (!adminNow && App.view === 'usuarios') setView('lista');
+
+  const listSections = [...document.querySelectorAll('#view-lista .list-section')];
+  if (listSections.length) {
+    listSections.forEach((section, idx) => {
+      const allow = !readOnlyNow || idx === 0 || idx === 4;
+      section.classList.toggle('hidden', !allow);
+    });
+  }
 }
 
 function ensureCanEdit(message='Perfil sem permissao de edicao.'){
@@ -468,9 +528,7 @@ async function fetchAuthStatus(){
 
 function openLoginModal(){
   if (App.auth.authenticated) return;
-  if ($('auth-password')) $('auth-password').value = '';
-  $('mauth')?.classList.remove('hidden');
-  $('auth-username')?.focus();
+  window.location.href = 'login.php';
 }
 
 async function login(){
@@ -498,15 +556,7 @@ async function logout(){
   try {
     await api('logout', {});
   } catch {}
-  setAuthState({ authenticated: false, user: null });
-  resetPasswordForm();
-  applyAuthState();
-  try {
-    await refreshAll();
-    setView(App.view);
-  } catch (error) {
-    toast('Erro ao atualizar dados apos logout: ' + (error.message || '?'), true);
-  }
+  window.location.href = 'index.php';
 }
 
 function resetPasswordForm(){
@@ -558,6 +608,199 @@ async function changePassword(){
   } catch (error) {
     toast('Erro ao atualizar senha: ' + (error.message || '?'), true);
   }
+}
+
+async function refreshUsers(){
+  if (!isAdmin()) {
+    App.users = [];
+    return;
+  }
+  const result = await api('user-list');
+  if (!result.ok) throw new Error(result.error || 'Erro ao carregar usuarios');
+  App.users = Array.isArray(result.data) ? result.data : [];
+}
+
+function resetUserForm(){
+  if ($('fuser_id')) $('fuser_id').value = '';
+  if ($('fuser_username')) $('fuser_username').value = '';
+  if ($('fuser_full_name')) $('fuser_full_name').value = '';
+  if ($('fuser_role')) $('fuser_role').value = 'edicao';
+  if ($('fuser_active')) {
+    $('fuser_active').value = '1';
+    $('fuser_active').disabled = false;
+  }
+  if ($('fuser_password')) $('fuser_password').value = '';
+  if ($('fuser_password_confirm')) $('fuser_password_confirm').value = '';
+  if ($('fuser_role')) $('fuser_role').disabled = false;
+  if ($('fuser_delete')) $('fuser_delete').classList.add('hidden');
+  if ($('fuser_password_hint')) $('fuser_password_hint').textContent = 'Senha obrigatoria para novo usuario (minimo 8 caracteres).';
+}
+
+function openUserFormById(id){
+  openUserForm(id);
+}
+
+function openUserForm(id=0){
+  if (!ensureAdmin('Apenas admin pode gerenciar usuarios.')) return;
+  const userId = Number(id || 0);
+  const user = userId > 0 ? App.users.find((item) => Number(item.id) === userId) : null;
+  if (userId > 0 && !user) {
+    toast('Usuario nao encontrado.', true);
+    return;
+  }
+
+  resetUserForm();
+  const editing = Boolean(user);
+  const ownUserId = Number(App.auth?.user?.id || 0);
+  const isSelf = editing && Number(user.id) === ownUserId;
+
+  if ($('user-form-title')) $('user-form-title').textContent = editing ? 'Editar Usuario' : 'Novo Usuario';
+  if ($('fuser_id')) $('fuser_id').value = editing ? String(user.id || '') : '';
+  if ($('fuser_username')) $('fuser_username').value = editing ? String(user.username || '') : '';
+  if ($('fuser_full_name')) $('fuser_full_name').value = editing ? String(user.full_name || '') : '';
+  if ($('fuser_role')) {
+    $('fuser_role').value = editing ? String(user.role || 'edicao') : 'edicao';
+    $('fuser_role').disabled = isSelf;
+  }
+  if ($('fuser_active')) {
+    $('fuser_active').value = editing ? (Number(user.active || 0) > 0 ? '1' : '0') : '1';
+    $('fuser_active').disabled = isSelf;
+  }
+  if ($('fuser_delete')) $('fuser_delete').classList.toggle('hidden', !editing || isSelf);
+  if ($('fuser_password_hint')) {
+    $('fuser_password_hint').textContent = editing
+      ? 'Preencha a senha apenas para redefinir o acesso deste usuario.'
+      : 'Senha obrigatoria para novo usuario (minimo 8 caracteres).';
+  }
+
+  $('muser')?.classList.remove('hidden');
+  $('fuser_username')?.focus();
+}
+
+async function saveUser(){
+  if (!ensureAdmin('Apenas admin pode gerenciar usuarios.')) return;
+  const id = Number($('fuser_id')?.value || 0);
+  const editing = id > 0;
+  const username = String($('fuser_username')?.value || '').trim();
+  const fullName = String($('fuser_full_name')?.value || '').trim();
+  const role = String($('fuser_role')?.value || 'edicao').trim().toLowerCase();
+  const active = String($('fuser_active')?.value || '1') === '1' ? 1 : 0;
+  const password = String($('fuser_password')?.value || '');
+  const confirmPassword = String($('fuser_password_confirm')?.value || '');
+
+  if (!username) {
+    toast('Informe o login do usuario.', true);
+    return;
+  }
+  if (!/^[a-zA-Z0-9._-]{3,64}$/.test(username)) {
+    toast('Login invalido. Use 3 a 64 caracteres: letras, numeros, ponto, traco e underscore.', true);
+    return;
+  }
+  if (!['edicao', 'admin'].includes(role)) {
+    toast('Perfil invalido. Use editor ou admin.', true);
+    return;
+  }
+  if (!editing && !password) {
+    toast('Informe a senha inicial do usuario.', true);
+    return;
+  }
+  if (password || confirmPassword) {
+    if (password.length < 8) {
+      toast('A senha deve ter ao menos 8 caracteres.', true);
+      return;
+    }
+    if (password !== confirmPassword) {
+      toast('A confirmacao de senha nao confere.', true);
+      return;
+    }
+  }
+
+  try {
+    const result = await api('user-save', {
+      id,
+      username,
+      full_name: fullName,
+      role,
+      active,
+      new_password: password
+    });
+    if (!result.ok) throw new Error(result.error || 'Falha ao salvar usuario');
+    await refreshUsers();
+    renderUsers();
+    closeModal('muser');
+    toast(editing ? 'Usuario atualizado.' : 'Usuario criado.');
+    const savedId = Number(result?.data?.id || id || 0);
+    if (savedId > 0 && savedId === Number(App.auth?.user?.id || 0)) {
+      await fetchAuthStatus();
+    }
+  } catch (error) {
+    toast('Erro ao salvar usuario: ' + (error.message || '?'), true);
+  }
+}
+
+async function deleteUserById(id){
+  if (!ensureAdmin('Apenas admin pode gerenciar usuarios.')) return;
+  const userId = Number(id || 0);
+  if (userId <= 0) return;
+  const user = App.users.find((item) => Number(item.id) === userId);
+  const username = String(user?.username || `#${userId}`).trim();
+  if (!confirm(`Excluir o usuario "${username}"? Esta acao nao pode ser desfeita.`)) return;
+
+  try {
+    const result = await api('user-delete', { id: userId });
+    if (!result.ok) throw new Error(result.error || 'Falha ao excluir usuario');
+    await refreshUsers();
+    renderUsers();
+    if (Number($('fuser_id')?.value || 0) === userId) closeModal('muser');
+    toast('Usuario excluido.');
+  } catch (error) {
+    toast('Erro ao excluir usuario: ' + (error.message || '?'), true);
+  }
+}
+
+function deleteCurrentUser(){
+  const id = Number($('fuser_id')?.value || 0);
+  if (id <= 0) return;
+  deleteUserById(id);
+}
+
+function renderUsers(){
+  const body = $('users-body');
+  if (!body) return;
+  if (!isAdmin()) {
+    body.innerHTML = '<tr><td colspan="6" style="color:var(--muted)">Acesso permitido somente para admin.</td></tr>';
+    return;
+  }
+
+  const ownUserId = Number(App.auth?.user?.id || 0);
+  const list = [...App.users].sort((a,b)=>String(a.username || '').localeCompare(String(b.username || '')));
+  if (!list.length) {
+    body.innerHTML = '<tr><td colspan="6" style="color:var(--muted)">Nenhum usuario cadastrado.</td></tr>';
+    return;
+  }
+
+  body.innerHTML = list.map((user) => {
+    const userId = Number(user.id || 0);
+    const isSelf = userId === ownUserId;
+    const deleteBtn = isSelf
+      ? ''
+      : `<button class="act del" title="Excluir" onclick="event.stopPropagation(); deleteUserById(${userId})">&#128465;</button>`;
+    return `
+      <tr onclick="openUserFormById(${userId})">
+        <td>${esc(String(user.username || ''))}${isSelf ? ' (voce)' : ''}</td>
+        <td>${esc(String(user.full_name || '-'))}</td>
+        <td>${esc(roleLabel(user.role || 'edicao'))}</td>
+        <td>${Number(user.active || 0) > 0 ? 'Ativo' : 'Inativo'}</td>
+        <td>${esc(String(user.updated_at || user.created_at || '-'))}</td>
+        <td>
+          <div class="actions">
+            <button class="act" title="Editar" onclick="event.stopPropagation(); openUserFormById(${userId})">&#9998;</button>
+            ${deleteBtn}
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
 }
 
 function downloadTextFile(filename, content, mime='text/plain;charset=utf-8'){
@@ -637,6 +880,7 @@ function csvEscape(value, delimiter=';'){
 }
 
 function exportDnsCsv(){
+  if (!ensureCanEdit('Apenas perfis Editor e Administrador podem exportar CSV.')) return;
   const body = $('dns-body');
   if (!body) return;
 
@@ -664,6 +908,7 @@ function exportDnsCsv(){
 }
 
 function exportDnsDomainIpCsv(){
+  if (!ensureCanEdit('Apenas perfis Editor e Administrador podem exportar CSV.')) return;
   const body = $('dns-body');
   if (!body) return;
 
@@ -730,6 +975,7 @@ function systemEnvironmentLabel(item, homolog=false){
 }
 
 function exportSystemsCsv(environment='producao'){
+  if (!ensureCanEdit('Apenas perfis Editor e Administrador podem exportar CSV.')) return;
   const mode = norm(environment).includes('homo') ? 'homologacao' : 'producao';
   const homolog = mode === 'homologacao';
   const list = [...App.items]
@@ -767,6 +1013,7 @@ function exportSystemsCsv(environment='producao'){
 }
 
 function exportDatabasesCsv(environment='producao'){
+  if (!ensureCanEdit('Apenas perfis Editor e Administrador podem exportar CSV.')) return;
   const mode = norm(environment).includes('homo') ? 'homologacao' : 'producao';
   const homolog = mode === 'homologacao';
   const list = [...App.databases]
@@ -1024,6 +1271,7 @@ function closeModal(id){
   el.classList.add('hidden');
   if (id === 'mauth' && $('auth-password')) $('auth-password').value = '';
   if (id === 'mpassword') resetPasswordForm();
+  if (id === 'muser') resetUserForm();
   if (id === 'mvmcsvpreview') {
     App.vmCsvPreview = null;
     if ($('vm-csv-preview-summary')) $('vm-csv-preview-summary').innerHTML = '';
@@ -1594,18 +1842,10 @@ function vmSgbdInstancePortTags(vm){
   vmSgbdInstancePortPairs(vm).forEach((pair) => {
     const text = String(pair || '').trim();
     if (!text) return;
-    const [rawName, ...rawPortParts] = text.split(':');
-    const name = String(rawName || '').trim();
-    const port = String(rawPortParts.join(':') || '').trim();
-
-    [name, port ? `Porta: ${port}` : ''].forEach((item) => {
-      const value = String(item || '').trim();
-      if (!value) return;
-      const key = value.toLowerCase();
-      if (seen.has(key)) return;
-      seen.add(key);
-      out.push(value);
-    });
+    const key = text.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(text);
   });
 
   return out;
@@ -1941,6 +2181,10 @@ function vmCategoryOrder(vm){
 
 function runPrimaryAction(){
   if (!ensureCanEdit()) return;
+  if (App.view === 'usuarios') {
+    openUserForm();
+    return;
+  }
   if (App.view === 'chamados') {
     saveTicket();
     return;
@@ -1960,6 +2204,11 @@ function syncPrimaryAction(){
   const btn = $('top-action');
   if (!btn) return;
   btn.disabled = !canEdit();
+
+  if (App.view === 'usuarios') {
+    btn.textContent = '+ Novo Usuario';
+    return;
+  }
 
   if (App.view === 'chamados') {
     btn.textContent = '+ Registrar Chamado';
@@ -1985,9 +2234,10 @@ function openDiagramExternal(){
 }
 
 function setView(view){
-  const nextView = view === 'grid' ? 'lista' : view;
+  const requestedView = view === 'grid' ? 'lista' : view;
+  const nextView = isReadOnlyProfile() ? 'lista' : requestedView;
   App.view = nextView;
-  ['dashboard','lista','cards','dns','bases','chamados','maquinas','vm-relatorio','arquivados'].forEach((v) => {
+  ['dashboard','lista','cards','dns','bases','chamados','maquinas','vm-relatorio','arquivados','usuarios'].forEach((v) => {
     const viewEl = $('view-' + v);
     const tabEl = $('tab-' + v);
     if (viewEl) viewEl.classList.toggle('active', v === nextView);
@@ -2791,6 +3041,7 @@ function renderDashboard(){
 }
 
 function renderList(list){
+  const readOnly = isReadOnlyProfile();
   $('result-count').textContent = `${list.length} resultado(s)`;
   if (!list.length) {
     $('list-main-body').innerHTML = '<tr><td colspan="12" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
@@ -2833,7 +3084,7 @@ function renderList(list){
   }).join('');
 
   $('list-desc-body').innerHTML = list.map((i) => `
-    <tr onclick="openDetail(${i.id})">
+    <tr${readOnly ? '' : ` onclick="openDetail(${i.id})"`}>
       <td><div class="list-name">${esc(i.name)}</div></td>
       <td>${esc(i.category || '-')}</td>
       <td>${esc(i.system_group || '-')}</td>
@@ -2898,7 +3149,7 @@ function renderList(list){
   }
 
   $('list-support-body').innerHTML = list.map((i) => `
-    <tr onclick="openDetail(${i.id})">
+    <tr${readOnly ? '' : ` onclick="openDetail(${i.id})"`}>
       <td><div class="list-name">${esc(i.name)}</div></td>
       <td>${esc(i.owner || '-')}</td>
       <td>${esc(i.responsible_sector || '-')}</td>
@@ -2935,6 +3186,32 @@ function renderList(list){
       <td>${docsCell(i, 'manual')}</td>
     </tr>
   `).join('');
+
+  if (readOnly) {
+    $('list-cards').innerHTML = list.map((i) => `
+      <div class="list-mobile-card">
+        <div class="list-mobile-head">
+          <div class="list-name">${esc(i.name)}</div>
+          ${badge(i.status)}
+        </div>
+        <div class="list-mobile-grid">
+          <div class="list-mobile-item"><span class="list-mobile-label">Categoria</span><span class="list-mobile-value">${esc(i.category || '-')}</span></div>
+          <div class="list-mobile-item"><span class="list-mobile-label">Grupo</span><span class="list-mobile-value">${esc(i.system_group || '-')}</span></div>
+          <div class="list-mobile-item"><span class="list-mobile-label">Criticidade</span><span class="list-mobile-value crit-${critKind(i.criticality)}">${esc(i.criticality || '-')}</span></div>
+          <div class="list-mobile-item"><span class="list-mobile-label">Responsavel Tecnico</span><span class="list-mobile-value">${esc(i.owner || '-')}</span></div>
+          <div class="list-mobile-item"><span class="list-mobile-label">Setor</span><span class="list-mobile-value">${esc(i.responsible_sector || '-')}</span></div>
+          <div class="list-mobile-item"><span class="list-mobile-label">Coordenador</span><span class="list-mobile-value">${esc(i.responsible_coordinator || '-')}</span></div>
+          <div class="list-mobile-item"><span class="list-mobile-label">Ramal</span><span class="list-mobile-value">${esc(i.extension_number || '-')}</span></div>
+          <div class="list-mobile-item"><span class="list-mobile-label">Email</span><span class="list-mobile-value">${esc(i.email || '-')}</span></div>
+          <div class="list-mobile-item"><span class="list-mobile-label">Suporte</span><span class="list-mobile-value">${esc(i.support || '-')}</span></div>
+          <div class="list-mobile-item"><span class="list-mobile-label">Contato Suporte</span><span class="list-mobile-value">${esc(i.support_contact || '-')}</span></div>
+          <div class="list-mobile-item"><span class="list-mobile-label">Descricao</span><span class="list-mobile-value">${esc(i.description || '-')}</span></div>
+          <div class="list-mobile-item"><span class="list-mobile-label">Observacoes</span><span class="list-mobile-value">${esc(i.notes || '-')}</span></div>
+        </div>
+      </div>
+    `).join('');
+    return;
+  }
 
   $('list-cards').innerHTML = list.map((i) => `
     <div class="list-mobile-card" onclick="openDetail(${i.id})">
@@ -3426,14 +3703,9 @@ function renderVmReport(sourceVms = null){
               ${osLabel ? `<div class="vm-report-sub">SO: ${esc(osLabel)}</div>` : ''}
               ${specs.length ? `<div class="tags">${specs.map((s)=>`<span class="tag">${esc(s)}</span>`).join('')}</div>` : ''}
               ${stackTags.length ? `<div class="tags">${stackTags.map((tag)=>`<span class="tag">${esc(tag)}</span>`).join('')}</div>` : ''}
-              ${isSgbd ? `
-              <div class="vm-report-block">
-                <div class="vm-report-block-title">Instancias e Portas</div>
-                ${instancePortTags.length
-                  ? `<div class="tags vm-report-tags">${instancePortTags.map((tag)=>`<span class="tag">${esc(tag)}</span>`).join('')}</div>`
-                  : `<div class="vm-report-sub">-</div>`}
-              </div>
-              ` : (instanceTags.length ? `<div class="tags">${instanceTags.map((tag)=>`<span class="tag">${esc(tag)}</span>`).join('')}</div>` : '')}
+              ${isSgbd
+                ? (instancePortTags.length ? `<div class="tags">${instancePortTags.map((tag)=>`<span class="tag">${esc(tag)}</span>`).join('')}</div>` : `<div class="vm-report-sub">-</div>`)
+                : (instanceTags.length ? `<div class="tags">${instanceTags.map((tag)=>`<span class="tag">${esc(tag)}</span>`).join('')}</div>` : '')}
 
               ${systemsLinked.length ? `
               <div class="vm-report-block">
@@ -3777,6 +4049,12 @@ function renderCurrent(){
     return;
   }
 
+  if (App.view === 'usuarios') {
+    $('result-count').textContent = '';
+    renderUsers();
+    return;
+  }
+
   const list = filteredItems();
   if (App.view === 'cards') {
     renderSystemsCards(list);
@@ -4043,6 +4321,7 @@ function toggleSave(){
 }
 
 function openDetail(id){
+  if (isReadOnlyProfile()) return;
   openFormById(id);
 }
 
@@ -4485,17 +4764,25 @@ async function refreshArchived(){
 }
 
 async function refreshAll(){
-  const [systemsRes, vmRes, dbRes, archivedRes, ticketsRes] = await Promise.all([api('list'), api('vm-list'), api('db-list'), api('archived-list'), api('ticket-list')]);
+  const readOnly = isReadOnlyProfile();
+  const vmPromise = readOnly ? Promise.resolve({ ok: true, data: [] }) : api('vm-list');
+  const dbPromise = readOnly ? Promise.resolve({ ok: true, data: [] }) : api('db-list');
+  const archivedPromise = readOnly ? Promise.resolve({ ok: true, data: { systems: [], vms: [] } }) : api('archived-list');
+  const ticketsPromise = readOnly ? Promise.resolve({ ok: true, data: [] }) : api('ticket-list');
+  const usersPromise = isAdmin() ? api('user-list') : Promise.resolve({ ok: true, data: [] });
+  const [systemsRes, vmRes, dbRes, archivedRes, ticketsRes, usersRes] = await Promise.all([api('list'), vmPromise, dbPromise, archivedPromise, ticketsPromise, usersPromise]);
   if(!systemsRes.ok) throw new Error(systemsRes.error || 'Erro ao carregar sistemas');
   if(!vmRes.ok) throw new Error(vmRes.error || 'Erro ao carregar maquinas');
   if(!dbRes.ok) throw new Error(dbRes.error || 'Erro ao carregar bases');
   if(!archivedRes.ok) throw new Error(archivedRes.error || 'Erro ao carregar arquivados');
   if(!ticketsRes.ok) throw new Error(ticketsRes.error || 'Erro ao carregar chamados');
+  if(!usersRes.ok) throw new Error(usersRes.error || 'Erro ao carregar usuarios');
 
   App.items = systemsRes.data || [];
   App.vms = vmRes.data || [];
   App.databases = dbRes.data || [];
   App.tickets = ticketsRes.data || [];
+  App.users = Array.isArray(usersRes.data) ? usersRes.data : [];
   App.archived = archivedRes.data || { systems: [], vms: [] };
   App.dnsNatCache = {};
   App.dnsNatLoading = false;
@@ -4514,7 +4801,7 @@ async function refreshAll(){
 }
 
 function activeModalId(){
-  const ids = ['mauth','mpassword','mbackup','mvmcsvpreview','mdb','mvm','mform','mdetail'];
+  const ids = ['mauth','mpassword','muser','mbackup','mvmcsvpreview','mdb','mvm','mform','mdetail'];
   for (const id of ids) {
     const el = $(id);
     if (el && !el.classList.contains('hidden')) return id;
@@ -4544,6 +4831,7 @@ function handleModalKeyboardShortcuts(ev){
   ev.preventDefault();
   if (modalId === 'mauth') { login(); return; }
   if (modalId === 'mpassword') { changePassword(); return; }
+  if (modalId === 'muser') { saveUser(); return; }
   if (modalId === 'mform') { saveSystem(); return; }
   if (modalId === 'mvm') { saveVm(); return; }
   if (modalId === 'mdb') { saveDb(); return; }
@@ -4568,6 +4856,8 @@ $('auth-open-login')?.addEventListener('click', () => openLoginModal());
 $('auth-logout')?.addEventListener('click', () => logout());
 $('auth-change-password')?.addEventListener('click', () => openPasswordModal());
 $('pwd-save')?.addEventListener('click', () => changePassword());
+$('users-new-btn')?.addEventListener('click', () => openUserForm());
+$('fuser_save')?.addEventListener('click', () => saveUser());
 $('btn-export')?.addEventListener('click', () => openBackupModal());
 $('btn-backup')?.addEventListener('click', () => triggerBackupImport());
 $('backup-file')?.addEventListener('change', (ev) => onBackupFileChange(ev));
