@@ -35,8 +35,8 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
     <button id="tab-dns" class="tab" onclick="setView('dns')">&#127760; DNS</button>
     <button id="tab-maquinas" class="tab" onclick="setView('maquinas')">&#128187; Maquinas</button>
     <button id="tab-bases" class="tab" onclick="setView('bases')">&#128187; Bases</button>
-    <button id="tab-chamados" class="tab" onclick="setView('chamados')">&#128221; Chamados</button>
     <button id="tab-vm-relatorio" class="tab" onclick="setView('vm-relatorio')">&#128202; Relatório VM</button>
+    <button id="tab-chamados" class="tab" onclick="setView('chamados')">&#128221; Chamados</button>
     <button id="tab-arquivados" class="tab" onclick="setView('arquivados')">&#128230; Arquivados</button>
     <button id="tab-dashboard" class="tab" onclick="setView('dashboard')">&#128202; Dashboard</button>
     <button id="tab-diagrama" class="tab" onclick="openDiagramExternal()">&#128279; Diagrama</button>
@@ -68,6 +68,10 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
       <option value="status">Ordenar: Status</option>
       <option value="criticality">Ordenar: Criticidade</option>
     </select>
+    <div class="form-actions systems-toolbar-actions">
+      <button id="sys-csv-export-prod-btn" class="btn" type="button" onclick="exportSystemsCsv('producao')">Exportar CSV Producao</button>
+      <button id="sys-csv-export-hml-btn" class="btn" type="button" onclick="exportSystemsCsv('homologacao')">Exportar CSV Homologacao</button>
+    </div>
     <span id="result-count" class="result-count"></span>
   </div>
   <div id="loading">Carregando sistemas...</div>
@@ -97,7 +101,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         <div class="list-section-title">2. Informações Técnicas</div>
         <div class="table-wrap">
           <table class="list-main-table list-compact-table">
-            <thead><tr><th>Nome</th><th>Sistema</th><th>Versão</th><th>Linguagem</th><th>Versão Alvo</th><th>Servidor Aplicação</th><th>Web Server</th><th>Containerização</th><th>Ferramenta Container</th><th>Porta Execução</th><th>Compatibilidade</th></tr></thead>
+            <thead><tr><th>Nome</th><th>Sistema</th><th>Versão</th><th>Linguagem</th><th>Versão Alvo</th><th>Servidor Aplicação</th><th>Web Server</th><th>Containerização</th><th>Ferramenta Container</th><th>Porta App</th><th>Porta Web</th><th>Compatibilidade</th></tr></thead>
             <tbody id="list-main-body"></tbody>
           </table>
         </div>
@@ -115,7 +119,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         <div class="list-section-title">4. Bases de Dados</div>
         <div class="table-wrap">
           <table class="list-db-table list-compact-table">
-            <thead><tr><th>Nome</th><th>Base de Dados</th><th>Usuario do Banco</th><th>Maquina</th><th>Administracao</th><th>IP da Instancia</th><th>Instancia SGBD</th><th>VM Homologacao</th><th>IP da Instancia Homologacao</th><th>Instancia SGBD Homologacao</th><th>Observacoes</th></tr></thead>
+            <thead><tr><th>Nome</th><th>Base de Dados</th><th>Usuario do Banco</th><th>Maquina</th><th>Administracao</th><th>IP da Instancia</th><th>Porta da Instancia</th><th>Instancia SGBD</th><th>VM Homologacao</th><th>IP da Instancia Homologacao</th><th>Porta da Instancia Homologacao</th><th>Instancia SGBD Homologacao</th><th>Observacoes</th></tr></thead>
             <tbody id="list-db-body"></tbody>
           </table>
         </div>
@@ -169,12 +173,22 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
     <div class="panel">
       <div class="panel-head">
         <h3>DNS (URL x IP)</h3>
+        <div class="form-actions dns-actions">
+          <button id="dns-csv-export-btn" class="btn" type="button" onclick="exportDnsCsv()">Exportar CSV</button>
+          <button id="dns-csv-domain-ip-btn" class="btn" type="button" onclick="exportDnsDomainIpCsv()">Exportar Dominio/IP</button>
+        </div>
       </div>
       <div class="dns-filters">
         <div class="field dns-filter-field">
           <label>Dominio</label>
           <select id="dnsf-domain" onchange="renderDns()">
             <option value="">Dominio: Todos</option>
+          </select>
+        </div>
+        <div class="field dns-filter-field">
+          <label>URL Ambiente</label>
+          <select id="dnsf-url-env" onchange="renderDns()">
+            <option value="">URL Ambiente: Todas</option>
           </select>
         </div>
         <div class="field dns-filter-field">
@@ -198,7 +212,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
       </div>
         <div class="table-wrap">
           <table class="dns-table compact-table">
-          <thead><tr><th>URL</th><th>IP Interno</th><th>WAF (IP Resolvido)</th><th>IP Publico (NAT)</th><th>Validade SSL</th><th>Cert. Bundle</th></tr></thead>
+          <thead><tr><th>URL</th><th>IP Interno</th><th>WAF</th><th>IP Publico (NAT)</th><th>Validade SSL</th><th>Cert. Bundle</th></tr></thead>
           <tbody id="dns-body"></tbody>
           </table>
         </div>
@@ -209,10 +223,14 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
     <div class="panel">
       <div class="panel-head">
         <h3>Bases de Dados</h3>
+        <div class="form-actions db-export-actions">
+          <button id="db-csv-export-prod-btn" class="btn" type="button" onclick="exportDatabasesCsv('producao')">Exportar CSV Producao</button>
+          <button id="db-csv-export-hml-btn" class="btn" type="button" onclick="exportDatabasesCsv('homologacao')">Exportar CSV Homologacao</button>
+        </div>
       </div>
       <div class="table-wrap">
         <table class="bases-table compact-table">
-          <thead><tr><th>Sistema</th><th>Base de Dados</th><th>Usuario do Banco</th><th>Maquina</th><th>Administracao</th><th>IP da Instancia</th><th>Instancia SGBD</th><th>VM Homologacao</th><th>IP da Instancia Homologacao</th><th>Instancia SGBD Homologacao</th><th>Observacoes</th></tr></thead>
+          <thead><tr><th>Sistema</th><th>Base de Dados</th><th>Usuario do Banco</th><th>Maquina</th><th>Administracao</th><th>IP da Instancia</th><th>Porta da Instancia</th><th>Instancia SGBD</th><th>VM Homologacao</th><th>IP da Instancia Homologacao</th><th>Porta da Instancia Homologacao</th><th>Instancia SGBD Homologacao</th><th>Observacoes</th></tr></thead>
           <tbody id="db-body"></tbody>
         </table>
       </div>
@@ -284,7 +302,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         <div class="form-actions vm-csv-actions">
           <button id="vm-csv-export-btn" class="btn" type="button" onclick="exportMachinesCsv()">Exportar CSV</button>
           <button id="vm-csv-import-btn" class="btn btn-save" type="button" onclick="triggerMachinesCsvImport()">Importar CSV</button>
-          <div class="vm-csv-note">Nota: ao importar CSV, mantenha a ordem dos campos e os nomes dos cabeçalhos exatamente como no arquivo exportado.</div>
+          <div class="vm-csv-note">Nota: ao importar CSV, use exatamente estes cabecalhos e nesta ordem: Nome de Servidor;Administra&ccedil;&atilde;o;Sistema Operacional;Endere&ccedil;o IP;vCPU;Mem&oacute;ria (GB);Storage (GB).</div>
         </div>
       </div>
       <div class="toolbar vm-filters">
@@ -292,7 +310,6 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         <select id="vmcatf" onchange="renderMachines()"></select>
         <select id="vmtypef" onchange="renderMachines()"></select>
         <select id="vmosf" onchange="renderMachines()"></select>
-        <select id="vmaccessf" onchange="renderMachines()"></select>
         <select id="vmadminf" onchange="renderMachines()"></select>
         <span id="vm-result-count" class="result-count"></span>
       </div>
@@ -309,7 +326,6 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         <select id="vmrcatf" onchange="renderVmReportTab()"></select>
         <select id="vmrtypef" onchange="renderVmReportTab()"></select>
         <select id="vmrosf" onchange="renderVmReportTab()"></select>
-        <select id="vmraccessf" onchange="renderVmReportTab()"></select>
         <select id="vmradminf" onchange="renderVmReportTab()"></select>
         <span id="vmr-result-count" class="result-count"></span>
       </div>
@@ -444,6 +460,11 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         <div class="field"><label>Maquina (Homologacao)</label><select id="fvm_homolog_id" onchange="syncSystemTechFromVms()"></select></div>
         <div class="field"><label>Maquina (Desenvolvimento)</label><select id="fvm_dev_id" onchange="syncSystemTechFromVms()"></select></div>
       </div>
+      <div class="row3">
+        <div class="field"><label>Acesso</label><select id="faccess"><option>Interno</option><option>Externo</option></select></div>
+        <div class="field"><label>&nbsp;</label></div>
+        <div class="field"><label>&nbsp;</label></div>
+      </div>
       <div class="row2">
         <div class="field"><label>URLs de Homologacao (uma por linha)</label><textarea id="furl_homolog" placeholder="https://hml-a...&#10;https://hml-b..."></textarea></div>
         <div class="field"><label>&nbsp;</label><button id="btn-manage-vms" type="button" class="btn" onclick="openVmForm()">Gerenciar Maquinas</button></div>
@@ -472,10 +493,10 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
       <div class="row3">
         <div class="field"><label>Linguagem</label><input id="ftech" list="ftech-options" placeholder="PHP, JavaScript, Python"></div>
         <div class="field"><label>Versao Alvo</label><input id="ftarget_version" placeholder="Ex: PHP 8.2, Java 21, Python 3.12"></div>
-        <div class="field"><label>Servidor da Aplicacao</label><input id="fapp_server" list="fapp-server-options" placeholder="Ex: PHP-FPM, Tomcat, Shiny Server, Gunicorn"></div>
+        <div class="field"><label>Servidor da Aplicacao</label><input id="fapp_server" list="fapp-server-options" placeholder="Ex: PHP-FPM:9000, Tomcat:8080"></div>
       </div>
       <div class="row3">
-        <div class="field"><label>Reverse Proxy / Web Server</label><input id="fweb_server" list="fweb-server-options" placeholder="Ex: Nginx, Apache HTTP Server, Caddy"></div>
+        <div class="field"><label>Reverse Proxy / Web Server</label><input id="fweb_server" list="fweb-server-options" placeholder="Ex: Nginx:443, Apache:80"></div>
         <div class="field">
           <label>Containerizacao</label>
           <select id="fcontainerization" onchange="syncSystemContainerFields()">
@@ -484,11 +505,6 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
           </select>
         </div>
         <div class="field"><label>Ferramenta de Container</label><input id="fcontainer_tool" list="fcontainer-tool-options" placeholder="Ex: Docker, Podman"></div>
-      </div>
-      <div class="row3">
-        <div class="field"><label>Porta de Execucao</label><input id="fruntime_port" list="fruntime-port-options" placeholder="Ex: 80, 443, 8080, 3838"></div>
-        <div class="field"><label>&nbsp;</label></div>
-        <div class="field"><label>&nbsp;</label></div>
       </div>
       <div class="row3">
         <div class="field"><label>PHP: Extensões Necessárias (vírgula)</label><textarea id="fphp_required_extensions" placeholder="Ex: curl, mbstring, xml, pdo_mysql"></textarea></div>
@@ -555,11 +571,10 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
       <datalist id="fapp-server-options"></datalist>
       <datalist id="fweb-server-options"></datalist>
       <datalist id="fcontainer-tool-options"></datalist>
-      <datalist id="fruntime-port-options"></datalist>
       <div class="field"><label>Observacoes</label><textarea id="fnotes"></textarea></div>
       <div class="form-actions">
-        <button class="btn" onclick="closeModal('mform')">Cancelar</button>
-        <button id="bsave" class="btn btn-save" onclick="saveSystem()" disabled>Salvar</button>
+        <button class="btn" type="button" onclick="closeModal('mform')">Cancelar</button>
+        <button id="bsave" class="btn btn-save" type="button" onclick="saveSystem()" disabled>Salvar</button>
         <button id="barchive-system" class="btn btn-danger hidden" type="button" onclick="archiveCurrentSystem()">Arquivar</button>
       </div>
     </div>
@@ -588,12 +603,12 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         <div class="field"><label>&nbsp;</label></div>
       </div>
       <div class="row2">
-        <div class="field"><label>Categoria da VM *</label><select id="fvmcategory"><option>Producao</option><option>Homologacao</option><option>Desenvolvimento</option></select></div>
+        <div class="field"><label>Ambiente da VM *</label><select id="fvmcategory"><option>Producao</option><option>Homologacao</option><option>Desenvolvimento</option></select></div>
         <div class="field"><label>Tipo da VM *</label><select id="fvmtype"><option>Sistemas</option><option>SGBD</option></select></div>
       </div>
       <div class="row2">
-        <div class="field"><label>Acesso *</label><select id="fvmaccess"><option>Interno</option><option>Externo</option></select></div>
         <div class="field"><label>Administracao *</label><select id="fvmadministration"><option>SEI</option><option>PRODEB</option></select></div>
+        <div class="field"><label>&nbsp;</label></div>
       </div>
       <div class="row3">
         <div class="field"><label>Sistema Operacional</label><input id="fvmos" placeholder="Ex: Ubuntu Server"></div>
@@ -607,15 +622,25 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
       </div>
       <div class="row2">
         <div class="field"><label>Linguagem (virgula)</label><input id="fvmlanguage" placeholder="Ex: PHP, R, Java, Python, Node.js"></div>
-        <div class="field"><label>Servidor da Aplicacao (virgula)</label><input id="fvmtech" placeholder="Ex: PHP-FPM, Tomcat, Shiny Server, Gunicorn"></div>
-      </div>
-      <div class="row2">
-        <div class="field"><label>Reverse Proxy / Web Server (virgula)</label><input id="fvmwebserver" placeholder="Ex: Nginx, Apache HTTP Server, Caddy"></div>
         <div class="field"><label>Ferramenta de Container</label><input id="fvmcontainertool" placeholder="Ex: Docker, Podman"></div>
       </div>
-      <div class="row2">
-        <div class="field"><label>Porta de Execucao</label><input id="fvmruntimeport" placeholder="Ex: 80, 443, 8080, 3838"></div>
-        <div class="field"><label>&nbsp;</label></div>
+      <div class="field">
+        <label>Servidor da Aplicacao</label>
+        <div class="vm-service-editor">
+          <div id="fvmapp_rows" class="vm-service-list"></div>
+          <div class="form-actions">
+            <button type="button" class="btn" onclick="addVmAppServerRow()">+ Servidor</button>
+          </div>
+        </div>
+      </div>
+      <div class="field">
+        <label>Reverse Proxy / Web Server</label>
+        <div class="vm-service-editor">
+          <div id="fvmweb_rows" class="vm-service-list"></div>
+          <div class="form-actions">
+            <button type="button" class="btn" onclick="addVmWebServerRow()">+ Web Server</button>
+          </div>
+        </div>
       </div>
       <div class="field">
         <label>Instancias SGBD</label>
@@ -624,7 +649,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
           <div class="form-actions">
             <button type="button" class="btn" onclick="addVmInstanceRow()">+ Instancia</button>
           </div>
-          <div class="auth-hint">Informe a tecnologia e selecione um IP cadastrado da maquina.</div>
+          <div class="auth-hint">Informe a tecnologia, selecione um IP cadastrado da maquina e, se necessario, a porta da instancia.</div>
         </div>
       </div>
       <div class="form-actions">
@@ -665,3 +690,4 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
 <script src="assets/app.js?v=<?= filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'app.js') ?>"></script>
 </body>
 </html>
+

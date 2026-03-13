@@ -32,6 +32,7 @@ function ensureSystemColumnsSqlite3(SQLite3 $db): void {
   $required = [
     'system_name' => "TEXT DEFAULT ''",
     'system_group' => "TEXT DEFAULT ''",
+    'system_access' => "TEXT DEFAULT 'Interno'",
     'ip' => "TEXT DEFAULT ''",
     'ip_homolog' => "TEXT DEFAULT ''",
     'vm' => "TEXT DEFAULT ''",
@@ -91,6 +92,7 @@ function ensureSystemColumnsPdo(PDO $db): void {
   $required = [
     'system_name' => "TEXT DEFAULT ''",
     'system_group' => "TEXT DEFAULT ''",
+    'system_access' => "TEXT DEFAULT 'Interno'",
     'ip' => "TEXT DEFAULT ''",
     'ip_homolog' => "TEXT DEFAULT ''",
     'vm' => "TEXT DEFAULT ''",
@@ -295,8 +297,10 @@ function ensureDatabaseTableSqlite3(SQLite3 $db): void {
     db_engine_version_homolog TEXT DEFAULT '',
     db_instance_name TEXT DEFAULT '',
     db_instance_ip TEXT DEFAULT '',
+    db_instance_port TEXT DEFAULT '',
     db_instance_homolog_name TEXT DEFAULT '',
     db_instance_homolog_ip TEXT DEFAULT '',
+    db_instance_homolog_port TEXT DEFAULT '',
     notes TEXT DEFAULT '',
     archived INTEGER DEFAULT 0,
     archived_at TEXT DEFAULT NULL,
@@ -314,8 +318,10 @@ function ensureDatabaseTableSqlite3(SQLite3 $db): void {
   if (!in_array('db_engine_version_homolog', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_engine_version_homolog TEXT DEFAULT ''"); }
   if (!in_array('db_instance_name', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_instance_name TEXT DEFAULT ''"); }
   if (!in_array('db_instance_ip', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_instance_ip TEXT DEFAULT ''"); }
+  if (!in_array('db_instance_port', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_instance_port TEXT DEFAULT ''"); }
   if (!in_array('db_instance_homolog_name', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_instance_homolog_name TEXT DEFAULT ''"); }
   if (!in_array('db_instance_homolog_ip', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_instance_homolog_ip TEXT DEFAULT ''"); }
+  if (!in_array('db_instance_homolog_port', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_instance_homolog_port TEXT DEFAULT ''"); }
   if (!in_array('notes', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN notes TEXT DEFAULT ''"); }
   if (!in_array('archived', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN archived INTEGER DEFAULT 0"); }
   if (!in_array('archived_at', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN archived_at TEXT DEFAULT NULL"); }
@@ -339,8 +345,10 @@ function ensureDatabaseTablePdo(PDO $db): void {
     db_engine_version_homolog TEXT DEFAULT '',
     db_instance_name TEXT DEFAULT '',
     db_instance_ip TEXT DEFAULT '',
+    db_instance_port TEXT DEFAULT '',
     db_instance_homolog_name TEXT DEFAULT '',
     db_instance_homolog_ip TEXT DEFAULT '',
+    db_instance_homolog_port TEXT DEFAULT '',
     notes TEXT DEFAULT '',
     archived INTEGER DEFAULT 0,
     archived_at TEXT DEFAULT NULL,
@@ -358,8 +366,10 @@ function ensureDatabaseTablePdo(PDO $db): void {
   if (!in_array('db_engine_version_homolog', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_engine_version_homolog TEXT DEFAULT ''"); }
   if (!in_array('db_instance_name', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_instance_name TEXT DEFAULT ''"); }
   if (!in_array('db_instance_ip', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_instance_ip TEXT DEFAULT ''"); }
+  if (!in_array('db_instance_port', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_instance_port TEXT DEFAULT ''"); }
   if (!in_array('db_instance_homolog_name', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_instance_homolog_name TEXT DEFAULT ''"); }
   if (!in_array('db_instance_homolog_ip', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_instance_homolog_ip TEXT DEFAULT ''"); }
+  if (!in_array('db_instance_homolog_port', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN db_instance_homolog_port TEXT DEFAULT ''"); }
   if (!in_array('notes', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN notes TEXT DEFAULT ''"); }
   if (!in_array('archived', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN archived INTEGER DEFAULT 0"); }
   if (!in_array('archived_at', $existing, true)) { $db->exec("ALTER TABLE system_databases ADD COLUMN archived_at TEXT DEFAULT NULL"); }
@@ -556,7 +566,7 @@ function systemDatabasesForeignKeyMapPdo(PDO $db): array {
 
 function systemsColumnsForRelationalMigration(): array {
   return [
-    'id','name','system_name','system_group','ip','ip_homolog','vm','url_homolog','vm_homolog',
+    'id','name','system_name','system_group','system_access','ip','ip_homolog','vm','url_homolog','vm_homolog',
     'vm_id','vm_homolog_id','vm_dev_id','archived','archived_at',
     'responsible_sector','responsible_coordinator','extension_number','email','support','support_contact',
     'analytics','ssl','waf','bundle','directory','size','repository',
@@ -573,7 +583,7 @@ function systemDatabasesColumnsForRelationalMigration(): array {
   return [
     'id','system_id','vm_id','vm_homolog_id','db_name','db_user','db_engine',
     'db_engine_version','db_engine_version_homolog',
-    'db_instance_name','db_instance_ip','db_instance_homolog_name','db_instance_homolog_ip',
+    'db_instance_name','db_instance_ip','db_instance_port','db_instance_homolog_name','db_instance_homolog_ip','db_instance_homolog_port',
     'notes','archived','archived_at','created_at','updated_at',
   ];
 }
@@ -584,6 +594,7 @@ function createSystemsTableWithForeignKeysSql(): string {
     name TEXT NOT NULL,
     system_name TEXT DEFAULT '',
     system_group TEXT DEFAULT '',
+    system_access TEXT DEFAULT 'Interno',
     ip TEXT DEFAULT '',
     ip_homolog TEXT DEFAULT '',
     vm TEXT DEFAULT '',
@@ -656,8 +667,10 @@ function createSystemDatabasesTableWithForeignKeysSql(): string {
     db_engine_version_homolog TEXT DEFAULT '',
     db_instance_name TEXT DEFAULT '',
     db_instance_ip TEXT DEFAULT '',
+    db_instance_port TEXT DEFAULT '',
     db_instance_homolog_name TEXT DEFAULT '',
     db_instance_homolog_ip TEXT DEFAULT '',
+    db_instance_homolog_port TEXT DEFAULT '',
     notes TEXT DEFAULT '',
     archived INTEGER DEFAULT 0,
     archived_at TEXT DEFAULT NULL,
@@ -976,6 +989,7 @@ function db() {
       name TEXT NOT NULL,
       system_name TEXT DEFAULT '',
       system_group TEXT DEFAULT '',
+      system_access TEXT DEFAULT 'Interno',
       ip TEXT DEFAULT '',
       ip_homolog TEXT DEFAULT '',
       vm TEXT DEFAULT '',
@@ -1051,6 +1065,7 @@ function db() {
       name TEXT NOT NULL,
       system_name TEXT DEFAULT '',
       system_group TEXT DEFAULT '',
+      system_access TEXT DEFAULT 'Interno',
       ip TEXT DEFAULT '',
       ip_homolog TEXT DEFAULT '',
       vm TEXT DEFAULT '',

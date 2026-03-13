@@ -139,6 +139,7 @@ const setSelectOptions = (id, firstLabel, values) => {
 };
 const populateDnsFilterSelects = (rows) => {
   const domainValues = [];
+  const urlEnvValues = [];
   const internalIpValues = [];
   const publicIpValues = [];
   const sslValues = [];
@@ -147,6 +148,9 @@ const populateDnsFilterSelects = (rows) => {
     const host = String(row.host || '').trim().toLowerCase();
     const filteredDomain = dnsDomainWithoutFirstLabel(host);
     if (filteredDomain) domainValues.push(filteredDomain);
+
+    const urlEnv = String(row.urlEnv || '').trim();
+    if (urlEnv) urlEnvValues.push(urlEnv);
 
     const internalIp = String(row.ip || '').trim();
     if (internalIp && internalIp !== '-') internalIpValues.push(internalIp);
@@ -161,22 +165,26 @@ const populateDnsFilterSelects = (rows) => {
   });
 
   setSelectOptions('dnsf-domain', 'Dominio: Todos', domainValues);
+  setSelectOptions('dnsf-url-env', 'URL Ambiente: Todas', urlEnvValues);
   setSelectOptions('dnsf-internal-ip', 'IP Interno: Todos', internalIpValues);
   setSelectOptions('dnsf-public-ip', 'IP Publico: Todos', publicIpValues);
   setSelectOptions('dnsf-ssl', 'Validade SSL: Todas', sslValues);
 };
 const dnsFilterValues = () => ({
   domain: norm($('dnsf-domain')?.value || ''),
+  urlEnv: norm($('dnsf-url-env')?.value || ''),
   internalIp: norm($('dnsf-internal-ip')?.value || ''),
   publicIp: norm($('dnsf-public-ip')?.value || ''),
   ssl: norm($('dnsf-ssl')?.value || ''),
 });
 const dnsRowMatchesFilters = (row, filters) => {
   const domain = norm(row.host || '');
+  const urlEnv = norm(row.urlEnv || '');
   const internalIp = norm(row.ip || '');
   const publicIp = norm(row.publicIp || '');
   const ssl = norm(row.sslValidity || '');
   if (filters.domain && !(domain === filters.domain || domain.endsWith(`.${filters.domain}`))) return false;
+  if (filters.urlEnv && urlEnv !== filters.urlEnv) return false;
   if (filters.internalIp && internalIp !== filters.internalIp) return false;
   if (filters.publicIp && publicIp !== filters.publicIp) return false;
   if (filters.ssl && ssl !== filters.ssl) return false;
@@ -279,6 +287,18 @@ const normalizePortInput = (raw) => {
     ports.push(normalized);
   }
   return { ok: true, value: ports.join(','), ports };
+};
+const normalizeSinglePortInput = (raw) => {
+  const value = String(raw ?? '').trim();
+  if (!value) return { ok: true, value: '' };
+  const normalized = normalizePortInput(value);
+  if (!normalized.ok) {
+    return { ok: false, value: '', error: 'Porta da instancia invalida. Use valor entre 1 e 65535.' };
+  }
+  if (!Array.isArray(normalized.ports) || normalized.ports.length !== 1) {
+    return { ok: false, value: '', error: 'Informe apenas uma porta por instancia.' };
+  }
+  return { ok: true, value: String(normalized.ports[0] || '').trim() };
 };
 const systemUrlList = (item, homolog=false) => {
   const listKey = homolog ? 'url_homolog_list' : 'url_list';
@@ -609,10 +629,179 @@ function vmCsvActionMeta(action){
   return { label: 'Ignorar', cls: 'vm-csv-action-skip' };
 }
 
+function csvEscape(value, delimiter=';'){
+  const raw = String(value ?? '');
+  const needsQuotes = raw.includes(delimiter) || raw.includes('"') || raw.includes('\n') || raw.includes('\r');
+  if (!needsQuotes) return raw;
+  return `"${raw.replaceAll('"', '""')}"`;
+}
+
+function exportDnsCsv(){
+  const body = $('dns-body');
+  if (!body) return;
+
+  const rowEls = [...body.querySelectorAll('tr')]
+    .filter((tr) => tr.querySelectorAll('td').length >= 6);
+  if (!rowEls.length) {
+    toast('Nenhum registro DNS para exportar.', true);
+    return;
+  }
+
+  const headers = ['URL', 'IP Interno', 'WAF', 'IP Publico (NAT)', 'Validade SSL', 'Cert. Bundle'];
+  const lines = [headers.map((value) => csvEscape(value, ';')).join(';')];
+
+  rowEls.forEach((tr) => {
+    const values = [...tr.querySelectorAll('td')]
+      .slice(0, 6)
+      .map((td) => String(td.textContent || '').replace(/\s+/g, ' ').trim());
+    lines.push(values.map((value) => csvEscape(value, ';')).join(';'));
+  });
+
+  const content = `\uFEFF${lines.join('\r\n')}\r\n`;
+  const filename = `dns_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.csv`;
+  downloadTextFile(filename, content, 'text/csv;charset=utf-8');
+  toast('CSV DNS exportado.');
+}
+
+function exportDnsDomainIpCsv(){
+  const body = $('dns-body');
+  if (!body) return;
+
+  const rowEls = [...body.querySelectorAll('tr')]
+    .filter((tr) => tr.querySelectorAll('td').length >= 2);
+
+  const rows = rowEls.map((tr) => {
+    const urlCell = tr.querySelector('td:nth-child(1)');
+    const linkEl = urlCell?.querySelector('a');
+    const rawUrl = String(linkEl?.textContent || urlCell?.textContent || '').replace(/\s+/g, ' ').trim();
+    const domain = dnsHostFromUrl(rawUrl);
+    const ip = String(tr.querySelector('td:nth-child(2)')?.textContent || '').replace(/\s+/g, ' ').trim();
+    return { domain, ip };
+  }).filter((row) => row.domain && row.ip && row.ip !== '-');
+
+  if (!rows.length) {
+    toast('Nenhum dominio com IP para exportar.', true);
+    return;
+  }
+
+  const headers = ['dominio', 'ip'];
+  const lines = [headers.map((value) => csvEscape(value, ';')).join(';')];
+  rows.forEach((row) => {
+    lines.push([row.domain, row.ip].map((value) => csvEscape(value, ';')).join(';'));
+  });
+
+  const content = `\uFEFF${lines.join('\r\n')}\r\n`;
+  const filename = `dns_dominio_ip_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.csv`;
+  downloadTextFile(filename, content, 'text/csv;charset=utf-8');
+  toast('CSV de dominio e IP exportado.');
+}
+
+function dbHasHomologData(db){
+  return Number(db?.vm_homolog_id || 0) > 0
+    || String(db?.vm_homolog_name || '').trim() !== ''
+    || String(db?.db_instance_homolog_ip || '').trim() !== '';
+}
+
+function dbVmEnvironmentLabel(db, homolog=false){
+  const vm = vmById(homolog ? db?.vm_homolog_id : db?.vm_id);
+  if (vm) return vmCategoryLabel(vm);
+  const vmName = String(homolog ? (db?.vm_homolog_name || '') : (db?.vm_name || '')).trim();
+  if (!vmName) return '-';
+  return homolog ? 'Homologacao' : 'Producao';
+}
+
+function systemHasHomologData(item){
+  return systemUrlList(item, true).length > 0
+    || vmName(item, true) !== '-'
+    || vmIp(item, true) !== '-';
+}
+
+function systemEnvironmentAdministration(item, homolog=false){
+  const vm = vmById(homolog ? item?.vm_homolog_id : item?.vm_id);
+  if (vm) return vmAdministrationLabel(vm);
+  const fallback = relationVmText(item, 'administration');
+  return fallback && fallback !== '-' ? fallback : '-';
+}
+
+function systemEnvironmentLabel(item, homolog=false){
+  const vm = vmById(homolog ? item?.vm_homolog_id : item?.vm_id);
+  if (vm) return vmCategoryLabel(vm);
+  return homolog ? 'Homologacao' : 'Producao';
+}
+
+function exportSystemsCsv(environment='producao'){
+  const mode = norm(environment).includes('homo') ? 'homologacao' : 'producao';
+  const homolog = mode === 'homologacao';
+  const list = [...App.items]
+    .filter((item) => systemUrlList(item, homolog).length > 0)
+    .sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')));
+
+  if (!list.length) {
+    toast(homolog ? 'Nenhum sistema com URL de homologacao para exportar.' : 'Nenhum sistema com URL de producao para exportar.', true);
+    return;
+  }
+
+  const headers = ['url', 'acesso', 'servidor(maquina)', 'ip', 'administra\u00e7\u00e3o', 'ambiente'];
+  const lines = [headers.map((value) => csvEscape(value, ';')).join(';')];
+
+  list.forEach((item) => {
+    const urls = systemUrlList(item, homolog);
+    const access = systemAccessLabel(item);
+    const server = vmName(item, homolog);
+    const ip = vmIp(item, homolog);
+    const administration = systemEnvironmentAdministration(item, homolog);
+    const environmentLabel = systemEnvironmentLabel(item, homolog);
+    const urlRows = urls;
+
+    urlRows.forEach((url) => {
+      const urlValue = String(url || '').trim() || '-';
+      const values = [urlValue, access, server, ip, administration, environmentLabel];
+      lines.push(values.map((value) => csvEscape(value, ';')).join(';'));
+    });
+  });
+
+  const content = `\uFEFF${lines.join('\r\n')}\r\n`;
+  const filename = `sistemas_${mode}_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.csv`;
+  downloadTextFile(filename, content, 'text/csv;charset=utf-8');
+  toast(`CSV de sistemas (${mode}) exportado.`);
+}
+
+function exportDatabasesCsv(environment='producao'){
+  const mode = norm(environment).includes('homo') ? 'homologacao' : 'producao';
+  const homolog = mode === 'homologacao';
+  const list = [...App.databases]
+    .filter((d) => homolog ? dbHasHomologData(d) : true)
+    .sort((a,b)=>String(a.db_name || '').localeCompare(String(b.db_name || '')));
+
+  if (!list.length) {
+    toast(homolog ? 'Nenhuma base de homologacao para exportar.' : 'Nenhuma base de producao para exportar.', true);
+    return;
+  }
+
+  const headers = ['base de dados', 'servidor(maquina)', 'ip', 'administra\u00e7\u00e3o', 'ambiente (VM)', 'sgbd', 'usuario', 'porta'];
+  const lines = [headers.map((value) => csvEscape(value, ';')).join(';')];
+
+  list.forEach((d) => {
+    const vmName = String(homolog ? (d.vm_homolog_name || '') : (d.vm_name || '')).trim() || '-';
+    const ip = dbInstanceIp(d, homolog);
+    const administration = homolog ? dbHomologAdministration(d) : dbProductionAdministration(d);
+    const environmentLabel = dbVmEnvironmentLabel(d, homolog);
+    const sgbd = dbEngineVersionLabel(d, homolog);
+    const user = String(d.db_user || '').trim() || '-';
+    const port = String(dbInstancePort(d, homolog) || '').trim() || '-';
+    const values = [String(d.db_name || '-').trim() || '-', vmName, ip, administration, environmentLabel, sgbd, user, port];
+    lines.push(values.map((value) => csvEscape(value, ';')).join(';'));
+  });
+
+  const content = `\uFEFF${lines.join('\r\n')}\r\n`;
+  const filename = `bases_${mode}_${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)}.csv`;
+  downloadTextFile(filename, content, 'text/csv;charset=utf-8');
+  toast(`CSV de bases (${mode}) exportado.`);
+}
+
 const VM_CSV_CREATE_OPTIONS = {
   vm_category: ['Producao', 'Homologacao', 'Desenvolvimento'],
   vm_type: ['Sistemas', 'SGBD'],
-  vm_access: ['Interno', 'Externo'],
   vm_administration: ['SEI', 'PRODEB']
 };
 
@@ -639,13 +828,11 @@ function vmCsvCreateConfigCell(item, next){
   if (!rowNumber) return '-';
   const vmCategory = vmCsvNormalizedCreateValue('vm_category', next?.vm_category || 'Producao');
   const vmType = vmCsvNormalizedCreateValue('vm_type', next?.vm_type || 'Sistemas');
-  const vmAccess = vmCsvNormalizedCreateValue('vm_access', next?.vm_access || 'Interno');
   const vmAdministration = vmCsvNormalizedCreateValue('vm_administration', next?.vm_administration || 'SEI');
   return `
     <div class="vm-csv-create-config">
-      <label>Categoria ${vmCsvCreateSelectHtml('vm_category', vmCategory, rowNumber)}</label>
+      <label>Ambiente ${vmCsvCreateSelectHtml('vm_category', vmCategory, rowNumber)}</label>
       <label>Tipo ${vmCsvCreateSelectHtml('vm_type', vmType, rowNumber)}</label>
-      <label>Acesso ${vmCsvCreateSelectHtml('vm_access', vmAccess, rowNumber)}</label>
       <label>Administracao ${vmCsvCreateSelectHtml('vm_administration', vmAdministration, rowNumber)}</label>
     </div>
   `;
@@ -806,7 +993,7 @@ async function confirmMachinesCsvImport(){
       ...row,
       vm_category: vmCsvNormalizedCreateValue('vm_category', override.vm_category || row.vm_category),
       vm_type: vmCsvNormalizedCreateValue('vm_type', override.vm_type || row.vm_type),
-      vm_access: vmCsvNormalizedCreateValue('vm_access', override.vm_access || row.vm_access),
+      vm_access: String(row.vm_access || 'Interno').trim() || 'Interno',
       vm_administration: vmCsvNormalizedCreateValue('vm_administration', override.vm_administration || row.vm_administration)
     };
   });
@@ -1005,6 +1192,66 @@ function vmRuntimePortList(vm){
   return normalized.ok ? normalized.ports : [];
 }
 
+function parseVmServiceItem(value){
+  const text = String(value || '').trim();
+  if (!text) return { name: '', port: '' };
+  const match = text.match(/^(.*?):\s*([0-9]{1,5})$/);
+  if (!match) return { name: text, port: '' };
+  const name = String(match[1] || '').trim();
+  const normalizedPort = normalizeSinglePortInput(String(match[2] || '').trim());
+  if (!name || !normalizedPort.ok) return { name: text, port: '' };
+  return { name, port: normalizedPort.value };
+}
+
+function vmServiceItemValue(name, port=''){
+  const cleanName = String(name || '').trim();
+  const normalizedPort = normalizeSinglePortInput(String(port || '').trim());
+  if (!cleanName) return '';
+  if (!normalizedPort.ok || !normalizedPort.value) return cleanName;
+  return `${cleanName}:${normalizedPort.value}`;
+}
+
+function splitServiceValues(raw){
+  return String(raw ?? '')
+    .replace(/\r/g, '\n')
+    .split(/[\n,;]+/)
+    .map((entry) => String(entry || '').trim())
+    .filter(Boolean);
+}
+
+function systemServiceEntries(raw){
+  const out = [];
+  const seen = new Set();
+  splitServiceValues(raw).forEach((entry) => {
+    const parsed = parseVmServiceItem(entry);
+    const name = String(parsed?.name || '').trim();
+    const port = String(parsed?.port || '').trim();
+    if (!name) return;
+    const key = `${name.toLowerCase()}|${port}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ name, port });
+  });
+  return out;
+}
+
+function systemServiceNamesText(raw){
+  const names = [...new Set(systemServiceEntries(raw).map((entry) => entry.name).filter(Boolean))];
+  return names.length ? names.join(', ') : '-';
+}
+
+function systemServicePortsText(raw){
+  const out = [];
+  const seen = new Set();
+  systemServiceEntries(raw).forEach((entry) => {
+    const port = String(entry?.port || '').trim();
+    if (!port || seen.has(port)) return;
+    seen.add(port);
+    out.push(port);
+  });
+  return out.length ? out.join(', ') : '-';
+}
+
 function vmDeploymentTags(vm){
   const tags = [];
   const appServers = vmTechList(vm);
@@ -1015,8 +1262,18 @@ function vmDeploymentTags(vm){
   const runtimePorts = vmRuntimePortList(vm);
   const targetVersion = vmTargetVersionText(vm);
 
-  appServers.forEach((item) => tags.push(`App: ${item}`));
-  webServers.forEach((item) => tags.push(`Web: ${item}`));
+  appServers.forEach((item) => {
+    const parsed = parseVmServiceItem(item);
+    const label = parsed.name || String(item || '').trim();
+    if (!label) return;
+    tags.push(parsed.port ? `App: ${label} (${parsed.port})` : `App: ${label}`);
+  });
+  webServers.forEach((item) => {
+    const parsed = parseVmServiceItem(item);
+    const label = parsed.name || String(item || '').trim();
+    if (!label) return;
+    tags.push(parsed.port ? `Web: ${label} (${parsed.port})` : `Web: ${label}`);
+  });
   if (containerized) {
     if (containerTools.length) containerTools.forEach((item) => tags.push(`Container: ${item}`));
     else tags.push('Containerizado');
@@ -1243,7 +1500,8 @@ function vmInstances(vm){
     return vm.vm_instances_list
       .map((inst) => ({
         name: String(inst?.name || '').trim(),
-        ip: String(inst?.ip || '').trim()
+        ip: String(inst?.ip || '').trim(),
+        port: String(inst?.port || '').trim()
       }))
       .filter((inst) => inst.ip !== '');
   }
@@ -1255,7 +1513,8 @@ function vmInstances(vm){
     return parsed
       .map((inst) => ({
         name: String(inst?.name || '').trim(),
-        ip: String(inst?.ip || '').trim()
+        ip: String(inst?.ip || '').trim(),
+        port: String(inst?.port || '').trim()
       }))
       .filter((inst) => inst.ip !== '');
   } catch {
@@ -1264,7 +1523,92 @@ function vmInstances(vm){
 }
 
 function vmInstancesText(vm){
-  return vmInstances(vm).map((inst) => `${inst.name || 'Instancia'} - ${inst.ip}`).join('\n');
+  return vmInstances(vm).map((inst) => {
+    const endpoint = inst.port ? `${inst.ip}:${inst.port}` : inst.ip;
+    return `${inst.name || 'Instancia'} - ${endpoint}`;
+  }).join('\n');
+}
+
+function vmInstalledInstanceNames(vm){
+  const out = [];
+  const seen = new Set();
+  vmInstances(vm).forEach((inst) => {
+    const name = String(inst?.name || '').trim() || 'Instancia principal';
+    const key = name.toLowerCase();
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    out.push(name);
+  });
+  return out;
+}
+
+function vmUsedPorts(vm){
+  const out = [];
+  const seen = new Set();
+
+  vmInstances(vm).forEach((inst) => {
+    const port = String(inst?.port || '').trim();
+    if (!port || seen.has(port)) return;
+    seen.add(port);
+    out.push(port);
+  });
+
+  if (out.length) return out;
+
+  vmRuntimePortList(vm).forEach((port) => {
+    const value = String(port || '').trim();
+    if (!value || seen.has(value)) return;
+    seen.add(value);
+    out.push(value);
+  });
+
+  return out;
+}
+
+function vmSgbdInstancePortPairs(vm){
+  const out = [];
+  const seen = new Set();
+  const instances = vmInstances(vm);
+
+  instances.forEach((inst, idx) => {
+    const name = String(inst?.name || '').trim() || `Instancia ${idx + 1}`;
+    const port = String(inst?.port || '').trim() || '-';
+    const pair = `${name}: ${port}`;
+    const key = pair.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(pair);
+  });
+
+  if (out.length) return out;
+
+  const ports = vmUsedPorts(vm);
+  if (!ports.length) return [];
+  return ports.map((port) => `Instancia principal: ${port}`);
+}
+
+function vmSgbdInstancePortTags(vm){
+  const out = [];
+  const seen = new Set();
+
+  vmSgbdInstancePortPairs(vm).forEach((pair) => {
+    const text = String(pair || '').trim();
+    if (!text) return;
+    const [rawName, ...rawPortParts] = text.split(':');
+    const name = String(rawName || '').trim();
+    const port = String(rawPortParts.join(':') || '').trim();
+
+    [name, port ? `Porta: ${port}` : ''].forEach((item) => {
+      const value = String(item || '').trim();
+      if (!value) return;
+      const key = value.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push(value);
+    });
+  });
+
+  return out;
 }
 
 function parseVmInstancesInput(text){
@@ -1276,20 +1620,120 @@ function parseVmInstancesInput(text){
   const out = [];
   const seen = new Set();
   lines.forEach((line, idx) => {
-    const m = line.match(/^(.*?)\s*[-:]\s*(.+)$/) || line.match(/^(.*?)\s+([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)$/);
+    const m = line.match(/^(.*?)\s*[-:]\s*([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)(?::([0-9]{1,5}))?$/) || line.match(/^(.*?)\s+([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)(?::([0-9]{1,5}))?$/);
     const name = String(m?.[1] || `Instancia ${idx + 1}`).trim();
     const ip = String(m?.[2] || '').trim();
+    const portNorm = normalizeSinglePortInput(String(m?.[3] || '').trim());
     if (!ip) return;
-    const key = `${name.toLowerCase()}|${ip.toLowerCase()}`;
+    if (!portNorm.ok) return;
+    const key = `${name.toLowerCase()}|${ip.toLowerCase()}|${portNorm.value}`;
     if (seen.has(key)) return;
     seen.add(key);
-    out.push({ name, ip });
+    out.push({ name, ip, port: portNorm.value });
   });
   return out;
 }
 
 function vmFormIpList(){
   return parseVmIpList($('fvmip')?.value || '');
+}
+
+function vmServiceRowsSelector(rowsId){
+  return `#${rowsId} .vm-service-row`;
+}
+
+function vmServiceRowsDefault(rowsId){
+  if (rowsId === 'fvmapp_rows') addVmAppServerRow();
+  else if (rowsId === 'fvmweb_rows') addVmWebServerRow();
+}
+
+function addVmServiceRow(rowsId, service=null, namePlaceholder='Tecnologia'){
+  const rowsEl = $(rowsId);
+  if (!rowsEl) return;
+  const name = String(service?.name || '').trim();
+  const port = String(service?.port || '').trim();
+  const row = document.createElement('div');
+  row.className = 'vm-service-row';
+  row.innerHTML = `
+    <input class="vm-service-name" placeholder="${esc(namePlaceholder)}" value="${esc(name)}">
+    <input class="vm-service-port" placeholder="Porta (Ex: 3306)" inputmode="numeric" value="${esc(port)}">
+    <button type="button" class="btn" onclick="removeVmServiceRow(this, '${rowsId}')">Remover</button>
+  `;
+  rowsEl.appendChild(row);
+}
+
+function addVmAppServerRow(service=null){
+  addVmServiceRow('fvmapp_rows', service, 'Servidor da aplicacao (Ex: PHP-FPM)');
+}
+
+function addVmWebServerRow(service=null){
+  addVmServiceRow('fvmweb_rows', service, 'Web Server (Ex: Nginx)');
+}
+
+function removeVmServiceRow(trigger, rowsId){
+  const row = trigger?.closest?.('.vm-service-row');
+  if (!row) return;
+  const rowsEl = $(rowsId);
+  row.remove();
+  if (rowsEl && !rowsEl.querySelector('.vm-service-row')) vmServiceRowsDefault(rowsId);
+}
+
+function setVmServiceRows(rowsId, services=[], addRowFn){
+  const rowsEl = $(rowsId);
+  if (!rowsEl) return;
+  rowsEl.innerHTML = '';
+  if (Array.isArray(services) && services.length) {
+    services.forEach((item) => addRowFn(item));
+    return;
+  }
+  addRowFn();
+}
+
+function vmServiceRowsFromList(list){
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((item) => parseVmServiceItem(item))
+    .map((item) => ({ name: String(item?.name || '').trim(), port: String(item?.port || '').trim() }))
+    .filter((item) => item.name !== '');
+}
+
+function setVmAppServerRows(services=[]){
+  setVmServiceRows('fvmapp_rows', services, addVmAppServerRow);
+}
+
+function setVmWebServerRows(services=[]){
+  setVmServiceRows('fvmweb_rows', services, addVmWebServerRow);
+}
+
+function readVmServiceRows(rowsId){
+  const rows = [...document.querySelectorAll(vmServiceRowsSelector(rowsId))];
+  const out = [];
+  const seen = new Set();
+  let invalidName = false;
+  let invalidPort = '';
+
+  rows.forEach((row) => {
+    const nameInput = row.querySelector('.vm-service-name');
+    const portInput = row.querySelector('.vm-service-port');
+    const rawName = String(nameInput?.value || '').trim();
+    const rawPort = String(portInput?.value || '').trim();
+    if (!rawName && !rawPort) return;
+    if (!rawName) {
+      invalidName = true;
+      return;
+    }
+    const normalizedPort = normalizeSinglePortInput(rawPort);
+    if (!normalizedPort.ok) {
+      invalidPort = normalizedPort.error || 'Porta invalida.';
+      return;
+    }
+    const key = `${rawName.toLowerCase()}|${normalizedPort.value}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ name: rawName, port: normalizedPort.value });
+  });
+
+  return { items: out, invalidName, invalidPort };
 }
 
 function vmInstanceIpOptionsHtml(selectedIp=''){
@@ -1315,11 +1759,13 @@ function addVmInstanceRow(instance=null){
   if (!rowsEl) return;
   const name = String(instance?.name || '').trim();
   const ip = String(instance?.ip || '').trim();
+  const port = String(instance?.port || '').trim();
   const row = document.createElement('div');
   row.className = 'vm-instance-row';
   row.innerHTML = `
     <input class="vm-instance-name" placeholder="Tecnologia (Ex: MySQL)" value="${esc(name)}">
     <select class="vm-instance-ip">${vmInstanceIpOptionsHtml(ip)}</select>
+    <input class="vm-instance-port" placeholder="Porta (Ex: 3306)" inputmode="numeric" value="${esc(port)}">
     <button type="button" class="btn" onclick="removeVmInstanceRow(this)">Remover</button>
   `;
   rowsEl.appendChild(row);
@@ -1361,38 +1807,48 @@ function readVmInstanceRows(){
   const out = [];
   const seen = new Set();
   let invalidRow = false;
+  let invalidPort = '';
   rows.forEach((row) => {
     const nameInput = row.querySelector('.vm-instance-name');
     const ipSelect = row.querySelector('.vm-instance-ip');
+    const portInput = row.querySelector('.vm-instance-port');
     const rawName = String(nameInput?.value || '').trim();
     const rawIp = String(ipSelect?.value || '').trim();
-    if (!rawName && !rawIp) return;
+    const rawPort = String(portInput?.value || '').trim();
+    if (!rawName && !rawIp && !rawPort) return;
     if (!rawIp) {
       invalidRow = true;
       return;
     }
+    const normalizedPort = normalizeSinglePortInput(rawPort);
+    if (!normalizedPort.ok) {
+      invalidPort = normalizedPort.error || 'Porta da instancia invalida.';
+      return;
+    }
     const name = rawName || `Instancia ${out.length + 1}`;
-    const key = `${name.toLowerCase()}|${rawIp.toLowerCase()}`;
+    const key = `${name.toLowerCase()}|${rawIp.toLowerCase()}|${normalizedPort.value}`;
     if (seen.has(key)) return;
     seen.add(key);
-    out.push({ name, ip: rawIp });
+    out.push({ name, ip: rawIp, port: normalizedPort.value });
   });
-  return { instances: out, invalidRow };
+  return { instances: out, invalidRow, invalidPort };
 }
 
 function encodeInstanceOption(instance){
   const name = encodeURIComponent(String(instance?.name || '').trim());
   const ip = encodeURIComponent(String(instance?.ip || '').trim());
-  return `${name}|||${ip}`;
+  const port = encodeURIComponent(String(instance?.port || '').trim());
+  return `${name}|||${ip}|||${port}`;
 }
 
 function decodeInstanceOption(value){
   const raw = String(value || '');
-  if (!raw.includes('|||')) return { name: '', ip: '' };
-  const [nameEnc, ipEnc] = raw.split('|||');
+  if (!raw.includes('|||')) return { name: '', ip: '', port: '' };
+  const [nameEnc, ipEnc, portEnc] = raw.split('|||');
   return {
     name: decodeURIComponent(nameEnc || ''),
-    ip: decodeURIComponent(ipEnc || '')
+    ip: decodeURIComponent(ipEnc || ''),
+    port: decodeURIComponent(portEnc || '')
   };
 }
 
@@ -1410,6 +1866,11 @@ function dbInstanceIp(db, homolog=false){
   return String(db?.[key] || db?.[fallback] || '').trim() || '-';
 }
 
+function dbInstancePort(db, homolog=false){
+  const key = homolog ? 'db_instance_homolog_port' : 'db_instance_port';
+  return String(db?.[key] || '').trim();
+}
+
 function dbVmInstanceLabel(db, homolog=false){
   const vmKey = homolog ? 'vm_homolog_name' : 'vm_name';
   const vm = String(db?.[vmKey] || '').trim();
@@ -1423,10 +1884,12 @@ function dbVmInstanceLabel(db, homolog=false){
 function dbVmInstanceWithIpLabel(db, homolog=false){
   const label = dbVmInstanceLabel(db, homolog);
   const ip = dbInstanceIp(db, homolog);
+  const port = dbInstancePort(db, homolog);
+  const endpoint = ip !== '-' ? (port ? `${ip}:${port}` : ip) : '-';
   if (label === '-' && ip === '-') return '-';
-  if (ip === '-') return label;
-  if (label === '-') return ip;
-  return `${label} (${ip})`;
+  if (endpoint === '-') return label;
+  if (label === '-') return endpoint;
+  return `${label} (${endpoint})`;
 }
 
 function dbEngineVersionLabel(db, homolog=false){
@@ -1453,6 +1916,12 @@ function vmTypeLabel(vm){
 
 function vmAccessLabel(vm){
   const raw = String(vm?.vm_access || '').trim().toLowerCase();
+  if (raw.includes('extern')) return 'Externo';
+  return 'Interno';
+}
+
+function systemAccessLabel(item){
+  const raw = String(item?.system_access || '').trim().toLowerCase();
   if (raw.includes('extern')) return 'Externo';
   return 'Interno';
 }
@@ -1615,21 +2084,18 @@ function syncSystemTechFromVms(){
   const appServers = [];
   const webServers = [];
   const containerTools = [];
-  const ports = [];
 
   vms.forEach((vm) => {
     vmLanguageList(vm).forEach((item) => languages.push(item));
     vmTechList(vm).forEach((item) => appServers.push(item));
     vmWebServerList(vm).forEach((item) => webServers.push(item));
     vmContainerToolList(vm).forEach((item) => containerTools.push(item));
-    vmRuntimePortList(vm).forEach((item) => ports.push(item));
   });
 
   setDataListOptions('ftech-options', languages);
   setDataListOptions('fapp-server-options', appServers);
   setDataListOptions('fweb-server-options', webServers);
   setDataListOptions('fcontainer-tool-options', containerTools);
-  setDataListOptions('fruntime-port-options', ports);
 }
 
 function populateVmTabFilters(){
@@ -1645,15 +2111,13 @@ function populateVmTabFilters(){
       .map((vm) => String(vm?.os_name || '').trim())
       .filter(Boolean)
   )].sort((a,b)=>a.localeCompare(b));
-  fill('vmcatf', 'Categoria: Todas', ['Producao','Homologacao','Desenvolvimento']);
+  fill('vmcatf', 'Ambiente: Todos', ['Producao','Homologacao','Desenvolvimento']);
   fill('vmtypef', 'Tipo: Todos', ['Sistemas','SGBD']);
   fill('vmosf', 'SO: Todos', vmOsList);
-  fill('vmaccessf', 'Acesso: Todos', ['Interno','Externo']);
   fill('vmadminf', 'Administracao: Todos', ['SEI','PRODEB']);
-  fill('vmrcatf', 'Categoria: Todas', ['Producao','Homologacao','Desenvolvimento']);
+  fill('vmrcatf', 'Ambiente: Todos', ['Producao','Homologacao','Desenvolvimento']);
   fill('vmrtypef', 'Tipo: Todos', ['Sistemas','SGBD']);
   fill('vmrosf', 'SO: Todos', vmOsList);
-  fill('vmraccessf', 'Acesso: Todos', ['Interno','Externo']);
   fill('vmradminf', 'Administracao: Todos', ['SEI','PRODEB']);
 }
 
@@ -1950,22 +2414,29 @@ function vmInstanceOptionsByVmId(vmId){
   if (instances.length) return instances;
   const ips = vmIpList(vm);
   if (!ips.length) return [];
-  return ips.map((ip) => ({ name: 'Instancia principal', ip }));
+  return ips.map((ip) => ({ name: 'Instancia principal', ip, port: '' }));
 }
 
-function fillDbInstanceSelect(selectId, vmId, selectedName='', selectedIp=''){
+function fillDbInstanceSelect(selectId, vmId, selectedName='', selectedIp='', selectedPort=''){
   const el = $(selectId);
   if (!el) return;
   const options = vmInstanceOptionsByVmId(vmId);
   const selectedValue = selectedName || selectedIp
-    ? encodeInstanceOption({ name: selectedName || 'Instancia principal', ip: selectedIp })
+    ? encodeInstanceOption({ name: selectedName || 'Instancia principal', ip: selectedIp, port: selectedPort })
     : '';
 
-  el.innerHTML = '<option value="">Selecionar...</option>' + options.map((inst)=>`<option value="${esc(encodeInstanceOption(inst))}">${esc(`${inst.name} (${inst.ip})`)}</option>`).join('');
+  el.innerHTML = '<option value="">Selecionar...</option>' + options.map((inst)=>{
+    const endpoint = inst.port ? `${inst.ip}:${inst.port}` : inst.ip;
+    return `<option value="${esc(encodeInstanceOption(inst))}">${esc(`${inst.name} (${endpoint})`)}</option>`;
+  }).join('');
   if (selectedValue && [...el.options].some((o)=>o.value === selectedValue)) {
     el.value = selectedValue;
   } else if (selectedIp) {
-    const byIp = [...el.options].find((o) => decodeInstanceOption(o.value).ip === selectedIp);
+    const byIpAndPort = [...el.options].find((o) => {
+      const inst = decodeInstanceOption(o.value);
+      return inst.ip === selectedIp && String(inst.port || '') === String(selectedPort || '');
+    });
+    const byIp = byIpAndPort || [...el.options].find((o) => decodeInstanceOption(o.value).ip === selectedIp);
     if (byIp) el.value = byIp.value;
   } else if (options.length === 1) {
     el.value = encodeInstanceOption(options[0]);
@@ -1974,7 +2445,7 @@ function fillDbInstanceSelect(selectId, vmId, selectedName='', selectedIp=''){
 
 function selectedDbInstance(selectId){
   const raw = String($(selectId)?.value || '').trim();
-  if (!raw) return { name: '', ip: '' };
+  if (!raw) return { name: '', ip: '', port: '' };
   return decodeInstanceOption(raw);
 }
 
@@ -1983,8 +2454,8 @@ function syncDbInstanceOptions(prodSelected=null, hmlSelected=null){
   const vmHmlId = Number($('fdbvmh')?.value || 0);
   const currentProd = prodSelected || selectedDbInstance('fdbinstance');
   const currentHml = hmlSelected || selectedDbInstance('fdbinstanceh');
-  fillDbInstanceSelect('fdbinstance', vmProdId, currentProd.name, currentProd.ip);
-  fillDbInstanceSelect('fdbinstanceh', vmHmlId, currentHml.name, currentHml.ip);
+  fillDbInstanceSelect('fdbinstance', vmProdId, currentProd.name, currentProd.ip, currentProd.port);
+  fillDbInstanceSelect('fdbinstanceh', vmHmlId, currentHml.name, currentHml.ip, currentHml.port);
   syncDbHomologIp();
 }
 
@@ -2003,6 +2474,13 @@ function dbProductionAdministration(db){
   return raw || '-';
 }
 
+function dbHomologAdministration(db){
+  const homologVm = vmById(db?.vm_homolog_id);
+  if (homologVm) return vmAdministrationLabel(homologVm);
+  const raw = String(db?.vm_administration || '').trim();
+  return raw || '-';
+}
+
 function databaseNamesText(systemId){
   const dbs = systemDatabases(systemId);
   if (!dbs.length) return '-';
@@ -2015,8 +2493,10 @@ function databaseHostsText(systemId){
   const hosts = [...new Set(dbs.map((d) => {
     const vm = dbVmInstanceLabel(d, false);
     const ip = dbInstanceIp(d, false);
-    if (vm && ip) return `${vm} (${ip})`;
-    return vm || ip || '-';
+    const port = dbInstancePort(d, false);
+    const endpoint = ip !== '-' ? (port ? `${ip}:${port}` : ip) : '-';
+    if (vm && endpoint && endpoint !== '-') return `${vm} (${endpoint})`;
+    return vm || endpoint || '-';
   }))].filter(Boolean);
   return hosts.length ? hosts.join(', ') : '-';
 }
@@ -2067,13 +2547,7 @@ function filteredItems(){
     .filter((i)=>!groupf || String(i.system_group || '').trim() === groupf)
     .filter((i)=>!st || norm(i.status)===norm(st))
     .filter((i)=>!vmf || Number(i.vm_id || 0) === Number(vmf) || Number(i.vm_homolog_id || 0) === Number(vmf) || Number(i.vm_dev_id || 0) === Number(vmf))
-    .filter((i)=>{
-      if (!accessf) return true;
-      const prodVm = vmById(i.vm_id);
-      const hmlVm = vmById(i.vm_homolog_id);
-      const devVm = vmById(i.vm_dev_id);
-      return [prodVm, hmlVm, devVm].filter(Boolean).some((vm)=>vmAccessLabel(vm) === accessf);
-    })
+    .filter((i)=>!accessf || systemAccessLabel(i) === accessf)
     .filter((i)=>{
       if (!adminf) return true;
       const prodVm = vmById(i.vm_id);
@@ -2119,6 +2593,7 @@ function filteredItems(){
       vmIp(i, false),
       vmIp(i, true),
       vmIp(i, 'dev'),
+      systemAccessLabel(i),
       databaseSearchBlob(i.id),
       (i.tech||[]).join(' ')
     ].join(' ').toLowerCase().includes(q))
@@ -2318,10 +2793,10 @@ function renderDashboard(){
 function renderList(list){
   $('result-count').textContent = `${list.length} resultado(s)`;
   if (!list.length) {
-    $('list-main-body').innerHTML = '<tr><td colspan="11" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
+    $('list-main-body').innerHTML = '<tr><td colspan="12" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
     $('list-desc-body').innerHTML = '<tr><td colspan="7" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
     $('list-infra-body').innerHTML = '<tr><td colspan="11" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
-    $('list-db-body').innerHTML = '<tr><td colspan="11" style="color:var(--muted)">Nenhuma base de dados encontrada.</td></tr>';
+    $('list-db-body').innerHTML = '<tr><td colspan="13" style="color:var(--muted)">Nenhuma base de dados encontrada.</td></tr>';
     $('list-support-body').innerHTML = '<tr><td colspan="8" style="color:var(--muted)">Nenhum contato cadastrado.</td></tr>';
     $('list-ops-body').innerHTML = '<tr><td colspan="5" style="color:var(--muted)">Nenhum dado de deploy cadastrado.</td></tr>';
     $('list-docs-body').innerHTML = '<tr><td colspan="5" style="color:var(--muted)">Nenhuma documentação cadastrada.</td></tr>';
@@ -2330,17 +2805,24 @@ function renderList(list){
   }
 
   $('list-main-body').innerHTML = list.map((i) => {
+    const appServerRaw = String(i.app_server || '').trim();
+    const webServerRaw = String(i.web_server || '').trim();
+    const appServerNames = systemServiceNamesText(appServerRaw);
+    const webServerNames = systemServiceNamesText(webServerRaw);
+    const appServerPorts = systemServicePortsText(appServerRaw);
+    const webServerPorts = systemServicePortsText(webServerRaw);
     const cells = [
       `<td><div class="list-name">${esc(i.name)}</div></td>`,
       `<td>${esc(i.system_name || '-')}</td>`,
       `<td>${esc(i.version || '-')}</td>`,
       `<td>${esc((i.tech || []).map((x) => String(x || '').trim()).filter(Boolean).join(', ') || '-')}</td>`,
       `<td>${esc(String(i.target_version || '').trim() || '-')}</td>`,
-      `<td>${esc(String(i.app_server || '').trim() || '-')}</td>`,
-      `<td>${esc(String(i.web_server || '').trim() || '-')}</td>`,
+      `<td>${esc(appServerNames)}</td>`,
+      `<td>${esc(webServerNames)}</td>`,
       `<td>${esc(Number(i.containerization || 0) > 0 ? 'Sim' : 'Nao')}</td>`,
       `<td>${esc(String(i.container_tool || '').trim() || '-')}</td>`,
-      `<td>${esc(String(i.runtime_port || '').trim() || '-')}</td>`,
+      `<td>${esc(appServerPorts)}</td>`,
+      `<td>${esc(webServerPorts)}</td>`,
       `<td>${systemCompatibilityMarkup(i, { withAction: true })}</td>`,
     ];
     return `
@@ -2373,7 +2855,7 @@ function renderList(list){
       <td>${esc(vmIp(i, true))}</td>
       <td>${esc(vmName(i, 'dev'))}</td>
       <td>${esc(vmIp(i, 'dev'))}</td>
-      <td>${esc(relationVmText(i, 'access'))}</td>
+      <td>${esc(systemAccessLabel(i))}</td>
       <td>${esc(relationVmText(i, 'administration'))}</td>
     </tr>
   `).join('');
@@ -2385,7 +2867,7 @@ function renderList(list){
     .sort((a,b) => String(a.db_name || '').localeCompare(String(b.db_name || '')));
 
   if (!dbList.length) {
-    $('list-db-body').innerHTML = '<tr><td colspan="11" style="color:var(--muted)">Nenhuma base de dados encontrada para os filtros aplicados.</td></tr>';
+    $('list-db-body').innerHTML = '<tr><td colspan="13" style="color:var(--muted)">Nenhuma base de dados encontrada para os filtros aplicados.</td></tr>';
   } else {
     $('list-db-body').innerHTML = dbList.map((d) => {
       const systemId = Number(d.system_id);
@@ -2393,6 +2875,8 @@ function renderList(list){
       const systemName = String(system?.name || d.system_name || '-');
       const clickable = Number.isFinite(systemId) && systemsById.has(systemId);
       const administration = dbProductionAdministration(d);
+      const prodPort = String(dbInstancePort(d, false) || '').trim() || '-';
+      const homologPort = String(dbInstancePort(d, true) || '').trim() || '-';
       return `
       <tr${clickable ? ` onclick="openDetail(${systemId})"` : ''}>
         <td><div class="list-name">${esc(systemName)}</div></td>
@@ -2401,9 +2885,11 @@ function renderList(list){
         <td>${esc(String(d.vm_name || '').trim() || '-')}</td>
         <td>${esc(administration)}</td>
         <td>${esc(dbInstanceIp(d, false))}</td>
+        <td>${esc(prodPort)}</td>
         <td>${esc(dbInstanceName(d, false))}</td>
         <td>${esc(String(d.vm_homolog_name || '').trim() || '-')}</td>
         <td>${esc(dbInstanceIp(d, true))}</td>
+        <td>${esc(homologPort)}</td>
         <td>${esc(dbInstanceName(d, true))}</td>
         <td>${esc(d.notes || '-')}</td>
       </tr>
@@ -2457,6 +2943,8 @@ function renderList(list){
         ${badge(i.status)}
       </div>
       <div class="list-mobile-grid">
+        <div class="list-mobile-item"><span class="list-mobile-label">Porta App</span><span class="list-mobile-value">${esc(systemServicePortsText(i.app_server || ''))}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">Porta Web</span><span class="list-mobile-value">${esc(systemServicePortsText(i.web_server || ''))}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Sistema</span><span class="list-mobile-value">${esc(i.system_name || '-')}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Categoria</span><span class="list-mobile-value">${esc(i.category || '-')}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Grupo</span><span class="list-mobile-value">${esc(i.system_group || '-')}</span></div>
@@ -2465,11 +2953,10 @@ function renderList(list){
         <div class="list-mobile-item"><span class="list-mobile-label">Versao</span><span class="list-mobile-value">${esc(i.version || '-')}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Linguagem</span><span class="list-mobile-value">${esc((i.tech || []).map((x) => String(x || '').trim()).filter(Boolean).join(', ') || '-')}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Versao Alvo</span><span class="list-mobile-value">${esc(String(i.target_version || '').trim() || '-')}</span></div>
-        <div class="list-mobile-item"><span class="list-mobile-label">Servidor Aplicacao</span><span class="list-mobile-value">${esc(String(i.app_server || '').trim() || '-')}</span></div>
-        <div class="list-mobile-item"><span class="list-mobile-label">Web Server</span><span class="list-mobile-value">${esc(String(i.web_server || '').trim() || '-')}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">Servidor Aplicacao</span><span class="list-mobile-value">${esc(systemServiceNamesText(i.app_server || ''))}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">Web Server</span><span class="list-mobile-value">${esc(systemServiceNamesText(i.web_server || ''))}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Containerizacao</span><span class="list-mobile-value">${esc(Number(i.containerization || 0) > 0 ? 'Sim' : 'Nao')}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Ferramenta Container</span><span class="list-mobile-value">${esc(String(i.container_tool || '').trim() || '-')}</span></div>
-        <div class="list-mobile-item"><span class="list-mobile-label">Porta Execucao</span><span class="list-mobile-value">${esc(String(i.runtime_port || '').trim() || '-')}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Compatibilidade</span><span class="list-mobile-value">${esc(systemCompatibilityDisplayLabel(i))}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">VM Producao</span><span class="list-mobile-value">${esc(vmName(i, false))} | ${esc(vmIp(i, false))}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">VM Homologacao</span><span class="list-mobile-value">${esc(vmName(i, true))} | ${esc(vmIp(i, true))}</span></div>
@@ -2576,11 +3063,12 @@ function renderSystemsCards(list){
             <div class="system-info-field"><span>Criticidade</span><strong class="crit-${critKind(i.criticality)}">${esc(i.criticality || '-')}</strong></div>
             <div class="system-info-field"><span>Compatibilidade</span>${compatMarkup}</div>
             <div class="system-info-field"><span>Versao Alvo</span><strong>${esc(String(i.target_version || '').trim() || '-')}</strong></div>
-            <div class="system-info-field"><span>Servidor Aplicacao</span><strong>${esc(String(i.app_server || '').trim() || '-')}</strong></div>
-            <div class="system-info-field"><span>Web Server</span><strong>${esc(String(i.web_server || '').trim() || '-')}</strong></div>
+            <div class="system-info-field"><span>Servidor Aplicacao</span><strong>${esc(systemServiceNamesText(i.app_server || ''))}</strong></div>
+            <div class="system-info-field"><span>Web Server</span><strong>${esc(systemServiceNamesText(i.web_server || ''))}</strong></div>
             <div class="system-info-field"><span>Containerizacao</span><strong>${esc(Number(i.containerization || 0) > 0 ? 'Sim' : 'Nao')}</strong></div>
             <div class="system-info-field"><span>Ferramenta Container</span><strong>${esc(String(i.container_tool || '').trim() || '-')}</strong></div>
-            <div class="system-info-field"><span>Porta Execucao</span><strong>${esc(String(i.runtime_port || '').trim() || '-')}</strong></div>
+            <div class="system-info-field"><span>Porta App</span><strong>${esc(systemServicePortsText(i.app_server || ''))}</strong></div>
+            <div class="system-info-field"><span>Porta Web</span><strong>${esc(systemServicePortsText(i.web_server || ''))}</strong></div>
             <div class="system-info-field system-info-field-full"><span>Observacoes</span><strong>${esc(i.notes || '-')}</strong></div>
           </div>
         </section>
@@ -2595,7 +3083,7 @@ function renderSystemsCards(list){
             <div class="system-info-field"><span>IP Homologacao</span><strong>${esc(vmIp(i, true))}</strong></div>
             <div class="system-info-field"><span>VM Desenvolvimento</span><strong>${esc(vmName(i, 'dev'))}</strong></div>
             <div class="system-info-field"><span>IP Desenvolvimento</span><strong>${esc(vmIp(i, 'dev'))}</strong></div>
-            <div class="system-info-field"><span>Acesso</span><strong>${esc(relationVmText(i, 'access'))}</strong></div>
+            <div class="system-info-field"><span>Acesso</span><strong>${esc(systemAccessLabel(i))}</strong></div>
             <div class="system-info-field"><span>Administracao</span><strong>${esc(relationVmText(i, 'administration'))}</strong></div>
           </div>
         </section>
@@ -2607,37 +3095,39 @@ function renderSystemsCards(list){
         </section>
         ` : ''}
 
-        <section class="system-info-section system-info-section-support">
-          <div class="system-info-title">Contatos e Suporte</div>
-          <div class="system-info-grid">
-            <div class="system-info-field"><span>Responsavel Tecnico</span><strong>${esc(i.owner || '-')}</strong></div>
-            <div class="system-info-field"><span>Coordenador Responsavel</span><strong>${esc(i.responsible_coordinator || '-')}</strong></div>
-            <div class="system-info-field"><span>Ramal</span><strong>${esc(i.extension_number || '-')}</strong></div>
-            <div class="system-info-field"><span>Email</span><strong>${esc(i.email || '-')}</strong></div>
-            <div class="system-info-field"><span>Suporte</span><strong>${esc(i.support || '-')}</strong></div>
-            <div class="system-info-field"><span>Contato Suporte</span><strong>${esc(i.support_contact || '-')}</strong></div>
-          </div>
-        </section>
+        <div class="system-info-bottom-row">
+          <section class="system-info-section system-info-section-support">
+            <div class="system-info-title">Contatos e Suporte</div>
+            <div class="system-info-grid">
+              <div class="system-info-field"><span>Responsavel Tecnico</span><strong>${esc(i.owner || '-')}</strong></div>
+              <div class="system-info-field"><span>Coordenador Responsavel</span><strong>${esc(i.responsible_coordinator || '-')}</strong></div>
+              <div class="system-info-field"><span>Ramal</span><strong>${esc(i.extension_number || '-')}</strong></div>
+              <div class="system-info-field"><span>Email</span><strong>${esc(i.email || '-')}</strong></div>
+              <div class="system-info-field"><span>Suporte</span><strong>${esc(i.support || '-')}</strong></div>
+              <div class="system-info-field"><span>Contato Suporte</span><strong>${esc(i.support_contact || '-')}</strong></div>
+            </div>
+          </section>
 
-        <section class="system-info-section system-info-section-ops">
-          <div class="system-info-title">Deploy e Empacotamento</div>
-          <div class="system-info-grid">
-            <div class="system-info-field"><span>Analytics</span><strong>${esc(i.analytics || '-')}</strong></div>
-            <div class="system-info-field"><span>Diretorio</span><strong>${esc(i.directory || '-')}</strong></div>
-            <div class="system-info-field"><span>Tamanho</span><strong>${esc(i.size || '-')}</strong></div>
-            <div class="system-info-field"><span>Repositorio</span><strong>${esc(i.repository || '-')}</strong></div>
-          </div>
-        </section>
+          <section class="system-info-section system-info-section-ops">
+            <div class="system-info-title">Deploy e Empacotamento</div>
+            <div class="system-info-grid">
+              <div class="system-info-field"><span>Analytics</span><strong>${esc(i.analytics || '-')}</strong></div>
+              <div class="system-info-field"><span>Diretorio</span><strong>${esc(i.directory || '-')}</strong></div>
+              <div class="system-info-field"><span>Tamanho</span><strong>${esc(i.size || '-')}</strong></div>
+              <div class="system-info-field"><span>Repositorio</span><strong>${esc(i.repository || '-')}</strong></div>
+            </div>
+          </section>
 
-        <section class="system-info-section">
-          <div class="system-info-title">Documentacao</div>
-          <div class="system-info-grid">
-            ${docField('installation', 'Instalacao')}
-            ${docField('maintenance', 'Manutencao/Atualizacao')}
-            ${docField('security', 'Seguranca')}
-            ${docField('manual', 'Manual/Procedimentos')}
-          </div>
-        </section>
+          <section class="system-info-section system-info-section-docs">
+            <div class="system-info-title">Documentacao</div>
+            <div class="system-info-grid">
+              ${docField('installation', 'Instalacao')}
+              ${docField('maintenance', 'Manutencao/Atualizacao')}
+              ${docField('security', 'Seguranca')}
+              ${docField('manual', 'Manual/Procedimentos')}
+            </div>
+          </section>
+        </div>
       </article>
     `;
   }).join('');
@@ -2672,13 +3162,15 @@ function renderDatabases(){
   table?.classList.toggle('readonly', !editable);
   const list = [...App.databases].sort((a,b)=>String(a.db_name || '').localeCompare(String(b.db_name || '')));
   if (!list.length) {
-    $('db-body').innerHTML = '<tr><td colspan="11" style="color:var(--muted)">Nenhuma base de dados cadastrada.</td></tr>';
+    $('db-body').innerHTML = '<tr><td colspan="13" style="color:var(--muted)">Nenhuma base de dados cadastrada.</td></tr>';
     $('db-cards').innerHTML = '<div class="db-mobile-card"><div class="db-mobile-value" style="color:var(--muted)">Nenhuma base de dados cadastrada.</div></div>';
     return;
   }
 
   $('db-body').innerHTML = list.map((d) => {
     const administration = dbProductionAdministration(d);
+    const prodPort = String(dbInstancePort(d, false) || '').trim() || '-';
+    const homologPort = String(dbInstancePort(d, true) || '').trim() || '-';
     return `
     <tr${editable ? ` onclick="openDbFormById(${d.id})"` : ''}>
       <td>${esc(d.system_name || '-')}</td>
@@ -2687,9 +3179,11 @@ function renderDatabases(){
       <td>${esc(String(d.vm_name || '').trim() || '-')}</td>
       <td>${esc(administration)}</td>
       <td>${esc(dbInstanceIp(d, false))}</td>
+      <td>${esc(prodPort)}</td>
       <td>${esc(dbInstanceName(d, false))}</td>
       <td>${esc(String(d.vm_homolog_name || '').trim() || '-')}</td>
       <td>${esc(dbInstanceIp(d, true))}</td>
+      <td>${esc(homologPort)}</td>
       <td>${esc(dbInstanceName(d, true))}</td>
       <td>${esc(d.notes || '-')}</td>
     </tr>
@@ -2714,7 +3208,9 @@ function renderDatabases(){
         <div class="db-mobile-item"><span class="db-mobile-label">Instancia SGBD</span><span class="db-mobile-value">${esc(dbInstanceName(d, false))}</span></div>
         <div class="db-mobile-item"><span class="db-mobile-label">VM Homologacao</span><span class="db-mobile-value">${esc(String(d.vm_homolog_name || '').trim() || '-')}</span></div>
         <div class="db-mobile-item"><span class="db-mobile-label">IP da Instancia</span><span class="db-mobile-value">${esc(dbInstanceIp(d, false))}</span></div>
+        <div class="db-mobile-item"><span class="db-mobile-label">Porta da Instancia</span><span class="db-mobile-value">${esc(String(dbInstancePort(d, false) || '').trim() || '-')}</span></div>
         <div class="db-mobile-item"><span class="db-mobile-label">IP Instancia Homologacao</span><span class="db-mobile-value">${esc(dbInstanceIp(d, true))}</span></div>
+        <div class="db-mobile-item"><span class="db-mobile-label">Porta Instancia Homologacao</span><span class="db-mobile-value">${esc(String(dbInstancePort(d, true) || '').trim() || '-')}</span></div>
         <div class="db-mobile-item"><span class="db-mobile-label">Instancia SGBD Homologacao</span><span class="db-mobile-value">${esc(dbInstanceName(d, true))}</span></div>
         <div class="db-mobile-item"><span class="db-mobile-label">Observacoes</span><span class="db-mobile-value">${esc(d.notes || '-')}</span></div>
       </div>
@@ -2746,14 +3242,14 @@ function renderDns(){
     const hmlPublicIp = vmPublicIp(i, true);
     const hasBundle = String(i.bundle || '').trim() !== '';
     const bundleStatus = hasBundle ? 'Ativo' : '-';
-    const prodRows = systemUrlList(i, false).map((url) => ({ id: Number(i.id), url, ip: prodIp, manualPublicIp: prodPublicIp, bundleStatus }));
-    const hmlRows = systemUrlList(i, true).map((url) => ({ id: Number(i.id), url, ip: hmlIp, manualPublicIp: hmlPublicIp, bundleStatus }));
+    const prodRows = systemUrlList(i, false).map((url) => ({ id: Number(i.id), url, ip: prodIp, manualPublicIp: prodPublicIp, bundleStatus, urlEnv: 'Producao' }));
+    const hmlRows = systemUrlList(i, true).map((url) => ({ id: Number(i.id), url, ip: hmlIp, manualPublicIp: hmlPublicIp, bundleStatus, urlEnv: 'Homologacao' }));
 
     if (!prodRows.length && String(prodIp).trim() !== '' && String(prodIp).trim() !== '-') {
-      prodRows.push({ id: Number(i.id), url: '', ip: prodIp, manualPublicIp: prodPublicIp, bundleStatus });
+      prodRows.push({ id: Number(i.id), url: '', ip: prodIp, manualPublicIp: prodPublicIp, bundleStatus, urlEnv: 'Producao' });
     }
     if (!hmlRows.length && String(hmlIp).trim() !== '' && String(hmlIp).trim() !== '-') {
-      hmlRows.push({ id: Number(i.id), url: '', ip: hmlIp, manualPublicIp: hmlPublicIp, bundleStatus });
+      hmlRows.push({ id: Number(i.id), url: '', ip: hmlIp, manualPublicIp: hmlPublicIp, bundleStatus, urlEnv: 'Homologacao' });
     }
 
     return [...prodRows, ...hmlRows];
@@ -2768,13 +3264,22 @@ function renderDns(){
     const resolvedPublicIp = cacheHasHost ? String(App.dnsNatCache[host] || '').trim() : '';
     const resolvedSsl = cacheHasSsl ? String(App.dnsSslCache[sslTarget] || '').trim() : '';
     const resolvedWaf = cacheHasWaf ? String(App.dnsWafCache[host] || '').trim() : '';
+    const internalIps = parseVmIpList(r.ip);
+    const resolvedWafIps = parseVmIpList(resolvedWaf);
+    const wafEqualsInternalIp = resolvedWafIps.length > 0
+      && internalIps.length > 0
+      && resolvedWafIps.some((ip) => internalIps.includes(ip));
     const publicIp = hasManualNat
       ? manualPublicIp
       : (cacheHasHost ? (resolvedPublicIp || '-') : (host ? 'Consultando...' : '-'));
     const sslValidity = cacheHasSsl ? (resolvedSsl || '-') : (sslTarget ? 'Consultando...' : dnsSslFallbackText(r.url));
     const wafInfo = !host
       ? '-'
-      : (cacheHasWaf ? ((resolvedWaf && resolvedWaf !== '-') ? `Ativo (${resolvedWaf})` : '-') : 'Consultando...');
+      : (cacheHasWaf
+        ? ((resolvedWaf && resolvedWaf !== '-')
+          ? (wafEqualsInternalIp ? 'Nao configurado' : `Ativo (${resolvedWaf})`)
+          : '-')
+        : 'Consultando...');
     return { ...r, host, sslTarget, publicIp, manualPublicIp, sslValidity, wafInfo };
   }).filter((r) => {
     const url = String(r.url || '').trim();
@@ -2794,7 +3299,7 @@ function renderDns(){
   const rows = allRows.filter((r) => dnsRowMatchesFilters(r, filters));
 
   if (!rows.length) {
-    const hasFilter = Boolean(filters.domain || filters.internalIp || filters.publicIp || filters.ssl);
+    const hasFilter = Boolean(filters.domain || filters.urlEnv || filters.internalIp || filters.publicIp || filters.ssl);
     const msg = hasFilter
       ? 'Nenhum registro DNS encontrado para os filtros informados.'
       : 'Nenhum registro DNS com URL/IP informado.';
@@ -2842,7 +3347,7 @@ function renderDns(){
       <div class="db-mobile-grid">
         <div class="db-mobile-item"><span class="db-mobile-label">URL</span><span class="db-mobile-value">${linkHtml(r.url)}</span></div>
         <div class="db-mobile-item"><span class="db-mobile-label">IP Interno</span><span class="db-mobile-value">${esc(r.ip || '-')}</span></div>
-        <div class="db-mobile-item"><span class="db-mobile-label">WAF (IP Resolvido)</span><span class="db-mobile-value">${esc(r.wafInfo || '-')}</span></div>
+        <div class="db-mobile-item"><span class="db-mobile-label">WAF</span><span class="db-mobile-value">${esc(r.wafInfo || '-')}</span></div>
         <div class="db-mobile-item"><span class="db-mobile-label">IP Publico (NAT)</span><span class="db-mobile-value">${esc(r.publicIp || '-')}</span></div>
         <div class="db-mobile-item"><span class="db-mobile-label">Validade SSL</span><span class="db-mobile-value">${esc(r.sslValidity || '-')}</span></div>
         <div class="db-mobile-item"><span class="db-mobile-label">Cert. Bundle</span><span class="db-mobile-value">${esc(r.bundleStatus || '-')}</span></div>
@@ -2877,12 +3382,17 @@ function renderVmReport(sourceVms = null){
             const use = vmUsage(vm.id);
             const dbs = vmDatabases(vm.id);
             const osLabel = String(vm.os_name || '').trim();
+            const isSgbd = type === 'SGBD';
             const languages = vmLanguageList(vm);
             const languageTags = languages.map((item) => vmLanguageTagText(vm, item)).filter(Boolean);
             const deployTags = vmDeploymentTags(vm);
             const instances = vmInstances(vm);
-            const instanceTags = instances.map((inst) => `${inst.name || 'Instancia'}`);
-            const stackTags = [...languageTags, ...deployTags];
+            const instanceTags = instances.map((inst) => {
+              const endpoint = inst.port ? `${inst.ip}:${inst.port}` : inst.ip;
+              return endpoint ? `${inst.name || 'Instancia'} (${endpoint})` : `${inst.name || 'Instancia'}`;
+            });
+            const stackTags = isSgbd ? [] : [...languageTags, ...deployTags];
+            const instancePortTags = vmSgbdInstancePortTags(vm);
             const specs = [
               vm.vcpus ? `${vm.vcpus} vCPU` : '',
               vm.ram ? `RAM ${vm.ram}` : '',
@@ -2916,7 +3426,14 @@ function renderVmReport(sourceVms = null){
               ${osLabel ? `<div class="vm-report-sub">SO: ${esc(osLabel)}</div>` : ''}
               ${specs.length ? `<div class="tags">${specs.map((s)=>`<span class="tag">${esc(s)}</span>`).join('')}</div>` : ''}
               ${stackTags.length ? `<div class="tags">${stackTags.map((tag)=>`<span class="tag">${esc(tag)}</span>`).join('')}</div>` : ''}
-              ${instanceTags.length ? `<div class="tags">${instanceTags.map((tag)=>`<span class="tag">${esc(tag)}</span>`).join('')}</div>` : ''}
+              ${isSgbd ? `
+              <div class="vm-report-block">
+                <div class="vm-report-block-title">Instancias e Portas</div>
+                ${instancePortTags.length
+                  ? `<div class="tags vm-report-tags">${instancePortTags.map((tag)=>`<span class="tag">${esc(tag)}</span>`).join('')}</div>`
+                  : `<div class="vm-report-sub">-</div>`}
+              </div>
+              ` : (instanceTags.length ? `<div class="tags">${instanceTags.map((tag)=>`<span class="tag">${esc(tag)}</span>`).join('')}</div>` : '')}
 
               ${systemsLinked.length ? `
               <div class="vm-report-block">
@@ -2972,19 +3489,17 @@ function filterVmsByCriteria(vms, criteria={}){
   const vmcatf = String(criteria.category || '').trim();
   const vmtypef = String(criteria.type || '').trim();
   const vmosf = String(criteria.os || '').trim();
-  const vmaccessf = String(criteria.access || '').trim();
   const vmadminf = String(criteria.administration || '').trim();
 
   return vms.filter((vm) => {
     if (vmcatf && vmCategoryLabel(vm) !== vmcatf) return false;
     if (vmtypef && vmTypeLabel(vm) !== vmtypef) return false;
     if (vmosf && norm(vm?.os_name || '') !== norm(vmosf)) return false;
-    if (vmaccessf && vmAccessLabel(vm) !== vmaccessf) return false;
     if (vmadminf && vmAdministrationLabel(vm) !== vmadminf) return false;
     if (!vmq) return true;
     const use = vmUsage(vm.id);
     const linkedSystems = [...new Set([...use.prod.map((s)=>s.name), ...use.hml.map((s)=>s.name), ...use.dev.map((s)=>s.name)])].join(' ');
-    const instancesText = vmInstances(vm).map((inst) => `${inst.name || ''} ${inst.ip || ''}`).join(' ');
+    const instancesText = vmInstances(vm).map((inst) => `${inst.name || ''} ${inst.ip || ''} ${inst.port || ''}`).join(' ');
     const languageText = vmLanguageList(vm).join(' ');
     const languageVersionText = Object.values(vmLanguageVersions(vm)).map((v) => String(v || '').trim()).filter(Boolean).join(' ');
     const deploymentText = vmDeploymentTags(vm).join(' ');
@@ -2998,7 +3513,6 @@ function filterVmsByCriteria(vms, criteria={}){
       vm.disk,
       vmCategoryLabel(vm),
       vmTypeLabel(vm),
-      vmAccessLabel(vm),
       vmAdministrationLabel(vm),
       languageText,
       languageVersionText,
@@ -3029,7 +3543,6 @@ function renderMachines(){
     category: $('vmcatf')?.value || '',
     type: $('vmtypef')?.value || '',
     os: $('vmosf')?.value || '',
-    access: $('vmaccessf')?.value || '',
     administration: $('vmadminf')?.value || ''
   });
   if (vmCountEl) vmCountEl.textContent = `${filteredVms.length} resultado(s)`;
@@ -3066,6 +3579,8 @@ function renderMachines(){
         const languages = vmLanguageList(vm);
         const languageTags = languages.map((item) => vmLanguageTagText(vm, item)).filter(Boolean);
         const techTags = vmDeploymentTags(vm);
+        const isSgbd = type === 'SGBD';
+        const sgbdPairs = vmSgbdInstancePortPairs(vm);
         const specs = [vm.vcpus ? `${vm.vcpus} vCPU` : '', vm.ram || '', vm.disk || ''].filter(Boolean).join(' | ');
         const relationCount = category === 'Producao'
           ? use.prod.length
@@ -3083,12 +3598,13 @@ function renderMachines(){
             <td class="vm-ip-col">${esc(vmIpSummary(vm))}</td>
             <td>${esc(vmCategoryLabel(vm))}</td>
             <td>${esc(vmTypeLabel(vm))}</td>
-            <td>${esc(vmAccessLabel(vm))}</td>
             <td>${esc(vmAdministrationLabel(vm))}</td>
             <td class="vm-os-col">${esc(vm.os_name || '-')}</td>
             <td class="vm-res-col">${esc(specs || '-')}</td>
-            <td class="vm-lang-col">${languageTags.length ? `<div class="vm-tech-tags">${languageTags.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : '-'}</td>
-            <td class="vm-tech-col">${techTags.length ? `<div class="vm-tech-tags">${techTags.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : '-'}</td>
+            ${isSgbd
+              ? `<td class="vm-tech-col" colspan="2">${sgbdPairs.length ? `<div class="vm-tech-tags">${sgbdPairs.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : '-'}</td>`
+              : `<td class="vm-lang-col">${languageTags.length ? `<div class="vm-tech-tags">${languageTags.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : '-'}</td>
+            <td class="vm-tech-col">${techTags.length ? `<div class="vm-tech-tags">${techTags.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : '-'}</td>`}
             <td class="${metricClass}">${metricValue}</td>
             <td class="vm-actions-col">${diagBtn ? `<div class="actions">${diagBtn}</div>` : '-'}</td>
           </tr>
@@ -3102,6 +3618,8 @@ function renderMachines(){
         const tech = vmDeploymentTags(vm);
         const instances = vmInstances(vm);
         const languageTags = languages.map((item) => vmLanguageTagText(vm, item)).filter(Boolean);
+        const isSgbd = type === 'SGBD';
+        const sgbdPairs = vmSgbdInstancePortPairs(vm);
         const specs = [vm.vcpus ? `${vm.vcpus} vCPU` : '', vm.ram || '', vm.disk || ''].filter(Boolean);
         const relationCount = category === 'Producao'
           ? use.prod.length
@@ -3115,13 +3633,13 @@ function renderMachines(){
           <div class="vm-mobile-card">
             <div class="vm-mobile-title">${esc(vm.name)}</div>
             <div class="vm-mobile-ip">${esc(vmIpSummary(vm))}</div>
-            <div class="vm-mobile-ip">Categoria: ${esc(vmCategoryLabel(vm))} | Tipo: ${esc(vmTypeLabel(vm))}</div>
-            <div class="vm-mobile-ip">Acesso: ${esc(vmAccessLabel(vm))} | Administracao: ${esc(vmAdministrationLabel(vm))}</div>
+            <div class="vm-mobile-ip">Ambiente: ${esc(vmCategoryLabel(vm))} | Tipo: ${esc(vmTypeLabel(vm))}</div>
+            <div class="vm-mobile-ip">Administracao: ${esc(vmAdministrationLabel(vm))}</div>
             ${vm.os_name ? `<div class="vm-mobile-ip">SO: ${esc(vm.os_name)}</div>` : ''}
             ${specs.length ? `<div class="tags">${specs.map((s)=>`<span class="tag">${esc(s)}</span>`).join('')}</div>` : ''}
-            ${languageTags.length ? `<div class="tags">${languageTags.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : ''}
-            ${tech.length ? `<div class="tags">${tech.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : ''}
-            ${instances.length ? `<div class="tags">${instances.map((inst)=>`<span class="tag">${esc(`${inst.name || 'Instancia'}`)}</span>`).join('')}</div>` : ''}
+            ${isSgbd ? (sgbdPairs.length ? `<div class="tags">${sgbdPairs.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : `<div class="vm-mobile-ip">Instancias / Portas: -</div>`) : (languageTags.length ? `<div class="tags">${languageTags.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : '')}
+            ${!isSgbd && tech.length ? `<div class="tags">${tech.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : ''}
+            ${!isSgbd && instances.length ? `<div class="tags">${instances.map((inst)=>{ const endpoint = inst.port ? `${inst.ip}:${inst.port}` : inst.ip; return `<span class="tag">${esc(endpoint ? `${inst.name || 'Instancia'} (${endpoint})` : `${inst.name || 'Instancia'}`)}</span>`; }).join('')}</div>` : ''}
             <div class="vm-mobile-stats">
               <div class="vm-mobile-stat"><div class="vm-mobile-stat-label">${relationLabelCard}</div><div class="vm-mobile-stat-value">${relationCount}</div></div>
               <div class="vm-mobile-stat"><div class="vm-mobile-stat-label">Bases</div><div class="vm-mobile-stat-value">${dbs.length}</div></div>
@@ -3137,7 +3655,7 @@ function renderMachines(){
         <div class="vm-type-title">${esc(type)}</div>
         <div class="table-wrap vm-desktop-table">
             <table class="vm-compact-table">
-              <thead><tr><th class="vm-name-col">Nome da Maquina</th><th class="vm-ip-col">IP</th><th>Categoria</th><th>Tipo</th><th>Acesso</th><th>Administracao</th><th class="vm-os-col">Sistema Operacional</th><th class="vm-res-col">Recursos (vCPU | RAM | Disco)</th><th class="vm-lang-col">Linguagem</th><th class="vm-tech-col">Deploy</th><th class="${type === 'SGBD' ? 'vm-db-col' : 'vm-rel-col'}">${type === 'SGBD' ? 'Bases de Dados' : esc(relationHeader)}</th><th class="vm-actions-col">Diagnostico</th></tr></thead>
+              <thead><tr><th class="vm-name-col">Nome da Maquina</th><th class="vm-ip-col">IP</th><th>Ambiente</th><th>Tipo</th><th>Administracao</th><th class="vm-os-col">Sistema Operacional</th><th class="vm-res-col">Recursos (vCPU | RAM | Disco)</th>${type === 'SGBD' ? '<th class="vm-tech-col" colspan="2">Instancias / Portas</th>' : '<th class="vm-lang-col">Linguagens Instaladas</th><th class="vm-tech-col">Deploy</th>'}<th class="${type === 'SGBD' ? 'vm-db-col' : 'vm-rel-col'}">${type === 'SGBD' ? 'Bases de Dados' : esc(relationHeader)}</th><th class="vm-actions-col">Diagnostico</th></tr></thead>
               <tbody>${rows}</tbody>
             </table>
           </div>
@@ -3163,7 +3681,6 @@ function renderVmReportTab(){
     category: $('vmrcatf')?.value || '',
     type: $('vmrtypef')?.value || '',
     os: $('vmrosf')?.value || '',
-    access: $('vmraccessf')?.value || '',
     administration: $('vmradminf')?.value || ''
   });
   if (resultEl) resultEl.textContent = `${filteredVms.length} resultado(s)`;
@@ -3469,6 +3986,7 @@ function openForm(item=null){
   $('fowner').value = item?.owner || '';
   $('furl').value = joinUrlList(systemUrlList(item, false));
   $('furl_homolog').value = joinUrlList(systemUrlList(item, true));
+  $('faccess').value = systemAccessLabel(item);
   $('fdesc').value = item?.description || '';
   $('fsector').value = item?.responsible_sector || '';
   $('fcoordinator').value = item?.responsible_coordinator || '';
@@ -3486,7 +4004,6 @@ function openForm(item=null){
   $('fweb_server').value = item?.web_server || '';
   $('fcontainerization').value = Number(item?.containerization || 0) > 0 ? '1' : '0';
   $('fcontainer_tool').value = item?.container_tool || '';
-  $('fruntime_port').value = item?.runtime_port || '';
   $('fphp_required_extensions').value = item?.php_required_extensions || '';
   $('fphp_required_ini').value = item?.php_required_ini || '';
   $('fr_required_packages').value = item?.r_required_packages || '';
@@ -3569,6 +4086,7 @@ async function saveSystem(){
     vm_id:Number($('fvm_id').value) || null,
     vm_homolog_id:Number($('fvm_homolog_id').value) || null,
     vm_dev_id:Number($('fvm_dev_id').value) || null,
+    system_access:$('faccess').value.trim(),
     url_homolog:joinUrlList($('furl_homolog').value),
     description:$('fdesc').value.trim(),
     responsible_sector:$('fsector').value.trim(),
@@ -3591,19 +4109,12 @@ async function saveSystem(){
     web_server:$('fweb_server').value.trim(),
     containerization: String($('fcontainerization').value || '0') === '1' ? 1 : 0,
     container_tool:$('fcontainer_tool').value.trim(),
-    runtime_port:$('fruntime_port').value.trim(),
     php_required_extensions:$('fphp_required_extensions').value.trim(),
     php_required_ini:$('fphp_required_ini').value.trim(),
     r_required_packages:$('fr_required_packages').value.trim(),
   };
 
   if (!data.containerization) data.container_tool = '';
-  const normalizedSystemPorts = normalizePortInput(data.runtime_port);
-  if (!normalizedSystemPorts.ok) {
-    toast('Porta de execucao invalida. Use valores entre 1 e 65535 separados por virgula.', true);
-    return;
-  }
-  data.runtime_port = normalizedSystemPorts.value;
 
   try{
     const r = await api('save', data);
@@ -3681,11 +4192,13 @@ function openDbForm(item=null){
   syncDbInstanceOptions(
     {
       name: String(item?.db_instance_name || '').trim(),
-      ip: String(item?.db_instance_ip || '').trim()
+      ip: String(item?.db_instance_ip || '').trim(),
+      port: String(item?.db_instance_port || '').trim()
     },
     {
       name: String(item?.db_instance_homolog_name || '').trim(),
-      ip: String(item?.db_instance_homolog_ip || '').trim()
+      ip: String(item?.db_instance_homolog_ip || '').trim(),
+      port: String(item?.db_instance_homolog_port || '').trim()
     }
   );
   syncDbHomologIp();
@@ -3714,8 +4227,10 @@ async function saveDb(){
     db_engine_version_homolog: '',
     db_instance_name: selectedInstance.name,
     db_instance_ip: selectedInstance.ip,
+    db_instance_port: selectedInstance.port,
     db_instance_homolog_name: selectedHomologInstance.name,
     db_instance_homolog_ip: selectedHomologInstance.ip,
+    db_instance_homolog_port: selectedHomologInstance.port,
     notes: $('fdbnotes').value.trim(),
   };
 
@@ -3779,17 +4294,15 @@ function openVmForm(vm=null){
   $('fvmpublicip').value = vmPublicIpList(vm).join(', ');
   $('fvmcategory').value = vmCategoryLabel(vm);
   $('fvmtype').value = vmTypeLabel(vm);
-  $('fvmaccess').value = vmAccessLabel(vm);
   $('fvmadministration').value = vmAdministrationLabel(vm);
   $('fvmos').value = vm?.os_name || '';
   $('fvmvcpus').value = vm?.vcpus || '';
   $('fvmram').value = vm?.ram || '';
   $('fvmdisk').value = vm?.disk || '';
   $('fvmlanguage').value = vmLanguageList(vm).join(', ');
-  $('fvmtech').value = vmTechList(vm).join(', ');
-  $('fvmwebserver').value = vmWebServerList(vm).join(', ');
   $('fvmcontainertool').value = vmContainerToolList(vm).join(', ');
-  $('fvmruntimeport').value = vmRuntimePortText(vm);
+  setVmAppServerRows(vmServiceRowsFromList(vmTechList(vm)));
+  setVmWebServerRows(vmServiceRowsFromList(vmWebServerList(vm)));
   setVmInstanceRows(vmInstList);
   syncVmInstanceIpOptions();
   $('mvm').classList.remove('hidden');
@@ -3804,12 +4317,40 @@ function archiveCurrentVm(){
 async function saveVm(){
   if (!ensureCanEdit()) return;
   const ipList = vmFormIpList();
+  const appServerPayload = readVmServiceRows('fvmapp_rows');
+  const webServerPayload = readVmServiceRows('fvmweb_rows');
   const vmInstancesPayload = readVmInstanceRows();
   const instances = vmInstancesPayload.instances;
+  if (appServerPayload.invalidName) {
+    toast('Informe o nome do servidor da aplicacao.', true);
+    return;
+  }
+  if (appServerPayload.invalidPort) {
+    toast(`Servidor da aplicacao: ${appServerPayload.invalidPort}`, true);
+    return;
+  }
+  if (webServerPayload.invalidName) {
+    toast('Informe o nome do reverse proxy / web server.', true);
+    return;
+  }
+  if (webServerPayload.invalidPort) {
+    toast(`Reverse proxy / web server: ${webServerPayload.invalidPort}`, true);
+    return;
+  }
   if (vmInstancesPayload.invalidRow) {
     toast('Preencha o IP de todas as instancias SGBD informadas.', true);
     return;
   }
+  if (vmInstancesPayload.invalidPort) {
+    toast(vmInstancesPayload.invalidPort, true);
+    return;
+  }
+  const appServers = appServerPayload.items
+    .map((item) => vmServiceItemValue(item.name, item.port))
+    .filter(Boolean);
+  const webServers = webServerPayload.items
+    .map((item) => vmServiceItemValue(item.name, item.port))
+    .filter(Boolean);
   const data = {
     id: $('fvmid').value || null,
     name: $('fvmname').value.trim(),
@@ -3817,7 +4358,6 @@ async function saveVm(){
     public_ip: parseVmIpList($('fvmpublicip')?.value || '').join(', '),
     vm_category: $('fvmcategory').value.trim(),
     vm_type: $('fvmtype').value.trim(),
-    vm_access: $('fvmaccess').value.trim(),
     vm_administration: $('fvmadministration').value.trim(),
     os_name: $('fvmos').value.trim(),
     vcpus: $('fvmvcpus').value.trim(),
@@ -3825,24 +4365,18 @@ async function saveVm(){
     disk: $('fvmdisk').value.trim(),
     vm_instances: instances,
     vm_language: $('fvmlanguage').value.split(',').map((x)=>x.trim()).filter(Boolean),
-    vm_app_server: $('fvmtech').value.split(',').map((x)=>x.trim()).filter(Boolean),
-    vm_web_server: $('fvmwebserver').value.split(',').map((x)=>x.trim()).filter(Boolean),
+    vm_app_server: appServers,
+    vm_web_server: webServers,
     vm_container_tool: $('fvmcontainertool').value.split(',').map((x)=>x.trim()).filter(Boolean),
-    vm_runtime_port: $('fvmruntimeport').value.trim(),
+    vm_runtime_port: '',
     // Compatibilidade com backend legado.
-    vm_tech: $('fvmtech').value.split(',').map((x)=>x.trim()).filter(Boolean),
+    vm_tech: appServers,
   };
 
   if (!data.name || !ipList.length) {
     toast('Informe nome e ao menos um IP da maquina.', true);
     return;
   }
-  const normalizedVmPorts = normalizePortInput(data.vm_runtime_port);
-  if (!normalizedVmPorts.ok) {
-    toast('Porta de execucao invalida. Use valores entre 1 e 65535 separados por virgula.', true);
-    return;
-  }
-  data.vm_runtime_port = normalizedVmPorts.value;
   if (data.vm_type === 'SGBD' && !data.vm_instances.length) {
     toast('Para VM do tipo SGBD informe ao menos uma instancia com IP.', true);
     return;

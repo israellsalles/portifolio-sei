@@ -481,13 +481,28 @@ function normalizeVmInstancesValue($raw): array {
     if (!is_array($item)) { continue; }
     $name = trim((string)($item['name'] ?? $item['technology'] ?? $item['label'] ?? ''));
     $ip = trim((string)($item['ip'] ?? $item['host'] ?? ''));
+    $port = trim((string)($item['port'] ?? $item['instance_port'] ?? $item['db_port'] ?? ''));
+    if ($port === '' && preg_match('/^(.+):(\d{1,5})$/', $ip, $parts)) {
+      $candidateIp = trim((string)($parts[1] ?? ''));
+      $candidatePort = trim((string)($parts[2] ?? ''));
+      if (filter_var($candidateIp, FILTER_VALIDATE_IP)) {
+        $ip = $candidateIp;
+        $port = $candidatePort;
+      }
+    }
+    if ($port !== '') {
+      if (!preg_match('/^\d+$/', $port)) { continue; }
+      $portInt = (int)$port;
+      if ($portInt < 1 || $portInt > 65535) { continue; }
+      $port = (string)$portInt;
+    }
     if ($name === '' && $ip === '') { continue; }
     if ($name === '') { $name = 'Instancia ' . (count($out) + 1); }
     if ($ip === '') { continue; }
-    $key = strtolower($name) . '|' . strtolower($ip);
+    $key = strtolower($name) . '|' . strtolower($ip) . '|' . $port;
     if (isset($seen[$key])) { continue; }
     $seen[$key] = true;
-    $out[] = ['name' => $name, 'ip' => $ip];
+    $out[] = ['name' => $name, 'ip' => $ip, 'port' => $port];
   }
   return $out;
 }
@@ -499,24 +514,33 @@ function vmInstancesWithFallback(array $vm): array {
   if (!$ips) { return []; }
   $out = [];
   foreach ($ips as $ip) {
-    $out[] = ['name' => 'Instancia principal', 'ip' => $ip];
+    $out[] = ['name' => 'Instancia principal', 'ip' => $ip, 'port' => ''];
   }
   return $out;
 }
 
-function resolveVmInstance(array $vm, string $name, string $ip): ?array {
+function resolveVmInstance(array $vm, string $name, string $ip, string $port = ''): ?array {
   $instances = vmInstancesWithFallback($vm);
   if (!$instances) { return null; }
   $targetName = trim($name);
   $targetIp = trim($ip);
+  $targetPort = trim($port);
+  if ($targetPort !== '') {
+    if (!preg_match('/^\d+$/', $targetPort)) { return null; }
+    $targetPortInt = (int)$targetPort;
+    if ($targetPortInt < 1 || $targetPortInt > 65535) { return null; }
+    $targetPort = (string)$targetPortInt;
+  }
 
   if ($targetIp !== '') {
     foreach ($instances as $instance) {
       $instIp = trim((string)($instance['ip'] ?? ''));
       $instName = trim((string)($instance['name'] ?? ''));
+      $instPort = trim((string)($instance['port'] ?? ''));
       if ($instIp !== $targetIp) { continue; }
       if ($targetName !== '' && strtolower($instName) !== strtolower($targetName)) { continue; }
-      return ['name' => $instName, 'ip' => $instIp];
+      if ($targetPort !== '' && $instPort !== $targetPort) { continue; }
+      return ['name' => $instName, 'ip' => $instIp, 'port' => $instPort];
     }
   }
 
@@ -524,13 +548,15 @@ function resolveVmInstance(array $vm, string $name, string $ip): ?array {
     foreach ($instances as $instance) {
       $instName = trim((string)($instance['name'] ?? ''));
       $instIp = trim((string)($instance['ip'] ?? ''));
+      $instPort = trim((string)($instance['port'] ?? ''));
       if (strtolower($instName) === strtolower($targetName)) {
-        return ['name' => $instName, 'ip' => $instIp];
+        if ($targetPort !== '' && $instPort !== $targetPort) { continue; }
+        return ['name' => $instName, 'ip' => $instIp, 'port' => $instPort];
       }
     }
   }
 
-  if ($targetName === '' && $targetIp === '') { return $instances[0]; }
+  if ($targetName === '' && $targetIp === '' && $targetPort === '') { return $instances[0]; }
   return null;
 }
 
@@ -538,6 +564,8 @@ function normalizeSystemRow(array $row): array {
   foreach ($row as $key => $value) {
     if (is_string($value)) { $row[$key] = normalizeUtf8Text($value); }
   }
+  $systemAccessRaw = trim((string)($row['system_access'] ?? ''));
+  $row['system_access'] = stripos($systemAccessRaw, 'extern') !== false ? 'Externo' : 'Interno';
   $row['tech'] = $row['tech'] !== '' ? array_values(array_filter(array_map('trim', explode(',', (string)$row['tech'])))) : [];
   $row['target_version'] = trim((string)($row['target_version'] ?? ''));
   $row['app_server'] = trim((string)($row['app_server'] ?? ''));
@@ -1260,6 +1288,22 @@ function normalizePortListValue($raw, ?string &$error = null): string {
   return implode(',', $out);
 }
 
+function normalizeSinglePortValue($raw, ?string &$error = null, string $label = 'Porta da instancia'): string {
+  $error = null;
+  $value = trim((string)$raw);
+  if ($value === '') { return ''; }
+  if (!preg_match('/^\d+$/', $value)) {
+    $error = "{$label} invalida: {$value}.";
+    return '';
+  }
+  $port = (int)$value;
+  if ($port < 1 || $port > 65535) {
+    $error = "{$label} fora da faixa: {$value}.";
+    return '';
+  }
+  return (string)$port;
+}
+
 function boolFromMixed($value): bool {
   if (is_bool($value)) { return $value; }
   if (is_int($value) || is_float($value)) { return ((int)$value) !== 0; }
@@ -1917,10 +1961,14 @@ function normalizeDatabaseRow(array $row): array {
   $row['db_engine_version_homolog'] = trim((string)($row['db_engine_version_homolog'] ?? ''));
   $row['db_instance_name'] = trim((string)($row['db_instance_name'] ?? ''));
   $row['db_instance_ip'] = trim((string)($row['db_instance_ip'] ?? ''));
+  $row['db_instance_port'] = trim((string)($row['db_instance_port'] ?? ''));
   $row['db_instance_homolog_name'] = trim((string)($row['db_instance_homolog_name'] ?? ''));
   $row['db_instance_homolog_ip'] = trim((string)($row['db_instance_homolog_ip'] ?? ''));
+  $row['db_instance_homolog_port'] = trim((string)($row['db_instance_homolog_port'] ?? ''));
   if ($row['db_instance_ip'] === '') { $row['db_instance_ip'] = firstVmIpValue((string)($row['vm_ip'] ?? '')); }
   if ($row['db_instance_homolog_ip'] === '') { $row['db_instance_homolog_ip'] = firstVmIpValue((string)($row['vm_homolog_ip'] ?? '')); }
+  if ($row['db_instance_ip'] === '') { $row['db_instance_port'] = ''; }
+  if ($row['db_instance_homolog_ip'] === '') { $row['db_instance_homolog_port'] = ''; }
   if ($row['db_instance_name'] === '' && $row['db_instance_ip'] !== '') { $row['db_instance_name'] = 'Instancia principal'; }
   if ($row['db_instance_homolog_name'] === '' && $row['db_instance_homolog_ip'] !== '') { $row['db_instance_homolog_name'] = 'Instancia principal'; }
   $row['notes'] = trim((string)($row['notes'] ?? ''));
@@ -2257,6 +2305,7 @@ function normalizeVmCsvVcpuText(string $value): string {
 
 function vmCsvMachinesHeadersMap(): array {
   return [
+    'nome de servidor' => 'name',
     'nome do servidor' => 'name',
     'administracao' => 'vm_administration',
     'sistema operacional' => 'os_name',
@@ -3129,12 +3178,12 @@ function handleApiRequest(): void {
 
     if ($api === 'vm-csv-export') {
       $vms = $db instanceof SQLite3 ? listVmsSqlite3($db, false) : listVmsPdo($db, false);
-      $headers = ['Nome do Servidor','Administração','Sistema Operacional','Endereço IP','vCPU','Memória (GB)','Storage (GB)'];
+      $headers = ['Nome de Servidor','Administração','Sistema Operacional','Endereço IP','vCPU','Memória (GB)','Storage (GB)'];
       $rows = [];
       foreach ($vms as $vm) {
         if (!is_array($vm)) { continue; }
         $rows[] = [
-          'Nome do Servidor' => trim((string)($vm['name'] ?? '')),
+          'Nome de Servidor' => trim((string)($vm['name'] ?? '')),
           'Administração' => trim((string)($vm['vm_administration'] ?? '')),
           'Sistema Operacional' => trim((string)($vm['os_name'] ?? '')),
           'Endereço IP' => packVmIpListValue((string)($vm['ip'] ?? '')),
@@ -3320,7 +3369,7 @@ function handleApiRequest(): void {
       $rows = [];
       if ($scope === 'systems') {
         $systems = $db instanceof SQLite3 ? fetchSystemsSqlite3($db, false) : fetchSystemsPdo($db, false);
-        $headers = ['id','name','system_name','category','system_group','status','criticality','owner','url','url_homolog','vm_name','vm_ip','vm_homolog_name','vm_homolog_ip','vm_dev_name','vm_dev_ip','tech','target_version','app_server','web_server','containerization','container_tool','runtime_port','php_required_extensions','php_recommended_extensions','php_required_libraries','php_required_ini','r_required_packages','description','notes','updated_at'];
+        $headers = ['id','name','system_name','category','system_group','system_access','status','criticality','owner','url','url_homolog','vm_name','vm_ip','vm_homolog_name','vm_homolog_ip','vm_dev_name','vm_dev_ip','tech','target_version','app_server','web_server','containerization','container_tool','runtime_port','php_required_extensions','php_recommended_extensions','php_required_libraries','php_required_ini','r_required_packages','description','notes','updated_at'];
         foreach ($systems as $item) {
           if (!is_array($item)) { continue; }
           $rows[] = [
@@ -3329,6 +3378,7 @@ function handleApiRequest(): void {
             'system_name' => (string)($item['system_name'] ?? ''),
             'category' => (string)($item['category'] ?? ''),
             'system_group' => (string)($item['system_group'] ?? ''),
+            'system_access' => (string)($item['system_access'] ?? 'Interno'),
             'status' => (string)($item['status'] ?? ''),
             'criticality' => (string)($item['criticality'] ?? ''),
             'owner' => (string)($item['owner'] ?? ''),
@@ -3391,7 +3441,7 @@ function handleApiRequest(): void {
         }
       } else {
         $databases = $db instanceof SQLite3 ? listDatabasesSqlite3($db, false) : listDatabasesPdo($db, false);
-        $headers = ['id','system_name','db_name','db_user','vm_name','db_instance_name','db_instance_ip','vm_homolog_name','db_instance_homolog_name','db_instance_homolog_ip','notes','updated_at'];
+        $headers = ['id','system_name','db_name','db_user','vm_name','db_instance_name','db_instance_ip','db_instance_port','vm_homolog_name','db_instance_homolog_name','db_instance_homolog_ip','db_instance_homolog_port','notes','updated_at'];
         foreach ($databases as $item) {
           if (!is_array($item)) { continue; }
           $rows[] = [
@@ -3402,9 +3452,11 @@ function handleApiRequest(): void {
             'vm_name' => (string)($item['vm_name'] ?? ''),
             'db_instance_name' => (string)($item['db_instance_name'] ?? ''),
             'db_instance_ip' => (string)($item['db_instance_ip'] ?? ''),
+            'db_instance_port' => (string)($item['db_instance_port'] ?? ''),
             'vm_homolog_name' => (string)($item['vm_homolog_name'] ?? ''),
             'db_instance_homolog_name' => (string)($item['db_instance_homolog_name'] ?? ''),
             'db_instance_homolog_ip' => (string)($item['db_instance_homolog_ip'] ?? ''),
+            'db_instance_homolog_port' => (string)($item['db_instance_homolog_port'] ?? ''),
             'notes' => (string)($item['notes'] ?? ''),
             'updated_at' => (string)($item['updated_at'] ?? ''),
           ];
@@ -3553,6 +3605,7 @@ function handleApiRequest(): void {
               sqlValueSqlite3($name),
               sqlValueSqlite3(trim((string)($row['system_name'] ?? ''))),
               sqlValueSqlite3(trim((string)($row['system_group'] ?? ''))),
+              sqlValueSqlite3(stripos(trim((string)($row['system_access'] ?? '')), 'extern') !== false ? 'Externo' : 'Interno'),
               sqlValueSqlite3(trim((string)($row['ip'] ?? ''))),
               sqlValueSqlite3(trim((string)($row['ip_homolog'] ?? ''))),
               sqlValueSqlite3(trim((string)($row['vm'] ?? ''))),
@@ -3607,7 +3660,7 @@ function handleApiRequest(): void {
               sqlValueSqlite3(trim((string)($row['created_at'] ?? date('Y-m-d H:i:s')))),
               sqlValueSqlite3(trim((string)($row['updated_at'] ?? date('Y-m-d H:i:s')))),
             ];
-            $db->exec("INSERT INTO systems(id,name,system_name,system_group,ip,ip_homolog,vm,url_homolog,vm_homolog,vm_id,vm_homolog_id,vm_dev_id,archived,archived_at,responsible_sector,responsible_coordinator,extension_number,email,support,support_contact,analytics,ssl,waf,bundle,directory,size,repository,target_version,app_server,web_server,containerization,container_tool,runtime_port,php_required_extensions,php_recommended_extensions,php_required_libraries,php_required_ini,r_required_packages,doc_installation_ref,doc_installation_updated_at,doc_maintenance_ref,doc_maintenance_updated_at,doc_security_ref,doc_security_updated_at,doc_manual_ref,doc_manual_updated_at,category,status,tech,url,description,owner,criticality,version,notes,created_at,updated_at) VALUES(" . implode(',', $values) . ")");
+            $db->exec("INSERT INTO systems(id,name,system_name,system_group,system_access,ip,ip_homolog,vm,url_homolog,vm_homolog,vm_id,vm_homolog_id,vm_dev_id,archived,archived_at,responsible_sector,responsible_coordinator,extension_number,email,support,support_contact,analytics,ssl,waf,bundle,directory,size,repository,target_version,app_server,web_server,containerization,container_tool,runtime_port,php_required_extensions,php_recommended_extensions,php_required_libraries,php_required_ini,r_required_packages,doc_installation_ref,doc_installation_updated_at,doc_maintenance_ref,doc_maintenance_updated_at,doc_security_ref,doc_security_updated_at,doc_manual_ref,doc_manual_updated_at,category,status,tech,url,description,owner,criticality,version,notes,created_at,updated_at) VALUES(" . implode(',', $values) . ")");
           }
 
           foreach ($databaseRows as $row) {
@@ -3628,15 +3681,17 @@ function handleApiRequest(): void {
               sqlValueSqlite3(trim((string)($row['db_engine_version_homolog'] ?? ''))),
               sqlValueSqlite3(trim((string)($row['db_instance_name'] ?? ''))),
               sqlValueSqlite3(trim((string)($row['db_instance_ip'] ?? ''))),
+              sqlValueSqlite3(trim((string)($row['db_instance_port'] ?? ''))),
               sqlValueSqlite3(trim((string)($row['db_instance_homolog_name'] ?? ''))),
               sqlValueSqlite3(trim((string)($row['db_instance_homolog_ip'] ?? ''))),
+              sqlValueSqlite3(trim((string)($row['db_instance_homolog_port'] ?? ''))),
               sqlValueSqlite3(trim((string)($row['notes'] ?? ''))),
               sqlValueSqlite3((int)($row['archived'] ?? 0) > 0 ? 1 : 0),
               sqlValueSqlite3(trim((string)($row['archived_at'] ?? '')) ?: null),
               sqlValueSqlite3(trim((string)($row['created_at'] ?? date('Y-m-d H:i:s')))),
               sqlValueSqlite3(trim((string)($row['updated_at'] ?? date('Y-m-d H:i:s')))),
             ];
-            $db->exec("INSERT INTO system_databases(id,system_id,vm_id,vm_homolog_id,db_name,db_user,db_engine,db_engine_version,db_engine_version_homolog,db_instance_name,db_instance_ip,db_instance_homolog_name,db_instance_homolog_ip,notes,archived,archived_at,created_at,updated_at) VALUES(" . implode(',', $values) . ")");
+            $db->exec("INSERT INTO system_databases(id,system_id,vm_id,vm_homolog_id,db_name,db_user,db_engine,db_engine_version,db_engine_version_homolog,db_instance_name,db_instance_ip,db_instance_port,db_instance_homolog_name,db_instance_homolog_ip,db_instance_homolog_port,notes,archived,archived_at,created_at,updated_at) VALUES(" . implode(',', $values) . ")");
           }
 
           if ($usersRows) {
@@ -3752,6 +3807,7 @@ function handleApiRequest(): void {
               sqlValuePdo($db, $name),
               sqlValuePdo($db, trim((string)($row['system_name'] ?? ''))),
               sqlValuePdo($db, trim((string)($row['system_group'] ?? ''))),
+              sqlValuePdo($db, stripos(trim((string)($row['system_access'] ?? '')), 'extern') !== false ? 'Externo' : 'Interno'),
               sqlValuePdo($db, trim((string)($row['ip'] ?? ''))),
               sqlValuePdo($db, trim((string)($row['ip_homolog'] ?? ''))),
               sqlValuePdo($db, trim((string)($row['vm'] ?? ''))),
@@ -3806,7 +3862,7 @@ function handleApiRequest(): void {
               sqlValuePdo($db, trim((string)($row['created_at'] ?? date('Y-m-d H:i:s')))),
               sqlValuePdo($db, trim((string)($row['updated_at'] ?? date('Y-m-d H:i:s')))),
             ];
-            $db->exec("INSERT INTO systems(id,name,system_name,system_group,ip,ip_homolog,vm,url_homolog,vm_homolog,vm_id,vm_homolog_id,vm_dev_id,archived,archived_at,responsible_sector,responsible_coordinator,extension_number,email,support,support_contact,analytics,ssl,waf,bundle,directory,size,repository,target_version,app_server,web_server,containerization,container_tool,runtime_port,php_required_extensions,php_recommended_extensions,php_required_libraries,php_required_ini,r_required_packages,doc_installation_ref,doc_installation_updated_at,doc_maintenance_ref,doc_maintenance_updated_at,doc_security_ref,doc_security_updated_at,doc_manual_ref,doc_manual_updated_at,category,status,tech,url,description,owner,criticality,version,notes,created_at,updated_at) VALUES(" . implode(',', $values) . ")");
+            $db->exec("INSERT INTO systems(id,name,system_name,system_group,system_access,ip,ip_homolog,vm,url_homolog,vm_homolog,vm_id,vm_homolog_id,vm_dev_id,archived,archived_at,responsible_sector,responsible_coordinator,extension_number,email,support,support_contact,analytics,ssl,waf,bundle,directory,size,repository,target_version,app_server,web_server,containerization,container_tool,runtime_port,php_required_extensions,php_recommended_extensions,php_required_libraries,php_required_ini,r_required_packages,doc_installation_ref,doc_installation_updated_at,doc_maintenance_ref,doc_maintenance_updated_at,doc_security_ref,doc_security_updated_at,doc_manual_ref,doc_manual_updated_at,category,status,tech,url,description,owner,criticality,version,notes,created_at,updated_at) VALUES(" . implode(',', $values) . ")");
           }
 
           foreach ($databaseRows as $row) {
@@ -3827,15 +3883,17 @@ function handleApiRequest(): void {
               sqlValuePdo($db, trim((string)($row['db_engine_version_homolog'] ?? ''))),
               sqlValuePdo($db, trim((string)($row['db_instance_name'] ?? ''))),
               sqlValuePdo($db, trim((string)($row['db_instance_ip'] ?? ''))),
+              sqlValuePdo($db, trim((string)($row['db_instance_port'] ?? ''))),
               sqlValuePdo($db, trim((string)($row['db_instance_homolog_name'] ?? ''))),
               sqlValuePdo($db, trim((string)($row['db_instance_homolog_ip'] ?? ''))),
+              sqlValuePdo($db, trim((string)($row['db_instance_homolog_port'] ?? ''))),
               sqlValuePdo($db, trim((string)($row['notes'] ?? ''))),
               sqlValuePdo($db, (int)($row['archived'] ?? 0) > 0 ? 1 : 0),
               sqlValuePdo($db, trim((string)($row['archived_at'] ?? '')) ?: null),
               sqlValuePdo($db, trim((string)($row['created_at'] ?? date('Y-m-d H:i:s')))),
               sqlValuePdo($db, trim((string)($row['updated_at'] ?? date('Y-m-d H:i:s')))),
             ];
-            $db->exec("INSERT INTO system_databases(id,system_id,vm_id,vm_homolog_id,db_name,db_user,db_engine,db_engine_version,db_engine_version_homolog,db_instance_name,db_instance_ip,db_instance_homolog_name,db_instance_homolog_ip,notes,archived,archived_at,created_at,updated_at) VALUES(" . implode(',', $values) . ")");
+            $db->exec("INSERT INTO system_databases(id,system_id,vm_id,vm_homolog_id,db_name,db_user,db_engine,db_engine_version,db_engine_version_homolog,db_instance_name,db_instance_ip,db_instance_port,db_instance_homolog_name,db_instance_homolog_ip,db_instance_homolog_port,notes,archived,archived_at,created_at,updated_at) VALUES(" . implode(',', $values) . ")");
           }
 
           if ($usersRows) {
@@ -4356,8 +4414,8 @@ function handleApiRequest(): void {
         $db->exec("UPDATE systems SET vm_id=NULL WHERE vm_id=$id");
         $db->exec("UPDATE systems SET vm_homolog_id=NULL WHERE vm_homolog_id=$id");
         $db->exec("UPDATE systems SET vm_dev_id=NULL WHERE vm_dev_id=$id");
-        $db->exec("UPDATE system_databases SET vm_id=NULL, db_instance_name='', db_instance_ip='', updated_at=datetime('now','localtime') WHERE vm_id=$id");
-        $db->exec("UPDATE system_databases SET vm_homolog_id=NULL, db_instance_homolog_name='', db_instance_homolog_ip='', updated_at=datetime('now','localtime') WHERE vm_homolog_id=$id");
+        $db->exec("UPDATE system_databases SET vm_id=NULL, db_instance_name='', db_instance_ip='', db_instance_port='', updated_at=datetime('now','localtime') WHERE vm_id=$id");
+        $db->exec("UPDATE system_databases SET vm_homolog_id=NULL, db_instance_homolog_name='', db_instance_homolog_ip='', db_instance_homolog_port='', updated_at=datetime('now','localtime') WHERE vm_homolog_id=$id");
         $db->exec("DELETE FROM virtual_machines WHERE id=$id");
       } else {
         $stCheck = $db->prepare("SELECT COUNT(*) FROM virtual_machines WHERE id=:id AND IFNULL(archived,0)=1");
@@ -4374,10 +4432,10 @@ function handleApiRequest(): void {
         $stNullDev = $db->prepare("UPDATE systems SET vm_dev_id=NULL WHERE vm_dev_id=:id");
         $stNullDev->bindValue(':id', $id, PDO::PARAM_INT);
         $stNullDev->execute();
-        $stNullDbVm = $db->prepare("UPDATE system_databases SET vm_id=NULL, db_instance_name='', db_instance_ip='', updated_at=datetime('now','localtime') WHERE vm_id=:id");
+        $stNullDbVm = $db->prepare("UPDATE system_databases SET vm_id=NULL, db_instance_name='', db_instance_ip='', db_instance_port='', updated_at=datetime('now','localtime') WHERE vm_id=:id");
         $stNullDbVm->bindValue(':id', $id, PDO::PARAM_INT);
         $stNullDbVm->execute();
-        $stNullDbVmHml = $db->prepare("UPDATE system_databases SET vm_homolog_id=NULL, db_instance_homolog_name='', db_instance_homolog_ip='', updated_at=datetime('now','localtime') WHERE vm_homolog_id=:id");
+        $stNullDbVmHml = $db->prepare("UPDATE system_databases SET vm_homolog_id=NULL, db_instance_homolog_name='', db_instance_homolog_ip='', db_instance_homolog_port='', updated_at=datetime('now','localtime') WHERE vm_homolog_id=:id");
         $stNullDbVmHml->bindValue(':id', $id, PDO::PARAM_INT);
         $stNullDbVmHml->execute();
         $st = $db->prepare("DELETE FROM virtual_machines WHERE id=:id");
@@ -4403,13 +4461,27 @@ function handleApiRequest(): void {
       $dbEngineVersionHomolog = trim((string)($data['db_engine_version_homolog'] ?? ''));
       $dbInstanceName = trim((string)($data['db_instance_name'] ?? ''));
       $dbInstanceIp = trim((string)($data['db_instance_ip'] ?? ''));
+      $dbInstancePort = trim((string)($data['db_instance_port'] ?? ''));
       $dbInstanceHomologName = trim((string)($data['db_instance_homolog_name'] ?? ''));
       $dbInstanceHomologIp = trim((string)($data['db_instance_homolog_ip'] ?? ''));
+      $dbInstanceHomologPort = trim((string)($data['db_instance_homolog_port'] ?? ''));
       $notes = trim((string)($data['notes'] ?? ''));
 
       if ($systemId <= 0) { echo json_encode(['ok'=>false,'error'=>'Sistema obrigatorio']); return; }
       if ($vmId <= 0) { echo json_encode(['ok'=>false,'error'=>'Maquina obrigatoria']); return; }
       if ($dbName === '') { echo json_encode(['ok'=>false,'error'=>'Nome da base obrigatorio']); return; }
+      $dbInstancePortError = null;
+      $dbInstancePort = normalizeSinglePortValue($dbInstancePort, $dbInstancePortError, 'Porta da instancia');
+      if ($dbInstancePortError !== null) {
+        echo json_encode(['ok'=>false,'error'=>$dbInstancePortError], JSON_UNESCAPED_UNICODE);
+        return;
+      }
+      $dbInstanceHomologPortError = null;
+      $dbInstanceHomologPort = normalizeSinglePortValue($dbInstanceHomologPort, $dbInstanceHomologPortError, 'Porta da instancia de homologacao');
+      if ($dbInstanceHomologPortError !== null) {
+        echo json_encode(['ok'=>false,'error'=>$dbInstanceHomologPortError], JSON_UNESCAPED_UNICODE);
+        return;
+      }
 
       if ($db instanceof SQLite3) {
         $systemExists = (int)$db->querySingle("SELECT COUNT(*) FROM systems WHERE id=$systemId AND IFNULL(archived,0)=0");
@@ -4431,13 +4503,13 @@ function handleApiRequest(): void {
         echo json_encode(['ok'=>false,'error'=>'Maquina invalida ou arquivada']);
         return;
       }
-      $selectedInstance = resolveVmInstance($vmRow, $dbInstanceName, $dbInstanceIp);
+      $selectedInstance = resolveVmInstance($vmRow, $dbInstanceName, $dbInstanceIp, $dbInstancePort);
       if (!$selectedInstance) {
         echo json_encode(['ok'=>false,'error'=>'Instancia SGBD invalida para a maquina selecionada.']);
         return;
       }
 
-      $selectedHomologInstance = ['name' => '', 'ip' => ''];
+      $selectedHomologInstance = ['name' => '', 'ip' => '', 'port' => ''];
       if ($vmHomologId > 0) {
         if ($dbInstanceHomologName === '' && $dbInstanceHomologIp === '') {
           echo json_encode(['ok'=>false,'error'=>'Selecione a instancia SGBD de homologacao.']);
@@ -4448,7 +4520,7 @@ function handleApiRequest(): void {
           echo json_encode(['ok'=>false,'error'=>'Maquina de homologacao invalida ou arquivada']);
           return;
         }
-        $resolvedHomolog = resolveVmInstance($vmHomologRow, $dbInstanceHomologName, $dbInstanceHomologIp);
+        $resolvedHomolog = resolveVmInstance($vmHomologRow, $dbInstanceHomologName, $dbInstanceHomologIp, $dbInstanceHomologPort);
         if (!$resolvedHomolog) {
           echo json_encode(['ok'=>false,'error'=>'Instancia SGBD de homologacao invalida para a maquina selecionada.']);
           return;
@@ -4460,7 +4532,7 @@ function handleApiRequest(): void {
         $id = (int)$data['id'];
         if ($db instanceof SQLite3) {
           $st = $db->prepare("UPDATE system_databases
-            SET system_id=:system_id, vm_id=:vm_id, vm_homolog_id=:vm_homolog_id, db_name=:db_name, db_user=:db_user, db_engine=:db_engine, db_engine_version=:db_engine_version, db_engine_version_homolog=:db_engine_version_homolog, db_instance_name=:db_instance_name, db_instance_ip=:db_instance_ip, db_instance_homolog_name=:db_instance_homolog_name, db_instance_homolog_ip=:db_instance_homolog_ip, notes=:notes, archived=0, archived_at=NULL, updated_at=datetime('now','localtime')
+            SET system_id=:system_id, vm_id=:vm_id, vm_homolog_id=:vm_homolog_id, db_name=:db_name, db_user=:db_user, db_engine=:db_engine, db_engine_version=:db_engine_version, db_engine_version_homolog=:db_engine_version_homolog, db_instance_name=:db_instance_name, db_instance_ip=:db_instance_ip, db_instance_port=:db_instance_port, db_instance_homolog_name=:db_instance_homolog_name, db_instance_homolog_ip=:db_instance_homolog_ip, db_instance_homolog_port=:db_instance_homolog_port, notes=:notes, archived=0, archived_at=NULL, updated_at=datetime('now','localtime')
             WHERE id=:id");
           $st->bindValue(':system_id', $systemId, SQLITE3_INTEGER);
           $st->bindValue(':vm_id', $vmId, SQLITE3_INTEGER);
@@ -4473,15 +4545,17 @@ function handleApiRequest(): void {
           $st->bindValue(':db_engine_version_homolog', $dbEngineVersionHomolog, SQLITE3_TEXT);
           $st->bindValue(':db_instance_name', (string)($selectedInstance['name'] ?? ''), SQLITE3_TEXT);
           $st->bindValue(':db_instance_ip', (string)($selectedInstance['ip'] ?? ''), SQLITE3_TEXT);
+          $st->bindValue(':db_instance_port', (string)($selectedInstance['port'] ?? ''), SQLITE3_TEXT);
           $st->bindValue(':db_instance_homolog_name', (string)($selectedHomologInstance['name'] ?? ''), SQLITE3_TEXT);
           $st->bindValue(':db_instance_homolog_ip', (string)($selectedHomologInstance['ip'] ?? ''), SQLITE3_TEXT);
+          $st->bindValue(':db_instance_homolog_port', (string)($selectedHomologInstance['port'] ?? ''), SQLITE3_TEXT);
           $st->bindValue(':notes', $notes, SQLITE3_TEXT);
           $st->bindValue(':id', $id, SQLITE3_INTEGER);
           $st->execute();
           $row = fetchDatabaseByIdSqlite3($db, $id);
         } else {
           $st = $db->prepare("UPDATE system_databases
-            SET system_id=:system_id, vm_id=:vm_id, vm_homolog_id=:vm_homolog_id, db_name=:db_name, db_user=:db_user, db_engine=:db_engine, db_engine_version=:db_engine_version, db_engine_version_homolog=:db_engine_version_homolog, db_instance_name=:db_instance_name, db_instance_ip=:db_instance_ip, db_instance_homolog_name=:db_instance_homolog_name, db_instance_homolog_ip=:db_instance_homolog_ip, notes=:notes, archived=0, archived_at=NULL, updated_at=datetime('now','localtime')
+            SET system_id=:system_id, vm_id=:vm_id, vm_homolog_id=:vm_homolog_id, db_name=:db_name, db_user=:db_user, db_engine=:db_engine, db_engine_version=:db_engine_version, db_engine_version_homolog=:db_engine_version_homolog, db_instance_name=:db_instance_name, db_instance_ip=:db_instance_ip, db_instance_port=:db_instance_port, db_instance_homolog_name=:db_instance_homolog_name, db_instance_homolog_ip=:db_instance_homolog_ip, db_instance_homolog_port=:db_instance_homolog_port, notes=:notes, archived=0, archived_at=NULL, updated_at=datetime('now','localtime')
             WHERE id=:id");
           $st->bindValue(':system_id', $systemId, PDO::PARAM_INT);
           $st->bindValue(':vm_id', $vmId, PDO::PARAM_INT);
@@ -4494,8 +4568,10 @@ function handleApiRequest(): void {
           $st->bindValue(':db_engine_version_homolog', $dbEngineVersionHomolog, PDO::PARAM_STR);
           $st->bindValue(':db_instance_name', (string)($selectedInstance['name'] ?? ''), PDO::PARAM_STR);
           $st->bindValue(':db_instance_ip', (string)($selectedInstance['ip'] ?? ''), PDO::PARAM_STR);
+          $st->bindValue(':db_instance_port', (string)($selectedInstance['port'] ?? ''), PDO::PARAM_STR);
           $st->bindValue(':db_instance_homolog_name', (string)($selectedHomologInstance['name'] ?? ''), PDO::PARAM_STR);
           $st->bindValue(':db_instance_homolog_ip', (string)($selectedHomologInstance['ip'] ?? ''), PDO::PARAM_STR);
+          $st->bindValue(':db_instance_homolog_port', (string)($selectedHomologInstance['port'] ?? ''), PDO::PARAM_STR);
           $st->bindValue(':notes', $notes, PDO::PARAM_STR);
           $st->bindValue(':id', $id, PDO::PARAM_INT);
           $st->execute();
@@ -4503,7 +4579,7 @@ function handleApiRequest(): void {
         }
       } else {
         if ($db instanceof SQLite3) {
-          $st = $db->prepare("INSERT INTO system_databases(system_id,vm_id,vm_homolog_id,db_name,db_user,db_engine,db_engine_version,db_engine_version_homolog,db_instance_name,db_instance_ip,db_instance_homolog_name,db_instance_homolog_ip,notes) VALUES(:system_id,:vm_id,:vm_homolog_id,:db_name,:db_user,:db_engine,:db_engine_version,:db_engine_version_homolog,:db_instance_name,:db_instance_ip,:db_instance_homolog_name,:db_instance_homolog_ip,:notes)");
+          $st = $db->prepare("INSERT INTO system_databases(system_id,vm_id,vm_homolog_id,db_name,db_user,db_engine,db_engine_version,db_engine_version_homolog,db_instance_name,db_instance_ip,db_instance_port,db_instance_homolog_name,db_instance_homolog_ip,db_instance_homolog_port,notes) VALUES(:system_id,:vm_id,:vm_homolog_id,:db_name,:db_user,:db_engine,:db_engine_version,:db_engine_version_homolog,:db_instance_name,:db_instance_ip,:db_instance_port,:db_instance_homolog_name,:db_instance_homolog_ip,:db_instance_homolog_port,:notes)");
           $st->bindValue(':system_id', $systemId, SQLITE3_INTEGER);
           $st->bindValue(':vm_id', $vmId, SQLITE3_INTEGER);
           if ($vmHomologId > 0) { $st->bindValue(':vm_homolog_id', $vmHomologId, SQLITE3_INTEGER); }
@@ -4515,14 +4591,16 @@ function handleApiRequest(): void {
           $st->bindValue(':db_engine_version_homolog', $dbEngineVersionHomolog, SQLITE3_TEXT);
           $st->bindValue(':db_instance_name', (string)($selectedInstance['name'] ?? ''), SQLITE3_TEXT);
           $st->bindValue(':db_instance_ip', (string)($selectedInstance['ip'] ?? ''), SQLITE3_TEXT);
+          $st->bindValue(':db_instance_port', (string)($selectedInstance['port'] ?? ''), SQLITE3_TEXT);
           $st->bindValue(':db_instance_homolog_name', (string)($selectedHomologInstance['name'] ?? ''), SQLITE3_TEXT);
           $st->bindValue(':db_instance_homolog_ip', (string)($selectedHomologInstance['ip'] ?? ''), SQLITE3_TEXT);
+          $st->bindValue(':db_instance_homolog_port', (string)($selectedHomologInstance['port'] ?? ''), SQLITE3_TEXT);
           $st->bindValue(':notes', $notes, SQLITE3_TEXT);
           $st->execute();
           $id = (int)$db->lastInsertRowID();
           $row = fetchDatabaseByIdSqlite3($db, $id);
         } else {
-          $st = $db->prepare("INSERT INTO system_databases(system_id,vm_id,vm_homolog_id,db_name,db_user,db_engine,db_engine_version,db_engine_version_homolog,db_instance_name,db_instance_ip,db_instance_homolog_name,db_instance_homolog_ip,notes) VALUES(:system_id,:vm_id,:vm_homolog_id,:db_name,:db_user,:db_engine,:db_engine_version,:db_engine_version_homolog,:db_instance_name,:db_instance_ip,:db_instance_homolog_name,:db_instance_homolog_ip,:notes)");
+          $st = $db->prepare("INSERT INTO system_databases(system_id,vm_id,vm_homolog_id,db_name,db_user,db_engine,db_engine_version,db_engine_version_homolog,db_instance_name,db_instance_ip,db_instance_port,db_instance_homolog_name,db_instance_homolog_ip,db_instance_homolog_port,notes) VALUES(:system_id,:vm_id,:vm_homolog_id,:db_name,:db_user,:db_engine,:db_engine_version,:db_engine_version_homolog,:db_instance_name,:db_instance_ip,:db_instance_port,:db_instance_homolog_name,:db_instance_homolog_ip,:db_instance_homolog_port,:notes)");
           $st->bindValue(':system_id', $systemId, PDO::PARAM_INT);
           $st->bindValue(':vm_id', $vmId, PDO::PARAM_INT);
           if ($vmHomologId > 0) { $st->bindValue(':vm_homolog_id', $vmHomologId, PDO::PARAM_INT); }
@@ -4534,8 +4612,10 @@ function handleApiRequest(): void {
           $st->bindValue(':db_engine_version_homolog', $dbEngineVersionHomolog, PDO::PARAM_STR);
           $st->bindValue(':db_instance_name', (string)($selectedInstance['name'] ?? ''), PDO::PARAM_STR);
           $st->bindValue(':db_instance_ip', (string)($selectedInstance['ip'] ?? ''), PDO::PARAM_STR);
+          $st->bindValue(':db_instance_port', (string)($selectedInstance['port'] ?? ''), PDO::PARAM_STR);
           $st->bindValue(':db_instance_homolog_name', (string)($selectedHomologInstance['name'] ?? ''), PDO::PARAM_STR);
           $st->bindValue(':db_instance_homolog_ip', (string)($selectedHomologInstance['ip'] ?? ''), PDO::PARAM_STR);
+          $st->bindValue(':db_instance_homolog_port', (string)($selectedHomologInstance['port'] ?? ''), PDO::PARAM_STR);
           $st->bindValue(':notes', $notes, PDO::PARAM_STR);
           $st->execute();
           $id = (int)$db->lastInsertId();
@@ -4882,6 +4962,8 @@ function handleApiRequest(): void {
       $data['target_version'] = trim((string)($data['target_version'] ?? ''));
       $data['app_server'] = trim((string)($data['app_server'] ?? ''));
       $data['web_server'] = trim((string)($data['web_server'] ?? ''));
+      $systemAccess = trim((string)($data['system_access'] ?? ''));
+      $data['system_access'] = strcasecmp($systemAccess, 'Externo') === 0 ? 'Externo' : 'Interno';
       $data['containerization'] = boolFromMixed($data['containerization'] ?? 0) ? 1 : 0;
       $data['container_tool'] = trim((string)($data['container_tool'] ?? ''));
       if ((int)$data['containerization'] <= 0) { $data['container_tool'] = ''; }
@@ -4904,7 +4986,7 @@ function handleApiRequest(): void {
         return;
       }
 
-      $fields = ['name','system_name','vm_id','vm_homolog_id','vm_dev_id','category','system_group','status','url','url_homolog','description','owner','criticality','version','notes','responsible_sector','responsible_coordinator','extension_number','email','support','support_contact','analytics','ssl','waf','bundle','directory','size','repository','target_version','app_server','web_server','containerization','container_tool','runtime_port','php_required_extensions','php_recommended_extensions','php_required_libraries','php_required_ini','r_required_packages','archived','archived_at'];
+      $fields = ['name','system_name','vm_id','vm_homolog_id','vm_dev_id','category','system_group','system_access','status','url','url_homolog','description','owner','criticality','version','notes','responsible_sector','responsible_coordinator','extension_number','email','support','support_contact','analytics','ssl','waf','bundle','directory','size','repository','target_version','app_server','web_server','containerization','container_tool','runtime_port','php_required_extensions','php_recommended_extensions','php_required_libraries','php_required_ini','r_required_packages','archived','archived_at'];
       if (!empty($data['id'])) {
         $sets = implode(',', array_map(fn($f)=>"$f=:$f", $fields));
         $st = $db->prepare("UPDATE systems SET $sets, tech=:tech, updated_at=datetime('now','localtime') WHERE id=:id");

@@ -174,6 +174,14 @@ main{padding:16px}
 }
 .toolbar select{padding-right:26px}
 .toolbar .search{width:320px;max-width:100%}
+.systems-toolbar-actions{
+  margin-left:auto;
+  flex-wrap:wrap;
+  justify-content:flex-end
+}
+.systems-toolbar-actions .btn{
+  white-space:nowrap
+}
 .result-count{
   display:none
 }
@@ -463,6 +471,27 @@ main{padding:16px}
 .system-info-section-support{
   background:linear-gradient(180deg,#e6f1f9 0%,#d9e8f3 100%);
   border-color:#b7d0e2
+}
+.system-info-bottom-row{
+  display:contents
+}
+@media(max-width:1300px){
+  .system-info-bottom-row{
+    grid-column:1 / -1;
+    display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:10px;
+    align-items:start
+  }
+  .system-info-bottom-row .system-info-section{
+    min-width:0;
+    align-self:start
+  }
+}
+@media(max-width:900px){
+  .system-info-bottom-row{
+    grid-template-columns:1fr;
+  }
 }
 .system-info-title{
   font-size:11px;
@@ -1260,6 +1289,11 @@ tbody tr:hover td{background:#101d34}
 .auth-modal{
   width:min(420px,100%)
 }
+#mform .modal,
+#mvm .modal,
+#mdb .modal{
+  width:min(1160px,calc(100vw - 24px))
+}
 .auth-hint{
   font-size:12px;
   color:var(--muted)
@@ -1341,9 +1375,27 @@ tbody tr:hover td{background:#101d34}
   display:grid;
   gap:8px
 }
+.vm-service-editor{
+  display:grid;
+  gap:8px
+}
+.vm-service-list{
+  display:grid;
+  gap:8px
+}
+.vm-service-row{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) minmax(0,160px) auto;
+  gap:8px;
+  align-items:center
+}
+.vm-service-row .btn{
+  min-height:38px;
+  white-space:nowrap
+}
 .vm-instance-row{
   display:grid;
-  grid-template-columns:minmax(0,1fr) minmax(0,220px) auto;
+  grid-template-columns:minmax(0,1fr) minmax(0,220px) minmax(0,160px) auto;
   gap:8px;
   align-items:center
 }
@@ -1352,15 +1404,22 @@ tbody tr:hover td{background:#101d34}
   white-space:nowrap
 }
 .vm-csv-actions{
-  flex-wrap:wrap;
-  justify-content:flex-end
+  flex-wrap:nowrap;
+  justify-content:flex-end;
+  align-items:center
 }
 .vm-csv-note{
-  flex:1 1 100%;
-  margin-top:6px;
-  font-size:12px;
-  line-height:1.35;
-  color:var(--muted);
+  order:-1;
+  flex:1 1 auto;
+  min-width:320px;
+  max-width:none;
+  margin-top:0;
+  margin-right:12px;
+  font-size:14px;
+  line-height:1.45;
+  color:#c62828;
+  font-weight:700;
+  white-space:normal;
   text-align:right
 }
 .modal-vm-csv-preview{
@@ -1967,20 +2026,30 @@ tbody tr:hover td{background:#101d34}
     gap:5px;
     row-gap:6px
   }
+  .systems-toolbar-actions{
+    margin-left:0;
+    justify-content:flex-start
+  }
 }
 @media(max-width:760px){
   main{padding:12px}
   .row2,.row3{grid-template-columns:1fr}
   .system-doc-grid{grid-template-columns:1fr}
+  .vm-service-row{grid-template-columns:1fr}
   .vm-instance-row{grid-template-columns:1fr}
   .vm-csv-actions{
     width:100%;
-    justify-content:flex-start
+    justify-content:flex-start;
+    flex-wrap:wrap
   }
   .vm-csv-actions .btn{
     flex:1 1 auto
   }
   .vm-csv-note{
+    order:0;
+    flex:1 1 100%;
+    margin-top:6px;
+    margin-right:0;
     text-align:left
   }
   .toolbar{
@@ -2364,7 +2433,7 @@ tbody tr:hover td{background:#eef4ff}
   width:8%
 }
 #view-lista .list-db-table{
-  min-width:1620px;
+  min-width:1880px;
   table-layout:fixed
 }
 #view-lista .list-db-table th{
@@ -2384,14 +2453,14 @@ tbody tr:hover td{background:#eef4ff}
 #view-lista .list-db-table td:nth-child(3),
 #view-lista .list-db-table th:nth-child(4),
 #view-lista .list-db-table td:nth-child(4),
-#view-lista .list-db-table th:nth-child(7),
-#view-lista .list-db-table td:nth-child(7),
 #view-lista .list-db-table th:nth-child(8),
 #view-lista .list-db-table td:nth-child(8),
-#view-lista .list-db-table th:nth-child(10),
-#view-lista .list-db-table td:nth-child(10),
-#view-lista .list-db-table th:nth-child(11),
-#view-lista .list-db-table td:nth-child(11){
+#view-lista .list-db-table th:nth-child(9),
+#view-lista .list-db-table td:nth-child(9),
+#view-lista .list-db-table th:nth-child(12),
+#view-lista .list-db-table td:nth-child(12),
+#view-lista .list-db-table th:nth-child(13),
+#view-lista .list-db-table td:nth-child(13){
   white-space:normal;
   overflow-wrap:anywhere
 }
@@ -2413,32 +2482,37 @@ tbody tr:hover td{background:#eef4ff}
   white-space:nowrap;
   overflow-wrap:normal
 }
-#view-lista .list-db-table th:nth-child(7),
-#view-lista .list-db-table td:nth-child(7){
-  width:11%
-}
 #view-lista .list-db-table th:nth-child(8),
 #view-lista .list-db-table td:nth-child(8){
   width:11%
 }
-#view-lista .list-db-table th:nth-child(10),
-#view-lista .list-db-table td:nth-child(10){
+#view-lista .list-db-table th:nth-child(9),
+#view-lista .list-db-table td:nth-child(9){
+  width:11%
+}
+#view-lista .list-db-table th:nth-child(12),
+#view-lista .list-db-table td:nth-child(12){
   width:12%
 }
 #view-lista .list-db-table th:nth-child(6),
 #view-lista .list-db-table td:nth-child(6),
-#view-lista .list-db-table th:nth-child(9),
-#view-lista .list-db-table td:nth-child(9){
+#view-lista .list-db-table th:nth-child(7),
+#view-lista .list-db-table td:nth-child(7),
+#view-lista .list-db-table th:nth-child(10),
+#view-lista .list-db-table td:nth-child(10),
+#view-lista .list-db-table th:nth-child(11),
+#view-lista .list-db-table td:nth-child(11){
   width:9%;
   white-space:nowrap;
   overflow-wrap:normal
 }
-#view-lista .list-db-table td:nth-child(7){
+#view-lista .list-db-table td:nth-child(8),
+#view-lista .list-db-table td:nth-child(12){
   white-space:normal;
   overflow-wrap:anywhere
 }
-#view-lista .list-db-table th:nth-child(11),
-#view-lista .list-db-table td:nth-child(11){
+#view-lista .list-db-table th:nth-child(13),
+#view-lista .list-db-table td:nth-child(13){
   width:12%;
   white-space:normal;
   overflow-wrap:anywhere
@@ -2585,7 +2659,7 @@ tbody tr:hover td{background:#eef4ff}
 }
 #view-lista .list-main-table th:nth-child(2),
 #view-lista .list-main-table td:nth-child(2){
-  width:9%
+  width:8%
 }
 #view-lista .list-main-table th:nth-child(3),
 #view-lista .list-main-table td:nth-child(3){
@@ -2597,7 +2671,7 @@ tbody tr:hover td{background:#eef4ff}
 #view-lista .list-main-table td:nth-child(5),
 #view-lista .list-main-table th:nth-child(9),
 #view-lista .list-main-table td:nth-child(9){
-  width:8%
+  width:7%
 }
 #view-lista .list-main-table th:nth-child(6),
 #view-lista .list-main-table td:nth-child(6),
@@ -2607,18 +2681,22 @@ tbody tr:hover td{background:#eef4ff}
 }
 #view-lista .list-main-table th:nth-child(8),
 #view-lista .list-main-table td:nth-child(8){
-  width:8%
+  width:7%
 }
 #view-lista .list-main-table th:nth-child(10),
 #view-lista .list-main-table td:nth-child(10){
-  width:7%
+  width:6%
 }
 #view-lista .list-main-table th:nth-child(11),
 #view-lista .list-main-table td:nth-child(11){
-  width:13%
+  width:6%
+}
+#view-lista .list-main-table th:nth-child(12),
+#view-lista .list-main-table td:nth-child(12){
+  width:12%
 }
 #view-lista .list-main-table td:nth-child(8),
-#view-lista .list-main-table td:nth-child(11){
+#view-lista .list-main-table td:nth-child(12){
   text-align:center
 }
 .compat-cell{
@@ -2709,10 +2787,10 @@ tbody tr:hover td{background:#eef4ff}
   border-color:#d0d8e6;
   color:#5c6b83
 }
-#view-lista .list-main-table th:nth-child(11){
+#view-lista .list-main-table th:nth-child(12){
   text-align:center
 }
-#view-lista .list-main-table td:nth-child(11){
+#view-lista .list-main-table td:nth-child(12){
   white-space:nowrap;
   overflow:hidden;
   text-overflow:ellipsis
@@ -2760,13 +2838,13 @@ tbody tr:hover td{background:#eef4ff}
 #view-lista .list-infra-table .url-list li:not(:last-child)::after{
   content:" | "
 }
-#view-lista .list-main-table td:nth-child(11) .compat-pill{
+#view-lista .list-main-table td:nth-child(12) .compat-pill{
   max-width:130px
 }
-#view-lista .list-main-table td:nth-child(11) .compat-empty{
+#view-lista .list-main-table td:nth-child(12) .compat-empty{
   display:inline-block
 }
-#view-lista .list-main-table td:nth-child(11) .compat-cell{
+#view-lista .list-main-table td:nth-child(12) .compat-cell{
   min-height:30px
 }
 #view-lista .list-support-table{
@@ -2861,12 +2939,22 @@ tbody tr:hover td{background:#eef4ff}
 }
 #view-dns .dns-filters{
   display:grid;
-  grid-template-columns:repeat(4,minmax(0,1fr));
+  grid-template-columns:repeat(auto-fit,minmax(220px,280px));
+  justify-content:start;
   gap:8px 10px;
   margin-bottom:10px
 }
 #view-dns .dns-filter-field{
-  margin:0
+  margin:0;
+  max-width:280px
+}
+#view-dns .dns-actions{
+  margin-left:auto
+}
+#view-bases .db-export-actions{
+  margin-left:auto;
+  flex-wrap:wrap;
+  justify-content:flex-end
 }
 #view-dns .dns-filter-field label{
   margin-bottom:4px
@@ -2914,7 +3002,7 @@ tbody tr:hover td{background:#eef4ff}
   }
 }
 #view-bases .bases-table{
-  min-width:1500px;
+  min-width:1820px;
   table-layout:auto
 }
 #view-bases .bases-table th:first-child,
@@ -2929,8 +3017,10 @@ tbody tr:hover td{background:#eef4ff}
 #view-bases .bases-table td:nth-child(4),
 #view-bases .bases-table th:nth-child(8),
 #view-bases .bases-table td:nth-child(8),
-#view-bases .bases-table th:nth-child(10),
-#view-bases .bases-table td:nth-child(10){
+#view-bases .bases-table th:nth-child(9),
+#view-bases .bases-table td:nth-child(9),
+#view-bases .bases-table th:nth-child(12),
+#view-bases .bases-table td:nth-child(12){
   width:150px;
   white-space:nowrap;
   overflow-wrap:normal
@@ -2944,12 +3034,14 @@ tbody tr:hover td{background:#eef4ff}
 #view-bases .bases-table td:nth-child(6),
 #view-bases .bases-table th:nth-child(7),
 #view-bases .bases-table td:nth-child(7),
-#view-bases .bases-table th:nth-child(9),
-#view-bases .bases-table td:nth-child(9){
-  width:140px
-}
+#view-bases .bases-table th:nth-child(10),
+#view-bases .bases-table td:nth-child(10),
 #view-bases .bases-table th:nth-child(11),
 #view-bases .bases-table td:nth-child(11){
+  width:140px
+}
+#view-bases .bases-table th:nth-child(13),
+#view-bases .bases-table td:nth-child(13){
   width:18%;
   white-space:nowrap;
   overflow-wrap:normal
@@ -3255,6 +3347,14 @@ tbody tr:hover td{background:#eef4ff}
   font-weight:700;
   color:#4d6691;
   margin-bottom:6px
+}
+.vm-report-tags{
+  margin:4px 0 0;
+  gap:8px
+}
+.vm-report-tags .tag{
+  padding:2px 8px;
+  font-size:11px
 }
 .vm-report-list{
   margin:0;
