@@ -356,8 +356,8 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
     <div class="form">
       <input id="fid" type="hidden">
       <div class="row3">
-        <div class="field"><label>Nome *</label><input id="fname" oninput="toggleSave()" placeholder="Ex: GeoNetwork"></div>
-        <div class="field"><label>Sistema</label><input id="fsystem" placeholder="Ex: Publicacoes SEI"></div>
+        <div class="field"><label>Nome *</label><input id="fname" oninput="toggleSave()" placeholder="Ex: Projeto"></div>
+        <div class="field"><label>Sistema</label><input id="fsystem" placeholder="Framework"></div>
         <div class="field"><label>Versão</label><input id="fver" placeholder="Ex: 4.2.x"></div>
       </div>
       <div class="row3">

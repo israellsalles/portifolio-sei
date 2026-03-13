@@ -83,10 +83,11 @@ header{
 .tabs{
   display:flex;
   gap:6px;
-  margin-left:14px;
+  row-gap:6px;
+  margin-left:24px;
   min-width:0;
   flex:1 1 auto;
-  flex-wrap:nowrap;
+  flex-wrap:wrap;
   overflow:visible
 }
 .tabs::-webkit-scrollbar{
@@ -318,7 +319,7 @@ main{padding:16px}
 
 @media(min-width:1500px){
   .system-info-card{
-    grid-template-columns:repeat(4,minmax(0,1fr));
+    grid-template-columns:repeat(5,minmax(0,1fr));
   }
 }
 .system-info-head,
@@ -2219,7 +2220,8 @@ tbody tr:hover td{background:#eef4ff}
   margin-top:12px
 }
 #view-chamados .calls-table{
-  min-width:1140px;
+  width:100%;
+  min-width:0;
   table-layout:fixed
 }
 #view-chamados .calls-table th:first-child,
@@ -2265,7 +2267,7 @@ tbody tr:hover td{background:#eef4ff}
   display:flex;
   align-items:center;
   gap:10px;
-  flex-wrap:nowrap;
+  flex-wrap:wrap;
   min-width:0
 }
 #view-chamados .calls-group-toggle{
@@ -2280,10 +2282,10 @@ tbody tr:hover td{background:#eef4ff}
   font-weight:800;
   font-size:13px;
   letter-spacing:.2px;
-  min-width:0;
-  white-space:nowrap;
-  overflow:hidden;
-  text-overflow:ellipsis
+  min-width:120px;
+  flex:1 1 220px;
+  white-space:normal;
+  overflow-wrap:anywhere
 }
 #view-chamados .calls-group-count{
   border:1px solid #b8cdef;
@@ -2296,7 +2298,7 @@ tbody tr:hover td{background:#eef4ff}
   white-space:nowrap
 }
 #view-chamados .calls-group-hint{
-  margin-left:auto;
+  margin-left:0;
   font-size:11px;
   color:#5471a0;
   font-weight:600;
