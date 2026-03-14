@@ -2383,6 +2383,8 @@ function viewOnlySystemRows(array $rows): array {
     $out[] = [
       'id' => (int)($row['id'] ?? 0),
       'name' => normalizeUtf8Text(trim((string)($row['name'] ?? ''))),
+      'url' => implode("\n", normalizeUrlListValue((string)($row['url'] ?? ''))),
+      'url_list' => normalizeUrlListValue((string)($row['url'] ?? '')),
       'category' => normalizeUtf8Text(trim((string)($row['category'] ?? ''))),
       'system_group' => normalizeUtf8Text(trim((string)($row['system_group'] ?? ''))),
       'criticality' => normalizeUtf8Text(trim((string)($row['criticality'] ?? ''))),

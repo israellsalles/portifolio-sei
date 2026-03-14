@@ -93,7 +93,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         <div class="list-section-title">1. Sistemas</div>
         <div class="table-wrap">
           <table class="list-desc-table">
-            <thead><tr><th>Nome</th><th>Categoria</th><th>Grupo</th><th>Criticidade</th><th>Descricao</th><th>Observacoes</th><th>Status</th></tr></thead>
+            <thead><tr><th>Nome</th><th>URL</th><th>Categoria</th><th>Grupo</th><th>Criticidade</th><th>Descricao</th><th>Observacoes</th><th>Status</th></tr></thead>
             <tbody id="list-desc-body"></tbody>
           </table>
         </div>
@@ -111,7 +111,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         <div class="list-section-title">3. Infraestrutura</div>
         <div class="table-wrap">
           <table class="list-infra-table list-compact-table">
-            <thead><tr><th>Nome</th><th>URL</th><th>URL Homologacao</th><th>VM Producao</th><th>IP Producao</th><th>VM Homologacao</th><th>IP Homologacao</th><th>VM Desenvolvimento</th><th>IP Desenvolvimento</th><th>Acesso</th><th>Administracao</th></tr></thead>
+            <thead><tr><th>Nome</th><th>URL Homologacao</th><th>VM Producao</th><th>IP Producao</th><th>VM Homologacao</th><th>IP Homologacao</th><th>VM Desenvolvimento</th><th>IP Desenvolvimento</th><th>Acesso</th><th>Administracao</th></tr></thead>
             <tbody id="list-infra-body"></tbody>
           </table>
         </div>

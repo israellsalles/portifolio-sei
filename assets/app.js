@@ -3045,8 +3045,8 @@ function renderList(list){
   $('result-count').textContent = `${list.length} resultado(s)`;
   if (!list.length) {
     $('list-main-body').innerHTML = '<tr><td colspan="12" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
-    $('list-desc-body').innerHTML = '<tr><td colspan="7" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
-    $('list-infra-body').innerHTML = '<tr><td colspan="11" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
+    $('list-desc-body').innerHTML = '<tr><td colspan="8" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
+    $('list-infra-body').innerHTML = '<tr><td colspan="10" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
     $('list-db-body').innerHTML = '<tr><td colspan="13" style="color:var(--muted)">Nenhuma base de dados encontrada.</td></tr>';
     $('list-support-body').innerHTML = '<tr><td colspan="8" style="color:var(--muted)">Nenhum contato cadastrado.</td></tr>';
     $('list-ops-body').innerHTML = '<tr><td colspan="5" style="color:var(--muted)">Nenhum dado de deploy cadastrado.</td></tr>';
@@ -3086,6 +3086,7 @@ function renderList(list){
   $('list-desc-body').innerHTML = list.map((i) => `
     <tr${readOnly ? '' : ` onclick="openDetail(${i.id})"`}>
       <td><div class="list-name">${esc(i.name)}</div></td>
+      <td>${linkListHtml(systemUrlList(i, false), { compact:true })}</td>
       <td>${esc(i.category || '-')}</td>
       <td>${esc(i.system_group || '-')}</td>
       <td class="crit-${critKind(i.criticality)}">${esc(i.criticality || '-')}</td>
@@ -3098,7 +3099,6 @@ function renderList(list){
   $('list-infra-body').innerHTML = list.map((i) => `
     <tr onclick="openDetail(${i.id})">
       <td><div class="list-name">${esc(i.name)}</div></td>
-      <td>${linkListHtml(systemUrlList(i, false), { compact:true })}</td>
       <td>${linkListHtml(systemUrlList(i, true), { compact:true })}</td>
       <td>${esc(vmName(i, false))}</td>
       <td>${esc(vmIp(i, false))}</td>
@@ -3195,6 +3195,7 @@ function renderList(list){
           ${badge(i.status)}
         </div>
         <div class="list-mobile-grid">
+          <div class="list-mobile-item"><span class="list-mobile-label">URL</span><span class="list-mobile-value">${linkListHtml(systemUrlList(i, false), { compact:true })}</span></div>
           <div class="list-mobile-item"><span class="list-mobile-label">Categoria</span><span class="list-mobile-value">${esc(i.category || '-')}</span></div>
           <div class="list-mobile-item"><span class="list-mobile-label">Grupo</span><span class="list-mobile-value">${esc(i.system_group || '-')}</span></div>
           <div class="list-mobile-item"><span class="list-mobile-label">Criticidade</span><span class="list-mobile-value crit-${critKind(i.criticality)}">${esc(i.criticality || '-')}</span></div>
@@ -3235,10 +3236,10 @@ function renderList(list){
         <div class="list-mobile-item"><span class="list-mobile-label">Containerizacao</span><span class="list-mobile-value">${esc(Number(i.containerization || 0) > 0 ? 'Sim' : 'Nao')}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Ferramenta Container</span><span class="list-mobile-value">${esc(String(i.container_tool || '').trim() || '-')}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Compatibilidade</span><span class="list-mobile-value">${esc(systemCompatibilityDisplayLabel(i))}</span></div>
+        <div class="list-mobile-item"><span class="list-mobile-label">URL</span><span class="list-mobile-value">${linkListHtml(systemUrlList(i, false), { compact:true })}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">VM Producao</span><span class="list-mobile-value">${esc(vmName(i, false))} | ${esc(vmIp(i, false))}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">VM Homologacao</span><span class="list-mobile-value">${esc(vmName(i, true))} | ${esc(vmIp(i, true))}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">VM Desenvolvimento</span><span class="list-mobile-value">${esc(vmName(i, 'dev'))} | ${esc(vmIp(i, 'dev'))}</span></div>
-        <div class="list-mobile-item"><span class="list-mobile-label">URL</span><span class="list-mobile-value">${linkListHtml(systemUrlList(i, false), { compact:true })}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">URL Homologacao</span><span class="list-mobile-value">${linkListHtml(systemUrlList(i, true), { compact:true })}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Descricao</span><span class="list-mobile-value">${esc(i.description || '-')}</span></div>
         <div class="list-mobile-item"><span class="list-mobile-label">Observacoes</span><span class="list-mobile-value">${esc(i.notes || '-')}</span></div>
