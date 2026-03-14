@@ -2516,7 +2516,7 @@ function parseVmMachinesCsvContent(string $csvContent): array {
       $indexToField[(int)$index] = $field;
     }
   }
-  $required = ['name', 'vm_administration', 'os_name', 'ip', 'vcpus', 'ram_csv', 'disk_csv'];
+  $required = ['name', 'os_name', 'ip', 'vcpus', 'ram_csv', 'disk_csv'];
   foreach ($required as $field) {
     if (!in_array($field, $indexToField, true)) {
       throw new RuntimeException('Cabeçalho CSV inválido. Use o modelo exportado pela aba Máquinas.');
@@ -2743,7 +2743,7 @@ function vmCsvPreviewPayload(array $parsedRows, array $existingVms): array {
       $item['next']['vm_administration'] = $effectiveAdmin;
       $item['current'] = $current;
       $changedFields = [];
-      foreach (['name','ip','vm_administration','os_name','vcpus','ram_csv','disk_csv'] as $field) {
+      foreach (['name','ip','os_name','vcpus','ram_csv','disk_csv'] as $field) {
         if ((string)($current[$field] ?? '') !== (string)($item['next'][$field] ?? '')) {
           $changedFields[] = $field;
         }
@@ -3606,7 +3606,7 @@ function handleApiRequest(): void {
         $ram = $ramCsv !== '' && preg_match('/[a-z]/i', $ramCsv) !== 1 ? ($ramCsv . ' GB') : $ramCsv;
         $disk = $diskCsv !== '' && preg_match('/[a-z]/i', $diskCsv) !== 1 ? ($diskCsv . ' GB') : $diskCsv;
         if (!in_array($vmCategory, ['Producao', 'Homologacao', 'Desenvolvimento'], true)) { $vmCategory = 'Producao'; }
-        if (!in_array($vmType, ['Sistemas', 'SGBD'], true)) { $vmType = 'Sistemas'; }
+        if (!in_array($vmType, ['Sistemas', 'SGBD', 'Bigdata', 'Fileserver', 'Servico', 'Outros'], true)) { $vmType = 'Sistemas'; }
         if (!in_array($vmAccess, ['Interno', 'Externo'], true)) { $vmAccess = 'Interno'; }
 
         $id = (int)($row['id'] ?? 0);
@@ -4370,7 +4370,7 @@ function handleApiRequest(): void {
       if ($name === '' || count($ipList) === 0) { echo json_encode(['ok'=>false,'error'=>'Nome e ao menos um IP sao obrigatorios']); return; }
       $allowedCategories = ['Producao','Homologacao','Desenvolvimento'];
       if (!in_array($vmCategory, $allowedCategories, true)) { $vmCategory = 'Producao'; }
-      $allowedTypes = ['Sistemas','SGBD'];
+      $allowedTypes = ['Sistemas','SGBD','Bigdata','Fileserver','Servico','Outros'];
       if (!in_array($vmType, $allowedTypes, true)) { $vmType = 'Sistemas'; }
       $allowedAccess = ['Interno','Externo'];
       if (!in_array($vmAccess, $allowedAccess, true)) { $vmAccess = 'Interno'; }

@@ -61,7 +61,6 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
     <select id="st" onchange="renderCurrent()"></select>
     <select id="vmf" onchange="renderCurrent()"></select>
     <select id="accessf" onchange="renderCurrent()"></select>
-    <select id="adminf" onchange="renderCurrent()"></select>
     <select id="sectorf" onchange="renderCurrent()"></select>
     <select id="sort" onchange="renderCurrent()">
       <option value="name">Ordenar: Nome</option>
@@ -310,8 +309,8 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         <input id="vmq" class="search vm-filter-search" type="text" placeholder="Buscar maquina, IP, SO..." oninput="renderMachines()">
         <select id="vmcatf" onchange="renderMachines()"></select>
         <select id="vmtypef" onchange="renderMachines()"></select>
-        <select id="vmosf" onchange="renderMachines()"></select>
         <select id="vmadminf" onchange="renderMachines()"></select>
+        <select id="vmosf" onchange="renderMachines()"></select>
         <span id="vm-result-count" class="result-count"></span>
       </div>
       <div id="vm-sections" class="vm-sections"></div>
@@ -326,8 +325,8 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         <input id="vmrq" class="search vm-filter-search" type="text" placeholder="Buscar maquina, IP, SO..." oninput="renderVmReportTab()">
         <select id="vmrcatf" onchange="renderVmReportTab()"></select>
         <select id="vmrtypef" onchange="renderVmReportTab()"></select>
-        <select id="vmrosf" onchange="renderVmReportTab()"></select>
         <select id="vmradminf" onchange="renderVmReportTab()"></select>
+        <select id="vmrosf" onchange="renderVmReportTab()"></select>
         <span id="vmr-result-count" class="result-count"></span>
       </div>
       <div id="vm-report" class="vm-report"></div>
@@ -522,10 +521,10 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         <div class="field"><label>Responsavel</label><input id="fowner"></div>
         <div class="field"><label>URLs (uma por linha)</label><textarea id="furl" placeholder="https://site-a...&#10;https://site-b..."></textarea></div>
       </div>
-      <div class="row3">
-        <div class="field"><label>Maquina (Producao)</label><select id="fvm_id" onchange="syncSystemTechFromVms()"></select></div>
-        <div class="field"><label>Maquina (Homologacao)</label><select id="fvm_homolog_id" onchange="syncSystemTechFromVms()"></select></div>
-        <div class="field"><label>Maquina (Desenvolvimento)</label><select id="fvm_dev_id" onchange="syncSystemTechFromVms()"></select></div>
+      <div class="row3 vm-lookup-row">
+        <div class="field lookup-field"><label>Maquina (Producao)</label><input id="fvm_id_lookup" class="select-filter-input" type="text" placeholder="Selecionar..." autocomplete="off" onfocus="focusVmLookupField('fvm_id')" oninput="syncVmLookupField('fvm_id')" onchange="syncVmLookupField('fvm_id')" onkeydown="handleVmLookupKeydown(event,'fvm_id')"><div id="fvm_id_suggest" class="lookup-suggest hidden"></div><input id="fvm_id" type="hidden"></div>
+        <div class="field lookup-field lookup-align-right"><label>Maquina (Homologacao)</label><input id="fvm_homolog_id_lookup" class="select-filter-input" type="text" placeholder="Selecionar..." autocomplete="off" onfocus="focusVmLookupField('fvm_homolog_id')" oninput="syncVmLookupField('fvm_homolog_id')" onchange="syncVmLookupField('fvm_homolog_id')" onkeydown="handleVmLookupKeydown(event,'fvm_homolog_id')"><div id="fvm_homolog_id_suggest" class="lookup-suggest hidden"></div><input id="fvm_homolog_id" type="hidden"></div>
+        <div class="field lookup-field"><label>Maquina (Desenvolvimento)</label><input id="fvm_dev_id_lookup" class="select-filter-input" type="text" placeholder="Selecionar..." autocomplete="off" onfocus="focusVmLookupField('fvm_dev_id')" oninput="syncVmLookupField('fvm_dev_id')" onchange="syncVmLookupField('fvm_dev_id')" onkeydown="handleVmLookupKeydown(event,'fvm_dev_id')"><div id="fvm_dev_id_suggest" class="lookup-suggest hidden"></div><input id="fvm_dev_id" type="hidden"></div>
       </div>
       <div class="row3">
         <div class="field"><label>Acesso</label><select id="faccess"><option>Interno</option><option>Externo</option></select></div>
@@ -661,6 +660,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
     <div class="modal-head"><div id="vmtitle" class="modal-title">Nova Maquina</div><button class="close" onclick="closeModal('mvm')">&#10005;</button></div>
     <div class="form">
       <input id="fvmid" type="hidden">
+      <input id="fvmadministration" type="hidden" value="SEI">
       <div class="row2">
         <div class="field"><label>Nome da Maquina *</label><input id="fvmname" placeholder="Ex: vm-sei-prod-01"></div>
         <div class="field"><label>IPs * (uma por linha ou virgula)</label><textarea id="fvmip" placeholder="Ex: 10.0.0.15&#10;10.0.0.16"></textarea></div>
@@ -671,15 +671,10 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
       </div>
       <div class="row2">
         <div class="field"><label>Ambiente da VM *</label><select id="fvmcategory"><option>Producao</option><option>Homologacao</option><option>Desenvolvimento</option></select></div>
-        <div class="field"><label>Tipo da VM *</label><select id="fvmtype"><option>Sistemas</option><option>SGBD</option></select></div>
+        <div class="field"><label>Tipo da VM *</label><select id="fvmtype"><option>Sistemas</option><option>SGBD</option><option>Bigdata</option><option>Fileserver</option><option>Servico</option><option>Outros</option></select></div>
       </div>
       <div class="row2">
-        <div class="field"><label>Administracao *</label><select id="fvmadministration"><option>SEI</option><option>PRODEB</option></select></div>
-        <div class="field"><label>&nbsp;</label></div>
-      </div>
-      <div class="row3">
         <div class="field"><label>Sistema Operacional</label><input id="fvmos" placeholder="Ex: Ubuntu Server"></div>
-        <div class="field"><label>&nbsp;</label></div>
         <div class="field"><label>&nbsp;</label></div>
       </div>
       <div class="row3">
@@ -732,16 +727,16 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
     <div class="modal-head"><div id="dbtitle" class="modal-title">Nova Base de Dados</div><button class="close" onclick="closeModal('mdb')">&#10005;</button></div>
     <div class="form">
       <input id="fdbid" type="hidden">
-      <div class="row2">
+      <div class="row2 db-lookup-row">
         <div class="field"><label>Sistema *</label><select id="fdbsystem"></select></div>
-        <div class="field"><label>Maquina *</label><select id="fdbvm" onchange="syncDbInstanceOptions()"></select></div>
+        <div class="field lookup-field lookup-align-right"><label>Maquina *</label><input id="fdbvm_lookup" class="select-filter-input" type="text" placeholder="Selecionar..." autocomplete="off" onfocus="focusVmLookupField('fdbvm')" oninput="syncVmLookupField('fdbvm')" onchange="syncVmLookupField('fdbvm')" onkeydown="handleVmLookupKeydown(event,'fdbvm')"><div id="fdbvm_suggest" class="lookup-suggest hidden"></div><input id="fdbvm" type="hidden"></div>
       </div>
       <div class="row2">
         <div class="field"><label>Instancia SGBD *</label><select id="fdbinstance"></select></div>
         <div class="field"><label>Nome da Base *</label><input id="fdbname" placeholder="Ex: bd_sistema_a"></div>
       </div>
-      <div class="row2">
-        <div class="field"><label>Maquina Homologacao</label><select id="fdbvmh" onchange="syncDbInstanceOptions()"></select></div>
+      <div class="row2 db-lookup-row">
+        <div class="field lookup-field"><label>Maquina Homologacao</label><input id="fdbvmh_lookup" class="select-filter-input" type="text" placeholder="Selecionar..." autocomplete="off" onfocus="focusVmLookupField('fdbvmh')" oninput="syncVmLookupField('fdbvmh')" onchange="syncVmLookupField('fdbvmh')" onkeydown="handleVmLookupKeydown(event,'fdbvmh')"><div id="fdbvmh_suggest" class="lookup-suggest hidden"></div><input id="fdbvmh" type="hidden"></div>
         <div class="field"><label>Instancia SGBD Homologacao</label><select id="fdbinstanceh" onchange="syncDbHomologIp()"></select></div>
       </div>
       <div class="field"><label>Usuario do Banco</label><input id="fdbuser" placeholder="Ex: app_user"></div>

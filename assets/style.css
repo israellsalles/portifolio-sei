@@ -1340,6 +1340,15 @@ tbody tr:hover td{background:#101d34}
 .form{display:grid;gap:10px}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+#mform .vm-lookup-row{
+  grid-template-columns:1fr 1fr;
+}
+#mform .vm-lookup-row .field:last-child{
+  grid-column:1 / -1;
+}
+#mdb .db-lookup-row{
+  grid-template-columns:minmax(0, 1.35fr) minmax(0, 1fr);
+}
 .field label{
   display:block;
   font-size:12px;
@@ -1356,6 +1365,47 @@ tbody tr:hover td{background:#101d34}
   border-radius:9px;
   padding:8px 10px;
   font-size:14px
+}
+.select-filter-input{
+  margin-bottom:0
+}
+.lookup-field{
+  position:relative
+}
+.lookup-suggest{
+  position:absolute;
+  top:calc(100% + 4px);
+  left:0;
+  width:100%;
+  max-height:300px;
+  overflow:auto;
+  background:var(--surface);
+  border:1px solid var(--line);
+  border-radius:10px;
+  box-shadow:0 14px 30px rgba(10,18,36,.22);
+  z-index:120
+}
+.lookup-suggest-item{
+  display:block;
+  width:100%;
+  text-align:left;
+  border:none;
+  background:transparent;
+  color:var(--txt);
+  font-size:14px;
+  line-height:1.25;
+  padding:10px 12px;
+  cursor:pointer
+}
+.lookup-suggest-item:hover,
+.lookup-suggest-item:focus,
+.lookup-suggest-item.active{
+  background:rgba(71,133,236,.12)
+}
+.lookup-suggest-empty{
+  padding:10px 12px;
+  font-size:13px;
+  color:var(--muted)
 }
 .field textarea{
   min-height:84px;
@@ -3174,7 +3224,7 @@ tbody tr:hover td{background:#eef4ff}
   border-color:#cfb48a
 }
 #view-maquinas .vm-compact-table{
-  min-width:1780px
+  min-width:1960px
 }
 #view-maquinas .vm-compact-table th,
 #view-maquinas .vm-compact-table td{
@@ -3197,10 +3247,20 @@ tbody tr:hover td{background:#eef4ff}
   width:22%;
   min-width:300px
 }
-#view-maquinas .vm-desktop-table th.vm-res-col,
-#view-maquinas .vm-desktop-table td.vm-res-col{
-  width:18%;
-  min-width:190px
+#view-maquinas .vm-desktop-table th.vm-vcpu-col,
+#view-maquinas .vm-desktop-table td.vm-vcpu-col{
+  width:6%;
+  min-width:72px
+}
+#view-maquinas .vm-desktop-table th.vm-ram-col,
+#view-maquinas .vm-desktop-table td.vm-ram-col{
+  width:8%;
+  min-width:92px
+}
+#view-maquinas .vm-desktop-table th.vm-disk-col,
+#view-maquinas .vm-desktop-table td.vm-disk-col{
+  width:10%;
+  min-width:112px
 }
 #view-maquinas .vm-desktop-table th.vm-name-col,
 #view-maquinas .vm-desktop-table td.vm-name-col{

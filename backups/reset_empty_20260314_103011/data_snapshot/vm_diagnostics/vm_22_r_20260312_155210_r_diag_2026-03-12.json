@@ -1,0 +1,1322 @@
+{
+    "r_version": "R version 4.5.2 (2025-10-31)",
+    "platform": "x86_64-redhat-linux-gnu",
+    "total_packages": 263,
+    "packages": [
+        {
+            "Package": "abind",
+            "Version": "1.4-8",
+            "_row": "abind"
+        },
+        {
+            "Package": "AsioHeaders",
+            "Version": "1.30.2-1",
+            "_row": "AsioHeaders"
+        },
+        {
+            "Package": "askpass",
+            "Version": "1.2.1",
+            "_row": "askpass"
+        },
+        {
+            "Package": "backports",
+            "Version": "1.5.0",
+            "_row": "backports"
+        },
+        {
+            "Package": "base",
+            "Version": "4.5.2",
+            "_row": "base"
+        },
+        {
+            "Package": "base64enc",
+            "Version": "0.1-6",
+            "_row": "base64enc"
+        },
+        {
+            "Package": "bit",
+            "Version": "4.6.0",
+            "_row": "bit"
+        },
+        {
+            "Package": "bit64",
+            "Version": "4.6.0-1",
+            "_row": "bit64"
+        },
+        {
+            "Package": "blob",
+            "Version": "1.3.0",
+            "_row": "blob"
+        },
+        {
+            "Package": "boot",
+            "Version": "1.3-32",
+            "_row": "boot"
+        },
+        {
+            "Package": "brand.yml",
+            "Version": "0.1.0",
+            "_row": "brand.yml"
+        },
+        {
+            "Package": "brew",
+            "Version": "1.0-10",
+            "_row": "brew"
+        },
+        {
+            "Package": "brio",
+            "Version": "1.1.5",
+            "_row": "brio"
+        },
+        {
+            "Package": "broom",
+            "Version": "1.0.12",
+            "_row": "broom"
+        },
+        {
+            "Package": "bsicons",
+            "Version": "0.1.2",
+            "_row": "bsicons"
+        },
+        {
+            "Package": "bslib",
+            "Version": "0.10.0",
+            "_row": "bslib"
+        },
+        {
+            "Package": "cachem",
+            "Version": "1.1.0",
+            "_row": "cachem"
+        },
+        {
+            "Package": "Cairo",
+            "Version": "1.7-0",
+            "_row": "Cairo"
+        },
+        {
+            "Package": "callr",
+            "Version": "3.7.6",
+            "_row": "callr"
+        },
+        {
+            "Package": "cellranger",
+            "Version": "1.1.0",
+            "_row": "cellranger"
+        },
+        {
+            "Package": "checkmate",
+            "Version": "2.3.4",
+            "_row": "checkmate"
+        },
+        {
+            "Package": "chromote",
+            "Version": "0.5.1",
+            "_row": "chromote"
+        },
+        {
+            "Package": "class",
+            "Version": "7.3-23",
+            "_row": "class"
+        },
+        {
+            "Package": "classInt",
+            "Version": "0.4-11",
+            "_row": "classInt"
+        },
+        {
+            "Package": "cli",
+            "Version": "3.6.5",
+            "_row": "cli"
+        },
+        {
+            "Package": "cluster",
+            "Version": "2.1.8.1",
+            "_row": "cluster"
+        },
+        {
+            "Package": "codetools",
+            "Version": "0.2-20",
+            "_row": "codetools"
+        },
+        {
+            "Package": "colorspace",
+            "Version": "2.1-2",
+            "_row": "colorspace"
+        },
+        {
+            "Package": "cols4all",
+            "Version": "0.10",
+            "_row": "cols4all"
+        },
+        {
+            "Package": "commonmark",
+            "Version": "2.0.0",
+            "_row": "commonmark"
+        },
+        {
+            "Package": "compiler",
+            "Version": "4.5.2",
+            "_row": "compiler"
+        },
+        {
+            "Package": "coro",
+            "Version": "1.1.0",
+            "_row": "coro"
+        },
+        {
+            "Package": "covr",
+            "Version": "3.6.5",
+            "_row": "covr"
+        },
+        {
+            "Package": "cpp11",
+            "Version": "0.5.3",
+            "_row": "cpp11"
+        },
+        {
+            "Package": "crayon",
+            "Version": "1.5.3",
+            "_row": "crayon"
+        },
+        {
+            "Package": "crosstalk",
+            "Version": "1.2.2",
+            "_row": "crosstalk"
+        },
+        {
+            "Package": "curl",
+            "Version": "7.0.0",
+            "_row": "curl"
+        },
+        {
+            "Package": "data.table",
+            "Version": "1.18.2.1",
+            "_row": "data.table"
+        },
+        {
+            "Package": "datasets",
+            "Version": "4.5.2",
+            "_row": "datasets"
+        },
+        {
+            "Package": "DBI",
+            "Version": "1.3.0",
+            "_row": "DBI"
+        },
+        {
+            "Package": "deldir",
+            "Version": "2.0-4",
+            "_row": "deldir"
+        },
+        {
+            "Package": "dendextend",
+            "Version": "1.19.1",
+            "_row": "dendextend"
+        },
+        {
+            "Package": "desc",
+            "Version": "1.4.3",
+            "_row": "desc"
+        },
+        {
+            "Package": "diffobj",
+            "Version": "0.3.6",
+            "_row": "diffobj"
+        },
+        {
+            "Package": "digest",
+            "Version": "0.6.39",
+            "_row": "digest"
+        },
+        {
+            "Package": "dplyr",
+            "Version": "1.2.0",
+            "_row": "dplyr"
+        },
+        {
+            "Package": "DT",
+            "Version": "0.34.0",
+            "_row": "DT"
+        },
+        {
+            "Package": "dygraphs",
+            "Version": "1.1.1.6",
+            "_row": "dygraphs"
+        },
+        {
+            "Package": "e1071",
+            "Version": "1.7-17",
+            "_row": "e1071"
+        },
+        {
+            "Package": "evaluate",
+            "Version": "1.0.5",
+            "_row": "evaluate"
+        },
+        {
+            "Package": "farver",
+            "Version": "2.1.2",
+            "_row": "farver"
+        },
+        {
+            "Package": "fastmap",
+            "Version": "1.2.0",
+            "_row": "fastmap"
+        },
+        {
+            "Package": "fontawesome",
+            "Version": "0.5.3",
+            "_row": "fontawesome"
+        },
+        {
+            "Package": "forcats",
+            "Version": "1.0.1",
+            "_row": "forcats"
+        },
+        {
+            "Package": "foreign",
+            "Version": "0.8-90",
+            "_row": "foreign"
+        },
+        {
+            "Package": "fresh",
+            "Version": "0.2.2",
+            "_row": "fresh"
+        },
+        {
+            "Package": "fs",
+            "Version": "1.6.7",
+            "_row": "fs"
+        },
+        {
+            "Package": "future",
+            "Version": "1.69.0",
+            "_row": "future"
+        },
+        {
+            "Package": "generics",
+            "Version": "0.1.4",
+            "_row": "generics"
+        },
+        {
+            "Package": "geojsonsf",
+            "Version": "2.0.5",
+            "_row": "geojsonsf"
+        },
+        {
+            "Package": "geometries",
+            "Version": "0.2.5",
+            "_row": "geometries"
+        },
+        {
+            "Package": "ggalluvial",
+            "Version": "0.12.6",
+            "_row": "ggalluvial"
+        },
+        {
+            "Package": "GGally",
+            "Version": "2.4.0",
+            "_row": "GGally"
+        },
+        {
+            "Package": "ggplot2",
+            "Version": "4.0.2",
+            "_row": "ggplot2"
+        },
+        {
+            "Package": "ggridges",
+            "Version": "0.5.7",
+            "_row": "ggridges"
+        },
+        {
+            "Package": "ggstats",
+            "Version": "0.12.0",
+            "_row": "ggstats"
+        },
+        {
+            "Package": "ggthemes",
+            "Version": "5.2.0",
+            "_row": "ggthemes"
+        },
+        {
+            "Package": "globals",
+            "Version": "0.19.0",
+            "_row": "globals"
+        },
+        {
+            "Package": "glue",
+            "Version": "1.8.0",
+            "_row": "glue"
+        },
+        {
+            "Package": "goftest",
+            "Version": "1.2-3",
+            "_row": "goftest"
+        },
+        {
+            "Package": "graphics",
+            "Version": "4.5.2",
+            "_row": "graphics"
+        },
+        {
+            "Package": "grDevices",
+            "Version": "4.5.2",
+            "_row": "grDevices"
+        },
+        {
+            "Package": "grid",
+            "Version": "4.5.2",
+            "_row": "grid"
+        },
+        {
+            "Package": "gridExtra",
+            "Version": "2.3",
+            "_row": "gridExtra"
+        },
+        {
+            "Package": "gtable",
+            "Version": "0.3.6",
+            "_row": "gtable"
+        },
+        {
+            "Package": "here",
+            "Version": "1.0.2",
+            "_row": "here"
+        },
+        {
+            "Package": "hexbin",
+            "Version": "1.28.5",
+            "_row": "hexbin"
+        },
+        {
+            "Package": "highr",
+            "Version": "0.12",
+            "_row": "highr"
+        },
+        {
+            "Package": "hms",
+            "Version": "1.1.4",
+            "_row": "hms"
+        },
+        {
+            "Package": "htmltools",
+            "Version": "0.5.9",
+            "_row": "htmltools"
+        },
+        {
+            "Package": "htmlwidgets",
+            "Version": "1.6.4",
+            "_row": "htmlwidgets"
+        },
+        {
+            "Package": "httpuv",
+            "Version": "1.6.16",
+            "_row": "httpuv"
+        },
+        {
+            "Package": "httr",
+            "Version": "1.4.8",
+            "_row": "httr"
+        },
+        {
+            "Package": "httr2",
+            "Version": "1.2.2",
+            "_row": "httr2"
+        },
+        {
+            "Package": "IRdisplay",
+            "Version": "1.1",
+            "_row": "IRdisplay"
+        },
+        {
+            "Package": "isoband",
+            "Version": "0.3.0",
+            "_row": "isoband"
+        },
+        {
+            "Package": "jquerylib",
+            "Version": "0.1.4",
+            "_row": "jquerylib"
+        },
+        {
+            "Package": "jsonify",
+            "Version": "1.2.3",
+            "_row": "jsonify"
+        },
+        {
+            "Package": "jsonlite",
+            "Version": "2.0.0",
+            "_row": "jsonlite"
+        },
+        {
+            "Package": "KernSmooth",
+            "Version": "2.23-26",
+            "_row": "KernSmooth"
+        },
+        {
+            "Package": "knitr",
+            "Version": "1.51",
+            "_row": "knitr"
+        },
+        {
+            "Package": "labeling",
+            "Version": "0.4.3",
+            "_row": "labeling"
+        },
+        {
+            "Package": "later",
+            "Version": "1.4.8",
+            "_row": "later"
+        },
+        {
+            "Package": "lattice",
+            "Version": "0.22-7",
+            "_row": "lattice"
+        },
+        {
+            "Package": "lazyeval",
+            "Version": "0.2.2",
+            "_row": "lazyeval"
+        },
+        {
+            "Package": "leafem",
+            "Version": "0.2.5",
+            "_row": "leafem"
+        },
+        {
+            "Package": "leafgl",
+            "Version": "0.2.2",
+            "_row": "leafgl"
+        },
+        {
+            "Package": "leaflegend",
+            "Version": "1.2.1",
+            "_row": "leaflegend"
+        },
+        {
+            "Package": "leaflet",
+            "Version": "2.2.3",
+            "_row": "leaflet"
+        },
+        {
+            "Package": "leaflet.providers",
+            "Version": "2.0.0",
+            "_row": "leaflet.providers"
+        },
+        {
+            "Package": "leafpop",
+            "Version": "0.1.0",
+            "_row": "leafpop"
+        },
+        {
+            "Package": "leafsync",
+            "Version": "0.1.0",
+            "_row": "leafsync"
+        },
+        {
+            "Package": "lifecycle",
+            "Version": "1.0.5",
+            "_row": "lifecycle"
+        },
+        {
+            "Package": "listenv",
+            "Version": "0.10.0",
+            "_row": "listenv"
+        },
+        {
+            "Package": "listviewer",
+            "Version": "4.0.0",
+            "_row": "listviewer"
+        },
+        {
+            "Package": "litedown",
+            "Version": "0.9",
+            "_row": "litedown"
+        },
+        {
+            "Package": "logger",
+            "Version": "0.4.1",
+            "_row": "logger"
+        },
+        {
+            "Package": "lubridate",
+            "Version": "1.9.5",
+            "_row": "lubridate"
+        },
+        {
+            "Package": "lwgeom",
+            "Version": "0.2-15",
+            "_row": "lwgeom"
+        },
+        {
+            "Package": "magrittr",
+            "Version": "2.0.4",
+            "_row": "magrittr"
+        },
+        {
+            "Package": "maps",
+            "Version": "3.4.3",
+            "_row": "maps"
+        },
+        {
+            "Package": "maptiles",
+            "Version": "0.11.0",
+            "_row": "maptiles"
+        },
+        {
+            "Package": "mapview",
+            "Version": "2.11.4",
+            "_row": "mapview"
+        },
+        {
+            "Package": "markdown",
+            "Version": "2.0",
+            "_row": "markdown"
+        },
+        {
+            "Package": "MASS",
+            "Version": "7.3-65",
+            "_row": "MASS"
+        },
+        {
+            "Package": "Matrix",
+            "Version": "1.7-4",
+            "_row": "Matrix"
+        },
+        {
+            "Package": "memoise",
+            "Version": "2.0.1",
+            "_row": "memoise"
+        },
+        {
+            "Package": "methods",
+            "Version": "4.5.2",
+            "_row": "methods"
+        },
+        {
+            "Package": "mgcv",
+            "Version": "1.9-3",
+            "_row": "mgcv"
+        },
+        {
+            "Package": "microbenchmark",
+            "Version": "1.5.0",
+            "_row": "microbenchmark"
+        },
+        {
+            "Package": "mime",
+            "Version": "0.13",
+            "_row": "mime"
+        },
+        {
+            "Package": "mirai",
+            "Version": "2.6.1",
+            "_row": "mirai"
+        },
+        {
+            "Package": "nanoarrow",
+            "Version": "0.8.0",
+            "_row": "nanoarrow"
+        },
+        {
+            "Package": "nanonext",
+            "Version": "1.8.0",
+            "_row": "nanonext"
+        },
+        {
+            "Package": "nlme",
+            "Version": "3.1-168",
+            "_row": "nlme"
+        },
+        {
+            "Package": "nnet",
+            "Version": "7.3-20",
+            "_row": "nnet"
+        },
+        {
+            "Package": "odbc",
+            "Version": "1.6.4.1",
+            "_row": "odbc"
+        },
+        {
+            "Package": "openssl",
+            "Version": "2.3.5",
+            "_row": "openssl"
+        },
+        {
+            "Package": "otel",
+            "Version": "0.2.0",
+            "_row": "otel"
+        },
+        {
+            "Package": "otelsdk",
+            "Version": "0.2.2",
+            "_row": "otelsdk"
+        },
+        {
+            "Package": "palmerpenguins",
+            "Version": "0.1.1",
+            "_row": "palmerpenguins"
+        },
+        {
+            "Package": "parallel",
+            "Version": "4.5.2",
+            "_row": "parallel"
+        },
+        {
+            "Package": "parallelly",
+            "Version": "1.46.1",
+            "_row": "parallelly"
+        },
+        {
+            "Package": "patchwork",
+            "Version": "1.3.2",
+            "_row": "patchwork"
+        },
+        {
+            "Package": "pbapply",
+            "Version": "1.7-4",
+            "_row": "pbapply"
+        },
+        {
+            "Package": "pillar",
+            "Version": "1.11.1",
+            "_row": "pillar"
+        },
+        {
+            "Package": "pingr",
+            "Version": "2.0.5",
+            "_row": "pingr"
+        },
+        {
+            "Package": "pkgbuild",
+            "Version": "1.4.8",
+            "_row": "pkgbuild"
+        },
+        {
+            "Package": "pkgconfig",
+            "Version": "2.0.3",
+            "_row": "pkgconfig"
+        },
+        {
+            "Package": "pkgload",
+            "Version": "1.5.0",
+            "_row": "pkgload"
+        },
+        {
+            "Package": "plotly",
+            "Version": "4.12.0",
+            "_row": "plotly"
+        },
+        {
+            "Package": "plotlyGeoAssets",
+            "Version": "0.0.2",
+            "_row": "plotlyGeoAssets"
+        },
+        {
+            "Package": "plyr",
+            "Version": "1.8.9",
+            "_row": "plyr"
+        },
+        {
+            "Package": "png",
+            "Version": "0.1-8",
+            "_row": "png"
+        },
+        {
+            "Package": "polyclip",
+            "Version": "1.10-7",
+            "_row": "polyclip"
+        },
+        {
+            "Package": "pool",
+            "Version": "1.0.4",
+            "_row": "pool"
+        },
+        {
+            "Package": "praise",
+            "Version": "1.0.0",
+            "_row": "praise"
+        },
+        {
+            "Package": "prettyunits",
+            "Version": "1.2.0",
+            "_row": "prettyunits"
+        },
+        {
+            "Package": "processx",
+            "Version": "3.8.6",
+            "_row": "processx"
+        },
+        {
+            "Package": "progress",
+            "Version": "1.2.3",
+            "_row": "progress"
+        },
+        {
+            "Package": "promises",
+            "Version": "1.5.0",
+            "_row": "promises"
+        },
+        {
+            "Package": "proxy",
+            "Version": "0.4-29",
+            "_row": "proxy"
+        },
+        {
+            "Package": "ps",
+            "Version": "1.9.1",
+            "_row": "ps"
+        },
+        {
+            "Package": "purrr",
+            "Version": "1.2.1",
+            "_row": "purrr"
+        },
+        {
+            "Package": "R6",
+            "Version": "2.6.1",
+            "_row": "R6"
+        },
+        {
+            "Package": "ragg",
+            "Version": "1.5.1",
+            "_row": "ragg"
+        },
+        {
+            "Package": "rapidjsonr",
+            "Version": "1.2.1",
+            "_row": "rapidjsonr"
+        },
+        {
+            "Package": "rappdirs",
+            "Version": "0.3.4",
+            "_row": "rappdirs"
+        },
+        {
+            "Package": "raster",
+            "Version": "3.6-32",
+            "_row": "raster"
+        },
+        {
+            "Package": "RColorBrewer",
+            "Version": "1.1-3",
+            "_row": "RColorBrewer"
+        },
+        {
+            "Package": "Rcpp",
+            "Version": "1.1.1",
+            "_row": "Rcpp"
+        },
+        {
+            "Package": "RcppTOML",
+            "Version": "0.2.3",
+            "_row": "RcppTOML"
+        },
+        {
+            "Package": "reactlog",
+            "Version": "1.1.1",
+            "_row": "reactlog"
+        },
+        {
+            "Package": "readxl",
+            "Version": "1.4.5",
+            "_row": "readxl"
+        },
+        {
+            "Package": "rematch",
+            "Version": "2.0.0",
+            "_row": "rematch"
+        },
+        {
+            "Package": "repr",
+            "Version": "1.1.7",
+            "_row": "repr"
+        },
+        {
+            "Package": "reticulate",
+            "Version": "1.45.0",
+            "_row": "reticulate"
+        },
+        {
+            "Package": "rex",
+            "Version": "1.2.1",
+            "_row": "rex"
+        },
+        {
+            "Package": "RJSONIO",
+            "Version": "2.0.0",
+            "_row": "RJSONIO"
+        },
+        {
+            "Package": "rlang",
+            "Version": "1.1.7",
+            "_row": "rlang"
+        },
+        {
+            "Package": "rmarkdown",
+            "Version": "2.30",
+            "_row": "rmarkdown"
+        },
+        {
+            "Package": "rpart",
+            "Version": "4.1.24",
+            "_row": "rpart"
+        },
+        {
+            "Package": "RPostgres",
+            "Version": "1.4.10",
+            "_row": "RPostgres"
+        },
+        {
+            "Package": "RPostgreSQL",
+            "Version": "0.7-8",
+            "_row": "RPostgreSQL"
+        },
+        {
+            "Package": "rprojroot",
+            "Version": "2.1.1",
+            "_row": "rprojroot"
+        },
+        {
+            "Package": "RSQLite",
+            "Version": "2.4.6",
+            "_row": "RSQLite"
+        },
+        {
+            "Package": "rstudioapi",
+            "Version": "0.18.0",
+            "_row": "rstudioapi"
+        },
+        {
+            "Package": "rsvg",
+            "Version": "2.7.0",
+            "_row": "rsvg"
+        },
+        {
+            "Package": "rversions",
+            "Version": "3.0.0",
+            "_row": "rversions"
+        },
+        {
+            "Package": "s2",
+            "Version": "1.1.9",
+            "_row": "s2"
+        },
+        {
+            "Package": "S7",
+            "Version": "0.2.1",
+            "_row": "S7"
+        },
+        {
+            "Package": "sass",
+            "Version": "0.4.10",
+            "_row": "sass"
+        },
+        {
+            "Package": "satellite",
+            "Version": "1.0.6",
+            "_row": "satellite"
+        },
+        {
+            "Package": "scales",
+            "Version": "1.4.0",
+            "_row": "scales"
+        },
+        {
+            "Package": "servr",
+            "Version": "0.32",
+            "_row": "servr"
+        },
+        {
+            "Package": "sf",
+            "Version": "1.1-0",
+            "_row": "sf"
+        },
+        {
+            "Package": "sfheaders",
+            "Version": "0.4.5",
+            "_row": "sfheaders"
+        },
+        {
+            "Package": "shiny",
+            "Version": "1.13.0",
+            "_row": "shiny"
+        },
+        {
+            "Package": "shinyAce",
+            "Version": "0.4.4",
+            "_row": "shinyAce"
+        },
+        {
+            "Package": "shinycssloaders",
+            "Version": "1.1.0",
+            "_row": "shinycssloaders"
+        },
+        {
+            "Package": "shinydashboard",
+            "Version": "0.7.3",
+            "_row": "shinydashboard"
+        },
+        {
+            "Package": "shinydashboardPlus",
+            "Version": "2.0.6",
+            "_row": "shinydashboardPlus"
+        },
+        {
+            "Package": "shinydisconnect",
+            "Version": "0.1.1",
+            "_row": "shinydisconnect"
+        },
+        {
+            "Package": "shinyjs",
+            "Version": "2.1.1",
+            "_row": "shinyjs"
+        },
+        {
+            "Package": "shinyscreenshot",
+            "Version": "0.2.1",
+            "_row": "shinyscreenshot"
+        },
+        {
+            "Package": "shinytest2",
+            "Version": "0.5.1",
+            "_row": "shinytest2"
+        },
+        {
+            "Package": "shinyWidgets",
+            "Version": "0.9.0",
+            "_row": "shinyWidgets"
+        },
+        {
+            "Package": "showtext",
+            "Version": "0.9-7",
+            "_row": "showtext"
+        },
+        {
+            "Package": "showtextdb",
+            "Version": "3.0",
+            "_row": "showtextdb"
+        },
+        {
+            "Package": "sourcetools",
+            "Version": "0.1.7-1",
+            "_row": "sourcetools"
+        },
+        {
+            "Package": "sp",
+            "Version": "2.2-1",
+            "_row": "sp"
+        },
+        {
+            "Package": "spacesXYZ",
+            "Version": "1.6-0",
+            "_row": "spacesXYZ"
+        },
+        {
+            "Package": "spatial",
+            "Version": "7.3-18",
+            "_row": "spatial"
+        },
+        {
+            "Package": "spatstat",
+            "Version": "3.5-1",
+            "_row": "spatstat"
+        },
+        {
+            "Package": "spatstat.data",
+            "Version": "3.1-9",
+            "_row": "spatstat.data"
+        },
+        {
+            "Package": "spatstat.explore",
+            "Version": "3.7-0",
+            "_row": "spatstat.explore"
+        },
+        {
+            "Package": "spatstat.geom",
+            "Version": "3.7-0",
+            "_row": "spatstat.geom"
+        },
+        {
+            "Package": "spatstat.linnet",
+            "Version": "3.4-1",
+            "_row": "spatstat.linnet"
+        },
+        {
+            "Package": "spatstat.model",
+            "Version": "3.6-1",
+            "_row": "spatstat.model"
+        },
+        {
+            "Package": "spatstat.random",
+            "Version": "3.4-4",
+            "_row": "spatstat.random"
+        },
+        {
+            "Package": "spatstat.sparse",
+            "Version": "3.1-0",
+            "_row": "spatstat.sparse"
+        },
+        {
+            "Package": "spatstat.univar",
+            "Version": "3.1-6",
+            "_row": "spatstat.univar"
+        },
+        {
+            "Package": "spatstat.utils",
+            "Version": "3.2-1",
+            "_row": "spatstat.utils"
+        },
+        {
+            "Package": "splines",
+            "Version": "4.5.2",
+            "_row": "splines"
+        },
+        {
+            "Package": "stars",
+            "Version": "0.7-1",
+            "_row": "stars"
+        },
+        {
+            "Package": "stats",
+            "Version": "4.5.2",
+            "_row": "stats"
+        },
+        {
+            "Package": "stats4",
+            "Version": "4.5.2",
+            "_row": "stats4"
+        },
+        {
+            "Package": "stringdist",
+            "Version": "0.9.17",
+            "_row": "stringdist"
+        },
+        {
+            "Package": "stringi",
+            "Version": "1.8.7",
+            "_row": "stringi"
+        },
+        {
+            "Package": "stringr",
+            "Version": "1.6.0",
+            "_row": "stringr"
+        },
+        {
+            "Package": "survival",
+            "Version": "3.8-3",
+            "_row": "survival"
+        },
+        {
+            "Package": "svglite",
+            "Version": "2.2.2",
+            "_row": "svglite"
+        },
+        {
+            "Package": "sys",
+            "Version": "3.4.3",
+            "_row": "sys"
+        },
+        {
+            "Package": "sysfonts",
+            "Version": "0.8.9",
+            "_row": "sysfonts"
+        },
+        {
+            "Package": "systemfonts",
+            "Version": "1.3.2",
+            "_row": "systemfonts"
+        },
+        {
+            "Package": "tcltk",
+            "Version": "4.5.2",
+            "_row": "tcltk"
+        },
+        {
+            "Package": "tensor",
+            "Version": "1.5.1",
+            "_row": "tensor"
+        },
+        {
+            "Package": "terra",
+            "Version": "1.8-93",
+            "_row": "terra"
+        },
+        {
+            "Package": "testthat",
+            "Version": "3.3.2",
+            "_row": "testthat"
+        },
+        {
+            "Package": "textshaping",
+            "Version": "1.0.5",
+            "_row": "textshaping"
+        },
+        {
+            "Package": "thematic",
+            "Version": "0.1.8",
+            "_row": "thematic"
+        },
+        {
+            "Package": "tibble",
+            "Version": "3.3.1",
+            "_row": "tibble"
+        },
+        {
+            "Package": "tidyr",
+            "Version": "1.3.2",
+            "_row": "tidyr"
+        },
+        {
+            "Package": "tidyselect",
+            "Version": "1.2.1",
+            "_row": "tidyselect"
+        },
+        {
+            "Package": "timechange",
+            "Version": "0.4.0",
+            "_row": "timechange"
+        },
+        {
+            "Package": "timevis",
+            "Version": "2.1.0",
+            "_row": "timevis"
+        },
+        {
+            "Package": "tinytex",
+            "Version": "0.58",
+            "_row": "tinytex"
+        },
+        {
+            "Package": "tmap",
+            "Version": "4.2",
+            "_row": "tmap"
+        },
+        {
+            "Package": "tmaptools",
+            "Version": "3.3",
+            "_row": "tmaptools"
+        },
+        {
+            "Package": "tools",
+            "Version": "4.5.2",
+            "_row": "tools"
+        },
+        {
+            "Package": "units",
+            "Version": "1.0-0",
+            "_row": "units"
+        },
+        {
+            "Package": "utf8",
+            "Version": "1.2.6",
+            "_row": "utf8"
+        },
+        {
+            "Package": "utils",
+            "Version": "4.5.2",
+            "_row": "utils"
+        },
+        {
+            "Package": "uuid",
+            "Version": "1.2-2",
+            "_row": "uuid"
+        },
+        {
+            "Package": "vctrs",
+            "Version": "0.7.1",
+            "_row": "vctrs"
+        },
+        {
+            "Package": "viridis",
+            "Version": "0.6.5",
+            "_row": "viridis"
+        },
+        {
+            "Package": "viridisLite",
+            "Version": "0.4.3",
+            "_row": "viridisLite"
+        },
+        {
+            "Package": "waiter",
+            "Version": "0.2.5.1",
+            "_row": "waiter"
+        },
+        {
+            "Package": "waldo",
+            "Version": "0.6.2",
+            "_row": "waldo"
+        },
+        {
+            "Package": "watcher",
+            "Version": "0.1.5",
+            "_row": "watcher"
+        },
+        {
+            "Package": "webshot",
+            "Version": "0.5.5",
+            "_row": "webshot"
+        },
+        {
+            "Package": "webshot2",
+            "Version": "0.1.2",
+            "_row": "webshot2"
+        },
+        {
+            "Package": "websocket",
+            "Version": "1.4.4",
+            "_row": "websocket"
+        },
+        {
+            "Package": "withr",
+            "Version": "3.0.2",
+            "_row": "withr"
+        },
+        {
+            "Package": "wk",
+            "Version": "0.9.5",
+            "_row": "wk"
+        },
+        {
+            "Package": "writexl",
+            "Version": "1.5.4",
+            "_row": "writexl"
+        },
+        {
+            "Package": "xfun",
+            "Version": "0.56",
+            "_row": "xfun"
+        },
+        {
+            "Package": "XML",
+            "Version": "3.99-0.22",
+            "_row": "XML"
+        },
+        {
+            "Package": "xtable",
+            "Version": "1.8-8",
+            "_row": "xtable"
+        },
+        {
+            "Package": "xts",
+            "Version": "0.14.2",
+            "_row": "xts"
+        },
+        {
+            "Package": "yaml",
+            "Version": "2.3.12",
+            "_row": "yaml"
+        },
+        {
+            "Package": "zip",
+            "Version": "2.3.3",
+            "_row": "zip"
+        },
+        {
+            "Package": "zoo",
+            "Version": "1.8-15",
+            "_row": "zoo"
+        }
+    ]
+}

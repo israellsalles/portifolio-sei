@@ -977,6 +977,13 @@ function migrateLegacyVmLinksPdo(PDO $db): void {
   }
 }
 
+function shouldSeedSampleSystems(): bool {
+  $flag = getenv('SEI_SEED_SAMPLE_SYSTEMS');
+  if ($flag === false) { return false; }
+  $value = strtolower(trim((string)$flag));
+  return in_array($value, ['1', 'true', 'yes', 'on'], true);
+}
+
 function db() {
   if (!is_writable(dirname(DB_PATH)) && !file_exists(DB_PATH)) {
     throw new RuntimeException('DB directory without write permission: ' . dirname(DB_PATH));
@@ -1049,7 +1056,7 @@ function db() {
     ensureRelationalSchemaSqlite3($db);
     ensureTicketsTableSqlite3($db);
     $count = (int)$db->querySingle('SELECT COUNT(*) FROM systems');
-    if ($count === 0) {
+    if ($count === 0 && shouldSeedSampleSystems()) {
       $db->exec("INSERT INTO systems(name,category,status,tech,description,owner,criticality,version) VALUES
         ('GeoNetwork','GIS','Ativo','GeoNetwork,Java','Catalogo de metadados geoespaciais','TI/Geo','Alta','4.2.x'),
         ('OJS','Publicacao','Ativo','OJS,PHP','Sistema de gestao de periodicos cientificos','Editorial','Alta','3.3.x'),
@@ -1125,7 +1132,7 @@ function db() {
     ensureRelationalSchemaPdo($db);
     ensureTicketsTablePdo($db);
     $count = (int)$db->query("SELECT COUNT(*) FROM systems")->fetchColumn();
-    if ($count === 0) {
+    if ($count === 0 && shouldSeedSampleSystems()) {
       $db->exec("INSERT INTO systems(name,category,status,tech,description,owner,criticality,version) VALUES
         ('GeoNetwork','GIS','Ativo','GeoNetwork,Java','Catalogo de metadados geoespaciais','TI/Geo','Alta','4.2.x'),
         ('OJS','Publicacao','Ativo','OJS,PHP','Sistema de gestao de periodicos cientificos','Editorial','Alta','3.3.x'),

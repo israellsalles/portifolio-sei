@@ -11,6 +11,7 @@ const App = {
   dnsWafCache: {},
   dnsWafLoading: false,
   vmCsvPreview: null,
+  vmLookupMaps: {},
   ticketGroupsExpanded: {},
   archived: { systems: [], vms: [] },
   view: 'lista',
@@ -22,6 +23,7 @@ const App = {
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 const norm = (s) => String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+const VM_LOOKUP_FIELDS = ['fvm_id', 'fvm_homolog_id', 'fvm_dev_id', 'fdbvm', 'fdbvmh'];
 const roleRank = (role) => {
   const map = { leitura: 1, edicao: 2, admin: 3 };
   return map[String(role || '').trim().toLowerCase()] || 0;
@@ -93,6 +95,217 @@ const parseVmIpList = (raw) => {
   });
 };
 const joinVmIpList = (raw) => parseVmIpList(raw).join(', ');
+function vmLookupFieldConfig(fieldId){
+  const map = {
+    fvm_id: { inputId: 'fvm_id_lookup', suggestId: 'fvm_id_suggest' },
+    fvm_homolog_id: { inputId: 'fvm_homolog_id_lookup', suggestId: 'fvm_homolog_id_suggest' },
+    fvm_dev_id: { inputId: 'fvm_dev_id_lookup', suggestId: 'fvm_dev_id_suggest' },
+    fdbvm: { inputId: 'fdbvm_lookup', suggestId: 'fdbvm_suggest' },
+    fdbvmh: { inputId: 'fdbvmh_lookup', suggestId: 'fdbvmh_suggest' },
+  };
+  return map[fieldId] || null;
+}
+function vmLookupTrigger(fieldId){
+  if (['fvm_id', 'fvm_homolog_id', 'fvm_dev_id'].includes(fieldId)) {
+    syncSystemTechFromVms();
+    return;
+  }
+  if (['fdbvm', 'fdbvmh'].includes(fieldId)) {
+    syncDbInstanceOptions();
+  }
+}
+function vmLookupEnsurePopupSize(fieldId){
+  const cfg = vmLookupFieldConfig(fieldId);
+  const inputEl = cfg ? $(cfg.inputId) : null;
+  const suggestEl = cfg ? $(cfg.suggestId) : null;
+  if (!cfg || !inputEl || !suggestEl) return;
+
+  const rect = inputEl.getBoundingClientRect();
+  const preferred = Math.max(rect.width, 620);
+  const maxWidth = Math.max(320, window.innerWidth - 24);
+  const width = Math.min(preferred, maxWidth);
+  const overflowRight = (rect.left + width) - (window.innerWidth - 12);
+  const shiftLeft = overflowRight > 0 ? -overflowRight : 0;
+
+  suggestEl.style.width = `${width}px`;
+  suggestEl.style.left = `${shiftLeft}px`;
+}
+function hideVmLookupSuggestions(fieldId){
+  const cfg = vmLookupFieldConfig(fieldId);
+  const suggestEl = cfg ? $(cfg.suggestId) : null;
+  if (!suggestEl) return;
+  suggestEl.classList.add('hidden');
+}
+function hideAllVmLookupSuggestions(){
+  VM_LOOKUP_FIELDS.forEach((fieldId) => hideVmLookupSuggestions(fieldId));
+}
+function vmLookupFieldFromTarget(target){
+  if (!target || typeof target.closest !== 'function') return '';
+  for (const fieldId of VM_LOOKUP_FIELDS) {
+    const cfg = vmLookupFieldConfig(fieldId);
+    if (!cfg) continue;
+    if (target.closest(`#${cfg.inputId}`) || target.closest(`#${cfg.suggestId}`)) {
+      return fieldId;
+    }
+  }
+  return '';
+}
+function renderVmLookupSuggestions(fieldId){
+  const cfg = vmLookupFieldConfig(fieldId);
+  const hiddenEl = $(fieldId);
+  const inputEl = cfg ? $(cfg.inputId) : null;
+  const suggestEl = cfg ? $(cfg.suggestId) : null;
+  if (!cfg || !hiddenEl || !inputEl || !suggestEl) return;
+
+  const maps = App.vmLookupMaps[fieldId] || { items: [], idToValue: {} };
+  const needle = norm(inputEl.value || '');
+  const items = (maps.items || [])
+    .filter((item) => needle === '' || String(item.norm || '').includes(needle))
+    .slice(0, 80);
+
+  if (!items.length) {
+    suggestEl.innerHTML = '<div class="lookup-suggest-empty">Nenhum resultado.</div>';
+  } else {
+    const currentId = String(hiddenEl.value || '').trim();
+    suggestEl.innerHTML = items.map((item) => {
+      const active = currentId !== '' && currentId === String(item.id);
+      return `<button type="button" class="lookup-suggest-item${active ? ' active' : ''}" onmousedown="selectVmLookupSuggestion('${fieldId}','${item.id}');return false;">${esc(item.label)}</button>`;
+    }).join('');
+  }
+
+  vmLookupEnsurePopupSize(fieldId);
+  suggestEl.classList.remove('hidden');
+}
+function focusVmLookupField(fieldId){
+  renderVmLookupSuggestions(fieldId);
+}
+function selectVmLookupSuggestion(fieldId, optionId){
+  const cfg = vmLookupFieldConfig(fieldId);
+  const hiddenEl = $(fieldId);
+  const inputEl = cfg ? $(cfg.inputId) : null;
+  if (!cfg || !hiddenEl || !inputEl) return;
+  const maps = App.vmLookupMaps[fieldId] || { idToValue: {} };
+  const id = String(optionId || '').trim();
+  const label = String(maps.idToValue[id] || '').trim();
+  const prevId = String(hiddenEl.value || '').trim();
+  hiddenEl.value = id;
+  inputEl.value = label;
+  hideVmLookupSuggestions(fieldId);
+  if (id !== prevId) vmLookupTrigger(fieldId);
+}
+function handleVmLookupKeydown(ev, fieldId){
+  if (ev.key === 'Escape') {
+    hideVmLookupSuggestions(fieldId);
+    return;
+  }
+  if (ev.key === 'ArrowDown') {
+    renderVmLookupSuggestions(fieldId);
+    return;
+  }
+  if (ev.key === 'Enter') {
+    syncVmLookupField(fieldId);
+    hideVmLookupSuggestions(fieldId);
+  }
+}
+function setVmLookupOptions(fieldId, rows){
+  const cfg = vmLookupFieldConfig(fieldId);
+  const hiddenEl = $(fieldId);
+  const inputEl = cfg ? $(cfg.inputId) : null;
+  if (!cfg || !hiddenEl || !inputEl) return;
+
+  const usedLabels = new Set();
+  const valueToId = {};
+  const idToValue = {};
+  const items = [];
+
+  rows.forEach((row) => {
+    const id = String(row?.id ?? '').trim();
+    if (!id) return;
+    const baseLabel = String(row?.label ?? '').trim() || `VM ${id}`;
+    let label = baseLabel;
+    let key = norm(label);
+    if (usedLabels.has(key)) {
+      label = `${baseLabel} [${id}]`;
+      key = norm(label);
+    }
+    usedLabels.add(key);
+    valueToId[label] = id;
+    idToValue[id] = label;
+    items.push({ id, label, norm: norm(label) });
+  });
+
+  App.vmLookupMaps[fieldId] = { valueToId, idToValue, items };
+  const shouldRender = document.activeElement === inputEl;
+
+  const currentId = String(hiddenEl.value || '').trim();
+  if (currentId && idToValue[currentId]) {
+    inputEl.value = idToValue[currentId];
+    if (shouldRender) renderVmLookupSuggestions(fieldId);
+    else hideVmLookupSuggestions(fieldId);
+    return;
+  }
+  if (currentId && !idToValue[currentId]) {
+    hiddenEl.value = '';
+    inputEl.value = '';
+    if (shouldRender) renderVmLookupSuggestions(fieldId);
+    else hideVmLookupSuggestions(fieldId);
+    return;
+  }
+  const typed = String(inputEl.value || '').trim();
+  if (typed && valueToId[typed]) {
+    hiddenEl.value = valueToId[typed];
+    inputEl.value = typed;
+  }
+  if (shouldRender) renderVmLookupSuggestions(fieldId);
+  else hideVmLookupSuggestions(fieldId);
+}
+function syncVmLookupInputFromId(fieldId){
+  const cfg = vmLookupFieldConfig(fieldId);
+  const hiddenEl = $(fieldId);
+  const inputEl = cfg ? $(cfg.inputId) : null;
+  if (!cfg || !hiddenEl || !inputEl) return;
+  const maps = App.vmLookupMaps[fieldId] || { idToValue: {} };
+  const id = String(hiddenEl.value || '').trim();
+  inputEl.value = id && maps.idToValue[id] ? maps.idToValue[id] : '';
+}
+function syncVmLookupField(fieldId){
+  const cfg = vmLookupFieldConfig(fieldId);
+  const hiddenEl = $(fieldId);
+  const inputEl = cfg ? $(cfg.inputId) : null;
+  if (!cfg || !hiddenEl || !inputEl) return;
+  const maps = App.vmLookupMaps[fieldId] || { valueToId: {} };
+  const typed = String(inputEl.value || '').trim();
+  const nextId = typed && maps.valueToId[typed] ? String(maps.valueToId[typed]) : '';
+  const prevId = String(hiddenEl.value || '').trim();
+  if (nextId !== prevId) {
+    hiddenEl.value = nextId;
+    vmLookupTrigger(fieldId);
+  }
+  if (typed === '' || nextId) {
+    hideVmLookupSuggestions(fieldId);
+    return;
+  }
+  renderVmLookupSuggestions(fieldId);
+}
+document.addEventListener('pointerdown', (ev) => {
+  const fieldId = vmLookupFieldFromTarget(ev.target);
+  if (!fieldId) {
+    hideAllVmLookupSuggestions();
+    return;
+  }
+  VM_LOOKUP_FIELDS.forEach((currentId) => {
+    if (currentId !== fieldId) hideVmLookupSuggestions(currentId);
+  });
+}, true);
+window.addEventListener('resize', () => {
+  VM_LOOKUP_FIELDS.forEach((fieldId) => {
+    const cfg = vmLookupFieldConfig(fieldId);
+    const suggestEl = cfg ? $(cfg.suggestId) : null;
+    if (suggestEl && !suggestEl.classList.contains('hidden')) {
+      vmLookupEnsurePopupSize(fieldId);
+    }
+  });
+});
 const dnsHostFromUrl = (rawUrl) => {
   const raw = String(rawUrl ?? '').trim();
   if (!raw || raw === '-') return '';
@@ -438,7 +651,6 @@ function applyAuthState(){
   const tabDiagram = $('tab-diagrama');
   const vmFilter = $('vmf');
   const accessFilter = $('accessf');
-  const adminFilter = $('adminf');
   const authenticated = App.auth.authenticated && App.auth.user;
 
   if (authenticated) {
@@ -489,11 +701,9 @@ function applyAuthState(){
   if (dbCsvExportHmlBtn) dbCsvExportHmlBtn.disabled = !canEditNow;
   if (vmFilter) vmFilter.classList.toggle('hidden', readOnlyNow);
   if (accessFilter) accessFilter.classList.toggle('hidden', readOnlyNow);
-  if (adminFilter) adminFilter.classList.toggle('hidden', readOnlyNow);
   if (readOnlyNow) {
     if (vmFilter) vmFilter.value = '';
     if (accessFilter) accessFilter.value = '';
-    if (adminFilter) adminFilter.value = '';
   }
   if (readOnlyNow && App.view !== 'lista') setView('lista');
   if (!adminNow && App.view === 'usuarios') setView('lista');
@@ -987,7 +1197,7 @@ function exportSystemsCsv(environment='producao'){
     return;
   }
 
-  const headers = ['url', 'acesso', 'servidor(maquina)', 'ip', 'administra\u00e7\u00e3o', 'ambiente'];
+  const headers = ['url', 'acesso', 'servidor(maquina)', 'ip', 'administração', 'ambiente'];
   const lines = [headers.map((value) => csvEscape(value, ';')).join(';')];
 
   list.forEach((item) => {
@@ -1025,7 +1235,7 @@ function exportDatabasesCsv(environment='producao'){
     return;
   }
 
-  const headers = ['base de dados', 'servidor(maquina)', 'ip', 'administra\u00e7\u00e3o', 'ambiente (VM)', 'sgbd', 'usuario', 'porta'];
+  const headers = ['base de dados', 'servidor(maquina)', 'ip', 'administração', 'ambiente (VM)', 'sgbd', 'usuario', 'porta'];
   const lines = [headers.map((value) => csvEscape(value, ';')).join(';')];
 
   list.forEach((d) => {
@@ -1046,10 +1256,11 @@ function exportDatabasesCsv(environment='producao'){
   toast(`CSV de bases (${mode}) exportado.`);
 }
 
+const VM_TYPE_OPTIONS = ['Sistemas', 'SGBD', 'Bigdata', 'Fileserver', 'Servico', 'Outros'];
+
 const VM_CSV_CREATE_OPTIONS = {
   vm_category: ['Producao', 'Homologacao', 'Desenvolvimento'],
-  vm_type: ['Sistemas', 'SGBD'],
-  vm_administration: ['SEI', 'PRODEB']
+  vm_type: VM_TYPE_OPTIONS
 };
 
 function vmCsvNormalizedCreateValue(field, rawValue){
@@ -1075,12 +1286,10 @@ function vmCsvCreateConfigCell(item, next){
   if (!rowNumber) return '-';
   const vmCategory = vmCsvNormalizedCreateValue('vm_category', next?.vm_category || 'Producao');
   const vmType = vmCsvNormalizedCreateValue('vm_type', next?.vm_type || 'Sistemas');
-  const vmAdministration = vmCsvNormalizedCreateValue('vm_administration', next?.vm_administration || 'SEI');
   return `
     <div class="vm-csv-create-config">
       <label>Ambiente ${vmCsvCreateSelectHtml('vm_category', vmCategory, rowNumber)}</label>
       <label>Tipo ${vmCsvCreateSelectHtml('vm_type', vmType, rowNumber)}</label>
-      <label>Administracao ${vmCsvCreateSelectHtml('vm_administration', vmAdministration, rowNumber)}</label>
     </div>
   `;
 }
@@ -1146,7 +1355,6 @@ function renderVmCsvPreview(data){
       const labels = {
         name: 'Nome',
         ip: 'IP',
-        vm_administration: 'Administracao',
         os_name: 'SO',
         vcpus: 'vCPU',
         ram_csv: 'Memoria',
@@ -1241,7 +1449,7 @@ async function confirmMachinesCsvImport(){
       vm_category: vmCsvNormalizedCreateValue('vm_category', override.vm_category || row.vm_category),
       vm_type: vmCsvNormalizedCreateValue('vm_type', override.vm_type || row.vm_type),
       vm_access: String(row.vm_access || 'Interno').trim() || 'Interno',
-      vm_administration: vmCsvNormalizedCreateValue('vm_administration', override.vm_administration || row.vm_administration)
+      vm_administration: String(row.vm_administration || 'SEI').trim() || 'SEI'
     };
   });
   if (!payloadRows.length) {
@@ -2151,6 +2359,10 @@ function vmCategoryLabel(vm){
 function vmTypeLabel(vm){
   const raw = String(vm?.vm_type || '').trim().toLowerCase();
   if (raw.includes('sgbd') || raw.includes('db') || raw.includes('banco')) return 'SGBD';
+  if (raw.includes('bigdata') || raw.includes('big data')) return 'Bigdata';
+  if (raw.includes('file')) return 'Fileserver';
+  if (raw.includes('serv')) return 'Servico';
+  if (raw.includes('outro')) return 'Outros';
   return 'Sistemas';
 }
 
@@ -2264,14 +2476,13 @@ function populateFilters(){
   fill('groupf','Grupo: Todos',groups);
   fill('st','Status: Todos',statuses);
   fill('accessf','Acesso: Todos',['Interno','Externo']);
-  fill('adminf','Administracao: Todos',['SEI','PRODEB']);
   fill('sectorf','Setor: Todos',sectors);
 
   const vmEl = $('vmf');
   if (vmEl) {
     const prev = vmEl.value;
     const vms = [...App.vms]
-      .filter((vm) => vmTypeLabel(vm) !== 'SGBD')
+      .filter((vm) => vmTypeLabel(vm) === 'Sistemas')
       .sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')))
       .map((vm) => ({ id: String(vm.id), label: vmLabel(vm) }));
     vmEl.innerHTML = '<option value="">VM: Todas</option>' + vms.map((vm)=>`<option value="${esc(vm.id)}">${esc(vm.label)}</option>`).join('');
@@ -2280,20 +2491,28 @@ function populateFilters(){
 }
 
 function populateVmSelects(){
-  const fillVm = (id, first, category) => {
-    const el = $(id);
-    if (!el) return;
-    const prev = el.value;
-    const vms = [...App.vms]
-      .filter((vm) => vmTypeLabel(vm) !== 'SGBD')
-      .filter((vm) => vmCategoryLabel(vm) === category)
-      .sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')));
-    el.innerHTML = `<option value="">${first}</option>` + vms.map((vm)=>`<option value="${vm.id}">${esc(vmLabel(vm))}</option>`).join('');
-    if (prev && vms.some((vm)=>String(vm.id) === String(prev))) el.value = prev;
-  };
-  fillVm('fvm_id','Selecionar...','Producao');
-  fillVm('fvm_homolog_id','Selecionar...','Homologacao');
-  fillVm('fvm_dev_id','Selecionar...','Desenvolvimento');
+  const nonDbVms = [...App.vms]
+    .filter((vm) => vmTypeLabel(vm) === 'Sistemas')
+    .sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')));
+
+  setVmLookupOptions(
+    'fvm_id',
+    nonDbVms
+      .filter((vm) => vmCategoryLabel(vm) === 'Producao')
+      .map((vm) => ({ id: vm.id, label: vmLabel(vm) }))
+  );
+  setVmLookupOptions(
+    'fvm_homolog_id',
+    nonDbVms
+      .filter((vm) => vmCategoryLabel(vm) === 'Homologacao')
+      .map((vm) => ({ id: vm.id, label: vmLabel(vm) }))
+  );
+  setVmLookupOptions(
+    'fvm_dev_id',
+    nonDbVms
+      .filter((vm) => vmCategoryLabel(vm) === 'Desenvolvimento')
+      .map((vm) => ({ id: vm.id, label: vmLabel(vm) }))
+  );
 }
 
 function setDataListOptions(listId, values){
@@ -2361,14 +2580,15 @@ function populateVmTabFilters(){
       .map((vm) => String(vm?.os_name || '').trim())
       .filter(Boolean)
   )].sort((a,b)=>a.localeCompare(b));
+  const vmAdministrationList = ['SEI', 'PRODEB'];
   fill('vmcatf', 'Ambiente: Todos', ['Producao','Homologacao','Desenvolvimento']);
-  fill('vmtypef', 'Tipo: Todos', ['Sistemas','SGBD']);
+  fill('vmtypef', 'Tipo: Todos', VM_TYPE_OPTIONS);
+  fill('vmadminf', 'Administracao: Todos', vmAdministrationList);
   fill('vmosf', 'SO: Todos', vmOsList);
-  fill('vmadminf', 'Administracao: Todos', ['SEI','PRODEB']);
   fill('vmrcatf', 'Ambiente: Todos', ['Producao','Homologacao','Desenvolvimento']);
-  fill('vmrtypef', 'Tipo: Todos', ['Sistemas','SGBD']);
+  fill('vmrtypef', 'Tipo: Todos', VM_TYPE_OPTIONS);
+  fill('vmradminf', 'Administracao: Todos', vmAdministrationList);
   fill('vmrosf', 'SO: Todos', vmOsList);
-  fill('vmradminf', 'Administracao: Todos', ['SEI','PRODEB']);
 }
 
 function populateDbSelects(){
@@ -2380,27 +2600,23 @@ function populateDbSelects(){
     if (prev && [...systemEl.options].some((o)=>o.value === prev)) systemEl.value = prev;
   }
 
-  const vmEl = $('fdbvm');
-  if (vmEl) {
-    const prev = vmEl.value;
-    const vms = [...App.vms]
-      .filter((vm) => vmTypeLabel(vm) === 'SGBD')
-      .filter((vm) => vmCategoryLabel(vm) === 'Producao')
-      .sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')));
-    vmEl.innerHTML = '<option value="">Selecionar...</option>' + vms.map((vm)=>`<option value="${vm.id}">${esc(vmLabel(vm))}</option>`).join('');
-    if (prev && vms.some((vm)=>String(vm.id) === String(prev))) vmEl.value = prev;
-  }
+  const dbVms = [...App.vms]
+    .filter((vm) => vmTypeLabel(vm) === 'SGBD')
+    .sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')));
 
-  const vmHmlEl = $('fdbvmh');
-  if (vmHmlEl) {
-    const prev = vmHmlEl.value;
-    const vms = [...App.vms]
-      .filter((vm) => vmTypeLabel(vm) === 'SGBD')
+  setVmLookupOptions(
+    'fdbvm',
+    dbVms
+      .filter((vm) => vmCategoryLabel(vm) === 'Producao')
+      .map((vm) => ({ id: vm.id, label: vmLabel(vm) }))
+  );
+
+  setVmLookupOptions(
+    'fdbvmh',
+    dbVms
       .filter((vm) => vmCategoryLabel(vm) === 'Homologacao')
-      .sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')));
-    vmHmlEl.innerHTML = '<option value="">Selecionar...</option>' + vms.map((vm)=>`<option value="${vm.id}">${esc(vmLabel(vm))}</option>`).join('');
-    if (prev && vms.some((vm)=>String(vm.id) === String(prev))) vmHmlEl.value = prev;
-  }
+      .map((vm) => ({ id: vm.id, label: vmLabel(vm) }))
+  );
 
   syncDbInstanceOptions();
 }
@@ -2417,7 +2633,8 @@ function populateTicketSelects(){
   const vmEl = $('fcall_vm_id');
   if (vmEl) {
     const prev = vmEl.value;
-    const vms = [...App.vms].sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')));
+    const vms = [...App.vms]
+      .sort((a,b)=>String(a.name || '').localeCompare(String(b.name || '')));
     vmEl.innerHTML = '<option value="">Selecionar maquina...</option>' + vms.map((vm)=>`<option value="${vm.id}">${esc(vmLabel(vm))}</option>`).join('');
     if (prev && vms.some((vm)=>String(vm.id) === String(prev))) vmEl.value = prev;
   }
@@ -2788,7 +3005,6 @@ function filteredItems(){
   const st = $('st').value;
   const vmf = $('vmf')?.value || '';
   const accessf = $('accessf')?.value || '';
-  const adminf = $('adminf')?.value || '';
   const sectorf = $('sectorf')?.value || '';
   const sort = $('sort').value;
 
@@ -2798,13 +3014,6 @@ function filteredItems(){
     .filter((i)=>!st || norm(i.status)===norm(st))
     .filter((i)=>!vmf || Number(i.vm_id || 0) === Number(vmf) || Number(i.vm_homolog_id || 0) === Number(vmf) || Number(i.vm_dev_id || 0) === Number(vmf))
     .filter((i)=>!accessf || systemAccessLabel(i) === accessf)
-    .filter((i)=>{
-      if (!adminf) return true;
-      const prodVm = vmById(i.vm_id);
-      const hmlVm = vmById(i.vm_homolog_id);
-      const devVm = vmById(i.vm_dev_id);
-      return [prodVm, hmlVm, devVm].filter(Boolean).some((vm)=>vmAdministrationLabel(vm) === adminf);
-    })
     .filter((i)=>!sectorf || String(i.responsible_sector || '').trim() === sectorf)
     .filter((i)=>!q || [
       i.name,
@@ -3649,7 +3858,7 @@ function renderVmReport(sourceVms = null){
 
   box.innerHTML = groups.map((group) => {
     const groupClass = `vm-report-group-${norm(group.category).replace(/[^a-z0-9]+/g, '-')}`;
-    const typeBlocks = ['Sistemas','SGBD'].map((type) => {
+    const typeBlocks = VM_TYPE_OPTIONS.map((type) => {
       const typeItems = group.items.filter((vm) => vmTypeLabel(vm) === type);
       if (!typeItems.length) return '';
       return `
@@ -3761,14 +3970,14 @@ function filterVmsByCriteria(vms, criteria={}){
   const vmq = String(criteria.q || '').toLowerCase();
   const vmcatf = String(criteria.category || '').trim();
   const vmtypef = String(criteria.type || '').trim();
-  const vmosf = String(criteria.os || '').trim();
   const vmadminf = String(criteria.administration || '').trim();
+  const vmosf = String(criteria.os || '').trim();
 
   return vms.filter((vm) => {
     if (vmcatf && vmCategoryLabel(vm) !== vmcatf) return false;
     if (vmtypef && vmTypeLabel(vm) !== vmtypef) return false;
-    if (vmosf && norm(vm?.os_name || '') !== norm(vmosf)) return false;
     if (vmadminf && vmAdministrationLabel(vm) !== vmadminf) return false;
+    if (vmosf && norm(vm?.os_name || '') !== norm(vmosf)) return false;
     if (!vmq) return true;
     const use = vmUsage(vm.id);
     const linkedSystems = [...new Set([...use.prod.map((s)=>s.name), ...use.hml.map((s)=>s.name), ...use.dev.map((s)=>s.name)])].join(' ');
@@ -3815,8 +4024,8 @@ function renderMachines(){
     q: $('vmq')?.value || '',
     category: $('vmcatf')?.value || '',
     type: $('vmtypef')?.value || '',
-    os: $('vmosf')?.value || '',
-    administration: $('vmadminf')?.value || ''
+    administration: $('vmadminf')?.value || '',
+    os: $('vmosf')?.value || ''
   });
   if (vmCountEl) vmCountEl.textContent = `${filteredVms.length} resultado(s)`;
 
@@ -3842,7 +4051,7 @@ function renderMachines(){
       : category === 'Homologacao'
         ? 'Homologacao'
         : 'Desenvolvimento';
-    const typeBlocks = ['Sistemas','SGBD'].map((type) => {
+    const typeBlocks = VM_TYPE_OPTIONS.map((type) => {
       const typeVms = vms.filter((vm) => vmTypeLabel(vm) === type);
       if (!typeVms.length) return '';
 
@@ -3854,7 +4063,9 @@ function renderMachines(){
         const techTags = vmDeploymentTags(vm);
         const isSgbd = type === 'SGBD';
         const sgbdPairs = vmSgbdInstancePortPairs(vm);
-        const specs = [vm.vcpus ? `${vm.vcpus} vCPU` : '', vm.ram || '', vm.disk || ''].filter(Boolean).join(' | ');
+        const vcpuText = String(vm?.vcpus || '').trim();
+        const ramText = String(vm?.ram || '').trim();
+        const diskText = String(vm?.disk || '').trim();
         const relationCount = category === 'Producao'
           ? use.prod.length
           : category === 'Homologacao'
@@ -3873,7 +4084,9 @@ function renderMachines(){
             <td>${esc(vmTypeLabel(vm))}</td>
             <td>${esc(vmAdministrationLabel(vm))}</td>
             <td class="vm-os-col">${esc(vm.os_name || '-')}</td>
-            <td class="vm-res-col">${esc(specs || '-')}</td>
+            <td class="vm-vcpu-col">${esc(vcpuText || '-')}</td>
+            <td class="vm-ram-col">${esc(ramText || '-')}</td>
+            <td class="vm-disk-col">${esc(diskText || '-')}</td>
             ${isSgbd
               ? `<td class="vm-tech-col" colspan="2">${sgbdPairs.length ? `<div class="vm-tech-tags">${sgbdPairs.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : '-'}</td>`
               : `<td class="vm-lang-col">${languageTags.length ? `<div class="vm-tech-tags">${languageTags.map((t)=>`<span class="tag">${esc(t)}</span>`).join('')}</div>` : '-'}</td>
@@ -3928,7 +4141,7 @@ function renderMachines(){
         <div class="vm-type-title">${esc(type)}</div>
         <div class="table-wrap vm-desktop-table">
             <table class="vm-compact-table">
-              <thead><tr><th class="vm-name-col">Nome da Maquina</th><th class="vm-ip-col">IP</th><th>Ambiente</th><th>Tipo</th><th>Administracao</th><th class="vm-os-col">Sistema Operacional</th><th class="vm-res-col">Recursos (vCPU | RAM | Disco)</th>${type === 'SGBD' ? '<th class="vm-tech-col" colspan="2">Instancias / Portas</th>' : '<th class="vm-lang-col">Linguagens Instaladas</th><th class="vm-tech-col">Deploy</th>'}<th class="${type === 'SGBD' ? 'vm-db-col' : 'vm-rel-col'}">${type === 'SGBD' ? 'Bases de Dados' : esc(relationHeader)}</th><th class="vm-actions-col">Diagnostico</th></tr></thead>
+              <thead><tr><th class="vm-name-col">Nome da Maquina</th><th class="vm-ip-col">IP</th><th>Ambiente</th><th>Tipo</th><th>Administracao</th><th class="vm-os-col">Sistema Operacional</th><th class="vm-vcpu-col">vCPU</th><th class="vm-ram-col">RAM</th><th class="vm-disk-col">Disco</th>${type === 'SGBD' ? '<th class="vm-tech-col" colspan="2">Instancias / Portas</th>' : '<th class="vm-lang-col">Linguagens Instaladas</th><th class="vm-tech-col">Deploy</th>'}<th class="${type === 'SGBD' ? 'vm-db-col' : 'vm-rel-col'}">${type === 'SGBD' ? 'Bases de Dados' : esc(relationHeader)}</th><th class="vm-actions-col">Diagnostico</th></tr></thead>
               <tbody>${rows}</tbody>
             </table>
           </div>
@@ -3953,8 +4166,8 @@ function renderVmReportTab(){
     q: $('vmrq')?.value || '',
     category: $('vmrcatf')?.value || '',
     type: $('vmrtypef')?.value || '',
-    os: $('vmrosf')?.value || '',
-    administration: $('vmradminf')?.value || ''
+    administration: $('vmradminf')?.value || '',
+    os: $('vmrosf')?.value || ''
   });
   if (resultEl) resultEl.textContent = `${filteredVms.length} resultado(s)`;
   renderVmReport(filteredVms);
@@ -4294,6 +4507,9 @@ function openForm(item=null){
   $('fvm_id').value = item?.vm_id ? String(item.vm_id) : '';
   $('fvm_homolog_id').value = item?.vm_homolog_id ? String(item.vm_homolog_id) : '';
   $('fvm_dev_id').value = item?.vm_dev_id ? String(item.vm_dev_id) : '';
+  syncVmLookupInputFromId('fvm_id');
+  syncVmLookupInputFromId('fvm_homolog_id');
+  syncVmLookupInputFromId('fvm_dev_id');
   syncSystemTechFromVms();
   if ($('btn-manage-vms')) {
     $('btn-manage-vms').disabled = !editable;
@@ -4469,6 +4685,8 @@ function openDbForm(item=null){
   $('fdbsystem').value = item?.system_id ? String(item.system_id) : '';
   $('fdbvm').value = item?.vm_id ? String(item.vm_id) : '';
   $('fdbvmh').value = item?.vm_homolog_id ? String(item.vm_homolog_id) : '';
+  syncVmLookupInputFromId('fdbvm');
+  syncVmLookupInputFromId('fdbvmh');
   syncDbInstanceOptions(
     {
       name: String(item?.db_instance_name || '').trim(),
@@ -4574,7 +4792,7 @@ function openVmForm(vm=null){
   $('fvmpublicip').value = vmPublicIpList(vm).join(', ');
   $('fvmcategory').value = vmCategoryLabel(vm);
   $('fvmtype').value = vmTypeLabel(vm);
-  $('fvmadministration').value = vmAdministrationLabel(vm);
+  if ($('fvmadministration')) $('fvmadministration').value = vmAdministrationLabel(vm);
   $('fvmos').value = vm?.os_name || '';
   $('fvmvcpus').value = vm?.vcpus || '';
   $('fvmram').value = vm?.ram || '';
@@ -4638,7 +4856,7 @@ async function saveVm(){
     public_ip: parseVmIpList($('fvmpublicip')?.value || '').join(', '),
     vm_category: $('fvmcategory').value.trim(),
     vm_type: $('fvmtype').value.trim(),
-    vm_administration: $('fvmadministration').value.trim(),
+    vm_administration: ($('fvmadministration')?.value || '').trim() || 'SEI',
     os_name: $('fvmos').value.trim(),
     vcpus: $('fvmvcpus').value.trim(),
     ram: $('fvmram').value.trim(),
