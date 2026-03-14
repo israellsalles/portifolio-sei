@@ -3327,14 +3327,14 @@ tbody tr:hover td{background:#eef4ff}
 /* Relatorio por maquina: hierarquia visual mais clara */
 .vm-report{
   display:grid;
-  gap:14px
+  gap:16px
 }
 .vm-report-group{
   display:grid;
-  gap:10px;
+  gap:12px;
   border:1px solid #cddcf8;
-  border-radius:12px;
-  padding:10px;
+  border-radius:14px;
+  padding:12px;
   background:linear-gradient(180deg,#f8fbff 0%,#f1f6ff 100%)
 }
 .vm-report-group-producao{
@@ -3353,11 +3353,16 @@ tbody tr:hover td{background:#eef4ff}
   display:flex;
   align-items:center;
   justify-content:space-between;
-  gap:8px
+  gap:8px;
+  flex-wrap:wrap
 }
 .vm-report-type-group{
   display:grid;
-  gap:10px
+  gap:10px;
+  border:1px solid rgba(185,205,236,.9);
+  border-radius:12px;
+  padding:10px;
+  background:rgba(255,255,255,.5)
 }
 .vm-report-type-title{
   font-size:11px;
@@ -3367,10 +3372,8 @@ tbody tr:hover td{background:#eef4ff}
   color:#2f5e9b
 }
 #view-maquinas .vm-report-group.vm-report-group-homologacao .vm-report-type-group{
-  background:linear-gradient(180deg,#f2eeff 0%,#e8e0fb 100%);
-  border:1px solid #cdbfe8;
-  border-radius:12px;
-  padding:8px 10px
+  border-color:#cdbfe8;
+  background:linear-gradient(180deg,rgba(242,238,255,.8) 0%,rgba(232,224,251,.72) 100%)
 }
 #view-maquinas .vm-report-group.vm-report-group-homologacao .vm-report-type-title{
   color:#5a4b85
@@ -3393,18 +3396,19 @@ tbody tr:hover td{background:#eef4ff}
 }
 .vm-report-group-grid{
   display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(340px,1fr));
+  grid-template-columns:repeat(3,minmax(0,1fr));
   align-items:start;
-  gap:10px
+  gap:14px
 }
 .vm-report-item{
   border:1px solid #cfe0ff;
-  border-radius:10px;
-  padding:10px;
+  border-radius:12px;
+  padding:14px;
   background:#fff;
   display:grid;
   align-content:start;
-  gap:10px
+  align-self:start;
+  gap:11px
 }
 .vm-report-top{
   display:flex;
@@ -3413,19 +3417,19 @@ tbody tr:hover td{background:#eef4ff}
   gap:10px
 }
 .vm-report-title{
-  font-size:19px;
+  font-size:21px;
   font-weight:800;
   color:#183565;
   margin:0
 }
 .vm-report-ip{
   font-family:var(--mono);
-  font-size:12px;
+  font-size:13px;
   color:#42659a;
   background:#edf4ff;
   border:1px solid #c9dcff;
   border-radius:999px;
-  padding:3px 8px;
+  padding:4px 10px;
   white-space:nowrap
 }
 .vm-report-stats{
@@ -3531,6 +3535,11 @@ tbody tr:hover td{background:#eef4ff}
 @media(max-width:900px){
   .vm-report-group-grid{
     grid-template-columns:1fr
+  }
+}
+@media(max-width:1280px) and (min-width:901px){
+  .vm-report-group-grid{
+    grid-template-columns:repeat(2,minmax(0,1fr))
   }
 }
 @media(max-width:560px){

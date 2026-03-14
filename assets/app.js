@@ -1257,6 +1257,7 @@ function exportDatabasesCsv(environment='producao'){
 }
 
 const VM_TYPE_OPTIONS = ['Sistemas', 'SGBD', 'Bigdata', 'Fileserver', 'Servico', 'Outros'];
+const VM_REPORT_TYPE_OPTIONS = ['Sistemas', 'SGBD'];
 
 const VM_CSV_CREATE_OPTIONS = {
   vm_category: ['Producao', 'Homologacao', 'Desenvolvimento'],
@@ -2586,7 +2587,7 @@ function populateVmTabFilters(){
   fill('vmadminf', 'Administracao: Todos', vmAdministrationList);
   fill('vmosf', 'SO: Todos', vmOsList);
   fill('vmrcatf', 'Ambiente: Todos', ['Producao','Homologacao','Desenvolvimento']);
-  fill('vmrtypef', 'Tipo: Todos', VM_TYPE_OPTIONS);
+  fill('vmrtypef', 'Tipo: Todos', VM_REPORT_TYPE_OPTIONS);
   fill('vmradminf', 'Administracao: Todos', vmAdministrationList);
   fill('vmrosf', 'SO: Todos', vmOsList);
 }
@@ -3846,8 +3847,13 @@ function renderDns(){
 function renderVmReport(sourceVms = null){
   const box = $('vm-report');
   const list = Array.isArray(sourceVms) ? sourceVms : App.vms;
+  const hasAnyVm = App.vms.length > 0;
+  const hasReportableVm = App.vms.some((vm) => VM_REPORT_TYPE_OPTIONS.includes(vmTypeLabel(vm)));
   if (!list.length) {
-    box.innerHTML = `<div class="vm-report-empty">${App.vms.length ? 'Nenhuma maquina encontrada para os filtros.' : 'Nenhuma maquina cadastrada.'}</div>`;
+    const emptyText = hasAnyVm
+      ? (hasReportableVm ? 'Nenhuma maquina encontrada para os filtros.' : 'Nenhuma maquina dos tipos Sistemas ou SGBD cadastrada.')
+      : 'Nenhuma maquina cadastrada.';
+    box.innerHTML = `<div class="vm-report-empty">${emptyText}</div>`;
     return;
   }
 
@@ -3858,7 +3864,7 @@ function renderVmReport(sourceVms = null){
 
   box.innerHTML = groups.map((group) => {
     const groupClass = `vm-report-group-${norm(group.category).replace(/[^a-z0-9]+/g, '-')}`;
-    const typeBlocks = VM_TYPE_OPTIONS.map((type) => {
+    const typeBlocks = VM_REPORT_TYPE_OPTIONS.map((type) => {
       const typeItems = group.items.filter((vm) => vmTypeLabel(vm) === type);
       if (!typeItems.length) return '';
       return `
@@ -4162,7 +4168,8 @@ function renderMachines(){
 
 function renderVmReportTab(){
   const resultEl = $('vmr-result-count');
-  const filteredVms = filterVmsByCriteria(App.vms, {
+  const reportScopeVms = App.vms.filter((vm) => VM_REPORT_TYPE_OPTIONS.includes(vmTypeLabel(vm)));
+  const filteredVms = filterVmsByCriteria(reportScopeVms, {
     q: $('vmrq')?.value || '',
     category: $('vmrcatf')?.value || '',
     type: $('vmrtypef')?.value || '',
