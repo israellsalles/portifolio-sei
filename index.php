@@ -78,36 +78,60 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
   <section id="view-dashboard" class="view">
     <div id="stats" class="stats"></div>
     <div class="dash-grid">
-      <div class="panel"><h3>Por Status</h3><div id="status-bars"></div></div>
-      <div class="panel"><h3>Por Categoria</h3><div id="category-bars"></div></div>
-      <div class="panel"><h3>VMs por Ambiente</h3><div id="vm-category-bars"></div></div>
-      <div class="panel"><h3>SGBD / Versão</h3><div id="db-engine-bars"></div></div>
+      <div class="panel">
+        <h3>Saude dos Sistemas</h3>
+        <div class="dash-subtitle">Por Status</div>
+        <div id="status-bars"></div>
+        <div class="dash-subtitle">Por Criticidade</div>
+        <div id="criticality-bars"></div>
+      </div>
+      <div class="panel">
+        <h3>Distribuicao dos Sistemas</h3>
+        <div class="dash-subtitle">Por Categoria</div>
+        <div id="category-bars"></div>
+        <div class="dash-subtitle">Por Grupo</div>
+        <div id="group-bars"></div>
+      </div>
+      <div class="panel">
+        <h3>Inventario de VMs</h3>
+        <div class="dash-subtitle">Por Ambiente</div>
+        <div id="vm-category-bars"></div>
+        <div class="dash-subtitle">Por Tipo</div>
+        <div id="vm-type-bars"></div>
+      </div>
+      <div class="panel">
+        <h3>Bases e Maquinas de Banco</h3>
+        <div class="dash-subtitle">SGBD / Versao</div>
+        <div id="db-engine-bars"></div>
+        <div class="dash-subtitle">Top Maquinas Mais Utilizadas</div>
+        <div id="vm-load-list"></div>
+      </div>
       <div class="panel"><h3>Qualidade do Cadastro</h3><div id="quality-list"></div></div>
-      <div class="panel"><h3>Atenção Necessária</h3><div id="attention-list"></div></div>
+      <div class="panel"><h3>Atencao Necessaria</h3><div id="attention-list"></div></div>
     </div>
   </section>
   <section id="view-lista" class="view">
     <div class="list-sections">
       <div class="list-section">
-        <div class="list-section-title">1. Sistemas</div>
+        <div class="list-section-title">Sistemas</div>
         <div class="table-wrap">
           <table class="list-desc-table">
-            <thead><tr><th>Nome</th><th>URL</th><th>Categoria</th><th>Grupo</th><th>Criticidade</th><th>Descricao</th><th>Observacoes</th><th>Status</th></tr></thead>
+            <thead><tr><th>Nome</th><th>URL</th><th>Categoria</th><th>Grupo</th><th>Descricao</th><th>Observacoes</th><th>Status</th></tr></thead>
             <tbody id="list-desc-body"></tbody>
           </table>
         </div>
       </div>
       <div class="list-section">
-        <div class="list-section-title">2. Informações Técnicas</div>
+        <div class="list-section-title">Informacoes Tecnicas</div>
         <div class="table-wrap">
           <table class="list-main-table list-compact-table">
-            <thead><tr><th>Nome</th><th>Sistema</th><th>Versão</th><th>Linguagem</th><th>Versão Alvo</th><th>Servidor Aplicação</th><th>Web Server</th><th>Containerização</th><th>Ferramenta Container</th><th>Porta App</th><th>Porta Web</th><th>Compatibilidade</th></tr></thead>
+            <thead><tr><th>Nome</th><th>Sistema</th><th>Versao</th><th>Linguagem</th><th>Versao Alvo</th><th>Criticidade</th><th>Servidor Aplicacao</th><th>Web Server</th><th>Containerizacao</th><th>Ferramenta Container</th><th>Porta App</th><th>Porta Web</th><th>Compatibilidade</th></tr></thead>
             <tbody id="list-main-body"></tbody>
           </table>
         </div>
       </div>
       <div class="list-section">
-        <div class="list-section-title">3. Infraestrutura</div>
+        <div class="list-section-title">Infraestrutura</div>
         <div class="table-wrap">
           <table class="list-infra-table list-compact-table">
             <thead><tr><th>Nome</th><th>URL Homologacao</th><th>VM Producao</th><th>IP Producao</th><th>VM Homologacao</th><th>IP Homologacao</th><th>VM Desenvolvimento</th><th>IP Desenvolvimento</th><th>Acesso</th><th>Administracao</th></tr></thead>
@@ -116,7 +140,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         </div>
       </div>
       <div class="list-section">
-        <div class="list-section-title">4. Bases de Dados</div>
+        <div class="list-section-title">Bases de Dados</div>
         <div class="table-wrap">
           <table class="list-db-table list-compact-table">
             <thead><tr><th>Nome</th><th>Base de Dados</th><th>Usuario do Banco</th><th>Maquina</th><th>Administracao</th><th>IP da Instancia</th><th>Porta da Instancia</th><th>Instancia SGBD</th><th>VM Homologacao</th><th>IP da Instancia Homologacao</th><th>Porta da Instancia Homologacao</th><th>Instancia SGBD Homologacao</th><th>Observacoes</th></tr></thead>
@@ -125,7 +149,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         </div>
       </div>
       <div class="list-section">
-        <div class="list-section-title">5. Contatos e Suporte</div>
+        <div class="list-section-title">Contatos e Suporte</div>
         <div class="table-wrap">
           <table class="list-support-table list-compact-table">
             <thead><tr><th>Nome</th><th>Responsavel Tecnico</th><th>Setor Responsavel</th><th>Coordenador Responsavel</th><th>Ramal</th><th>Email</th><th>Suporte</th><th>Contato Suporte</th></tr></thead>
@@ -134,7 +158,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         </div>
       </div>
       <div class="list-section">
-        <div class="list-section-title">6. Deploy e Empacotamento</div>
+        <div class="list-section-title">Deploy e Empacotamento</div>
         <div class="table-wrap">
           <table class="list-ops-table list-compact-table">
             <thead><tr><th>Nome</th><th>Analytics</th><th>Diretorio</th><th>Tamanho</th><th>Repositorio</th></tr></thead>
@@ -143,7 +167,7 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         </div>
       </div>
       <div class="list-section">
-        <div class="list-section-title">7. Documentação</div>
+        <div class="list-section-title">Documentação</div>
         <div class="table-wrap">
           <table class="list-docs-table list-compact-table">
             <thead><tr><th>Nome</th><th>Instalação</th><th>Manutenção</th><th>Segurança</th><th>Manual/Procedimentos</th></tr></thead>
@@ -752,4 +776,5 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
 <script src="assets/app.js?v=<?= filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'app.js') ?>"></script>
 </body>
 </html>
+
 

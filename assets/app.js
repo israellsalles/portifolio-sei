@@ -3120,6 +3120,24 @@ function renderDashboard(){
     }
   );
 
+  const byCriticality = {};
+  App.items.forEach((i) => {
+    const key = String(i.criticality || 'Nao informada').trim() || 'Nao informada';
+    byCriticality[key] = (byCriticality[key] || 0) + 1;
+  });
+  renderBars(
+    'criticality-bars',
+    Object.entries(byCriticality).sort((a,b)=>b[1]-a[1]),
+    totalSystems,
+    (label) => {
+      const key = norm(label);
+      if (key.includes('alta')) return '#ef4444';
+      if (key.includes('media')) return '#f97316';
+      if (key.includes('baixa')) return '#22c55e';
+      return '#64748b';
+    }
+  );
+
   const byCategory = {};
   App.items.forEach((i) => {
     const key = String(i.category || 'Sem categoria');
@@ -3133,6 +3151,18 @@ function renderDashboard(){
     (label) => categoryIcon(label)
   );
 
+  const byGroup = {};
+  App.items.forEach((i) => {
+    const key = String(i.system_group || 'Sem grupo').trim() || 'Sem grupo';
+    byGroup[key] = (byGroup[key] || 0) + 1;
+  });
+  renderBars(
+    'group-bars',
+    Object.entries(byGroup).sort((a,b)=>b[1]-a[1]),
+    totalSystems,
+    () => '#5b8ef0'
+  );
+
   const byVmCategory = {};
   App.vms.forEach((vm) => {
     const key = vmCategoryLabel(vm);
@@ -3143,6 +3173,18 @@ function renderDashboard(){
     Object.entries(byVmCategory).sort((a,b)=>b[1]-a[1]),
     totalVms,
     (label) => label === 'Producao' ? '#10b981' : label === 'Homologacao' ? '#8b5cf6' : '#f59e0b'
+  );
+
+  const byVmType = {};
+  App.vms.forEach((vm) => {
+    const key = vmTypeLabel(vm);
+    byVmType[key] = (byVmType[key] || 0) + 1;
+  });
+  renderBars(
+    'vm-type-bars',
+    Object.entries(byVmType).sort((a,b)=>b[1]-a[1]),
+    totalVms,
+    () => '#4f8dfd'
   );
 
   const byDbEngine = {};
@@ -3158,6 +3200,45 @@ function renderDashboard(){
     totalDatabases,
     () => '#e1a64d'
   );
+
+  const vmLoadTarget = $('vm-load-list');
+  if (vmLoadTarget) {
+    const vmLoadRows = App.vms.map((vm) => {
+      const use = vmUsage(vm.id);
+      const systemsCount = [...new Set([
+        ...use.prod.map((s)=>Number(s?.id || 0)).filter((id) => id > 0),
+        ...use.hml.map((s)=>Number(s?.id || 0)).filter((id) => id > 0),
+        ...use.dev.map((s)=>Number(s?.id || 0)).filter((id) => id > 0),
+      ])].length;
+      const databasesCount = vmDatabases(vm.id).length;
+      return {
+        id: Number(vm.id || 0),
+        name: String(vm.name || '-'),
+        systemsCount,
+        databasesCount,
+      };
+    })
+      .sort((a,b) => {
+        if (b.systemsCount !== a.systemsCount) return b.systemsCount - a.systemsCount;
+        if (b.databasesCount !== a.databasesCount) return b.databasesCount - a.databasesCount;
+        return String(a.name || '').localeCompare(String(b.name || ''));
+      })
+      .slice(0, 10);
+
+    if (!vmLoadRows.length) {
+      vmLoadTarget.innerHTML = '<div class="attention-note">Sem maquinas cadastradas.</div>';
+    } else {
+      vmLoadTarget.innerHTML = vmLoadRows.map((row) => `
+        <div class="vm-load-item">
+          <div class="vm-load-name">${esc(row.name || '-')}</div>
+          <div class="vm-load-metrics">
+            <span>Sistemas: ${Number(row.systemsCount || 0)}</span>
+            <span>Bases: ${Number(row.databasesCount || 0)}</span>
+          </div>
+        </div>
+      `).join('');
+    }
+  }
 
   const quality = $('quality-list');
   if (quality) {
@@ -3257,8 +3338,8 @@ function renderList(list){
   const readOnly = isReadOnlyProfile();
   $('result-count').textContent = `${list.length} resultado(s)`;
   if (!list.length) {
-    $('list-main-body').innerHTML = '<tr><td colspan="12" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
-    $('list-desc-body').innerHTML = '<tr><td colspan="8" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
+    $('list-main-body').innerHTML = '<tr><td colspan="13" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
+    $('list-desc-body').innerHTML = '<tr><td colspan="7" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
     $('list-infra-body').innerHTML = '<tr><td colspan="10" style="color:var(--muted)">Nenhum sistema encontrado.</td></tr>';
     $('list-db-body').innerHTML = '<tr><td colspan="13" style="color:var(--muted)">Nenhuma base de dados encontrada.</td></tr>';
     $('list-support-body').innerHTML = '<tr><td colspan="8" style="color:var(--muted)">Nenhum contato cadastrado.</td></tr>';
@@ -3281,6 +3362,7 @@ function renderList(list){
       `<td>${esc(i.version || '-')}</td>`,
       `<td>${esc((i.tech || []).map((x) => String(x || '').trim()).filter(Boolean).join(', ') || '-')}</td>`,
       `<td>${esc(String(i.target_version || '').trim() || '-')}</td>`,
+      `<td class="crit-${critKind(i.criticality)}">${esc(i.criticality || '-')}</td>`,
       `<td>${esc(appServerNames)}</td>`,
       `<td>${esc(webServerNames)}</td>`,
       `<td>${esc(Number(i.containerization || 0) > 0 ? 'Sim' : 'Nao')}</td>`,
@@ -3302,7 +3384,6 @@ function renderList(list){
       <td>${linkListHtml(systemUrlList(i, false), { compact:true })}</td>
       <td>${esc(i.category || '-')}</td>
       <td>${esc(i.system_group || '-')}</td>
-      <td class="crit-${critKind(i.criticality)}">${esc(i.criticality || '-')}</td>
       <td>${esc(i.description || '-')}</td>
       <td>${esc(i.notes || '-')}</td>
       <td>${badge(i.status)}</td>
@@ -3850,6 +3931,23 @@ function renderDns(){
 function renderVmReport(sourceVms = null){
   const box = $('vm-report');
   const list = Array.isArray(sourceVms) ? sourceVms : App.vms;
+  const vmReportUsageScore = (vm) => {
+    const use = vmUsage(vm.id);
+    const systemsCount = new Set([
+      ...use.prod.map((s) => Number(s?.id || 0)).filter((id) => id > 0),
+      ...use.hml.map((s) => Number(s?.id || 0)).filter((id) => id > 0),
+      ...use.dev.map((s) => Number(s?.id || 0)).filter((id) => id > 0),
+    ]).size;
+    const databasesCount = vmDatabases(vm.id).length;
+    return { systemsCount, databasesCount };
+  };
+  const sortVmsByUsage = (a, b) => {
+    const aScore = vmReportUsageScore(a);
+    const bScore = vmReportUsageScore(b);
+    if (bScore.systemsCount !== aScore.systemsCount) return bScore.systemsCount - aScore.systemsCount;
+    if (bScore.databasesCount !== aScore.databasesCount) return bScore.databasesCount - aScore.databasesCount;
+    return String(a?.name || '').localeCompare(String(b?.name || ''));
+  };
   const hasAnyVm = App.vms.length > 0;
   const hasReportableVm = App.vms.some((vm) => VM_REPORT_TYPE_OPTIONS.includes(vmTypeLabel(vm)));
   if (!list.length) {
@@ -3868,7 +3966,9 @@ function renderVmReport(sourceVms = null){
   box.innerHTML = groups.map((group) => {
     const groupClass = `vm-report-group-${norm(group.category).replace(/[^a-z0-9]+/g, '-')}`;
     const typeBlocks = VM_REPORT_TYPE_OPTIONS.map((type) => {
-      const typeItems = group.items.filter((vm) => vmTypeLabel(vm) === type);
+      const typeItems = group.items
+        .filter((vm) => vmTypeLabel(vm) === type)
+        .sort(sortVmsByUsage);
       if (!typeItems.length) return '';
       return `
       <div class="vm-report-type-group">
