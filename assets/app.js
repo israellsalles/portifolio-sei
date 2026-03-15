@@ -3400,62 +3400,20 @@ function renderDashboard(){
     `;
   }
 
-  const attention = [];
-  App.items
-    .filter((i) => statusKind(i.status) !== 'active')
-    .forEach((i) => {
-      attention.push({
-        name: String(i.name || '-'),
-        note: `Status: ${String(i.status || '-')}`,
-        action: `openDetail(${Number(i.id)})`
-      });
-    });
-
-  App.items
-    .filter((i) => systemUrlList(i, false).length === 0)
-    .forEach((i) => {
-      attention.push({
-        name: String(i.name || '-'),
-        note: 'Sistema sem URL de producao',
-        action: `openDetail(${Number(i.id)})`
-      });
-    });
-
-  App.vms
-    .filter((vm) => String(vm.os_name || '').trim() === '')
-    .forEach((vm) => {
-      const vmId = Number(vm.id || 0);
-      attention.push({
-        name: String(vm.name || '-'),
-        note: 'VM sem sistema operacional informado',
-        action: canEdit() ? `openVmFormById(${vmId})` : `openVmReadOnlyById(${vmId})`
-      });
-    });
-
-  App.databases
-    .filter((d) => Number(d.vm_homolog_id || 0) > 0 && String(d.db_instance_homolog_ip || '').trim() === '')
-    .forEach((d) => {
-      const dbId = Number(d.id || 0);
-      attention.push({
-        name: String(d.db_name || '-'),
-        note: 'Base sem instancia de homologacao',
-        action: canEdit() ? `openDbFormById(${dbId})` : `openDbReadOnlyById(${dbId})`
-      });
-    });
+  const attention = App.items
+    .filter((i) => statusKind(i.status) === 'maintenance')
+    .map((i) => ({
+      id: Number(i.id || 0),
+      name: String(i.name || '-'),
+      note: `Status: ${String(i.status || '-')}`,
+      action: `openDetail(${Number(i.id)})`
+    }))
+    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
 
   if (!attention.length) {
-    $('attention-list').innerHTML = '<div class="attention-note">Tudo em ordem. Sem alertas.</div>';
+    $('attention-list').innerHTML = '<div class="attention-note">Nenhum sistema em manutencao.</div>';
   } else {
-    const unique = [];
-    const seen = new Set();
-    attention.forEach((item) => {
-      const key = `${norm(item.name)}|${norm(item.note)}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      unique.push(item);
-    });
-
-    $('attention-list').innerHTML = unique.slice(0, 20).map((item) => `
+    $('attention-list').innerHTML = attention.slice(0, 20).map((item) => `
       <div class="attention-item" onclick="${item.action}">
         <div><div class="attention-name">${esc(item.name)}</div></div>
         <div class="attention-note">${esc(item.note)}</div>

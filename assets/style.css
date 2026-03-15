@@ -789,6 +789,9 @@ main{padding:16px}
   grid-template-columns:repeat(3,minmax(0,1fr));
   align-items:start
 }
+#view-dashboard .dash-grid .panel-maintenance{
+  order:-1
+}
 .machines-grid{
   grid-template-columns:1fr;
   align-items:start
@@ -3739,6 +3742,174 @@ tbody tr:hover td{background:#eef4ff}
     width:auto;
     font-size:11px
   }
+}
+
+/* Ajustes para reduzir rolagem horizontal nas abas de Sistemas e Maquinas */
+#view-lista .list-desc-table,
+#view-lista .list-main-table,
+#view-lista .list-infra-table,
+#view-lista .list-db-table,
+#view-lista .list-support-table,
+#view-lista .list-ops-table,
+#view-lista .list-docs-table,
+#view-maquinas .vm-compact-table{
+  width:100%;
+  min-width:0;
+  table-layout:fixed
+}
+#view-lista .list-desc-table th,
+#view-lista .list-desc-table td,
+#view-lista .list-main-table th,
+#view-lista .list-main-table td,
+#view-lista .list-infra-table th,
+#view-lista .list-infra-table td,
+#view-lista .list-db-table th,
+#view-lista .list-db-table td,
+#view-lista .list-support-table th,
+#view-lista .list-support-table td,
+#view-lista .list-ops-table th,
+#view-lista .list-ops-table td,
+#view-lista .list-docs-table th,
+#view-lista .list-docs-table td,
+#view-maquinas .vm-compact-table th,
+#view-maquinas .vm-compact-table td{
+  width:auto;
+  min-width:0;
+  white-space:normal;
+  overflow-wrap:anywhere;
+  word-break:break-word;
+  overflow:hidden;
+  text-overflow:initial
+}
+#view-lista .list-main-table td:nth-child(13),
+#view-lista .list-main-table td .compat-pill,
+#view-lista .list-infra-table .url-list{
+  white-space:normal;
+  overflow:hidden;
+  text-overflow:initial
+}
+#view-lista .list-db-table{
+  table-layout:fixed
+}
+#view-lista .list-db-table th{
+  font-size:10px;
+  line-height:1.25;
+  letter-spacing:.25px;
+  white-space:normal;
+  overflow-wrap:anywhere;
+  word-break:break-word;
+  vertical-align:middle
+}
+#view-lista .list-db-table th:nth-child(1),
+#view-lista .list-db-table td:nth-child(1){
+  width:7%
+}
+#view-lista .list-db-table th:nth-child(2),
+#view-lista .list-db-table td:nth-child(2){
+  width:7%
+}
+#view-lista .list-db-table th:nth-child(3),
+#view-lista .list-db-table td:nth-child(3){
+  width:7%
+}
+#view-lista .list-db-table th:nth-child(4),
+#view-lista .list-db-table td:nth-child(4){
+  width:7%
+}
+#view-lista .list-db-table th:nth-child(5),
+#view-lista .list-db-table td:nth-child(5){
+  width:6%
+}
+#view-lista .list-db-table th:nth-child(6),
+#view-lista .list-db-table td:nth-child(6){
+  width:6%
+}
+#view-lista .list-db-table th:nth-child(7),
+#view-lista .list-db-table td:nth-child(7){
+  width:6%
+}
+#view-lista .list-db-table th:nth-child(8),
+#view-lista .list-db-table td:nth-child(8){
+  width:7%
+}
+#view-lista .list-db-table th:nth-child(9),
+#view-lista .list-db-table td:nth-child(9){
+  width:7%
+}
+#view-lista .list-db-table th:nth-child(10),
+#view-lista .list-db-table td:nth-child(10){
+  width:9%
+}
+#view-lista .list-db-table th:nth-child(11),
+#view-lista .list-db-table td:nth-child(11){
+  width:9%
+}
+#view-lista .list-db-table th:nth-child(12),
+#view-lista .list-db-table td:nth-child(12){
+  width:10%
+}
+#view-lista .list-db-table th:nth-child(13),
+#view-lista .list-db-table td:nth-child(13){
+  width:12%
+}
+#view-maquinas .vm-desktop-table th,
+#view-maquinas .vm-desktop-table td{
+  min-width:0
+}
+#view-maquinas .vm-desktop-table th.vm-name-col,
+#view-maquinas .vm-desktop-table td.vm-name-col{
+  width:13%
+}
+#view-maquinas .vm-desktop-table th.vm-ip-col,
+#view-maquinas .vm-desktop-table td.vm-ip-col{
+  width:9%
+}
+#view-maquinas .vm-desktop-table th.vm-os-col,
+#view-maquinas .vm-desktop-table td.vm-os-col{
+  width:10%
+}
+#view-maquinas .vm-desktop-table th.vm-vcpu-col,
+#view-maquinas .vm-desktop-table td.vm-vcpu-col{
+  width:4%
+}
+#view-maquinas .vm-desktop-table th.vm-ram-col,
+#view-maquinas .vm-desktop-table td.vm-ram-col{
+  width:5%
+}
+#view-maquinas .vm-desktop-table th.vm-disk-col,
+#view-maquinas .vm-desktop-table td.vm-disk-col{
+  width:6%
+}
+#view-maquinas .vm-desktop-table th.vm-lang-col,
+#view-maquinas .vm-desktop-table td.vm-lang-col{
+  width:12%
+}
+#view-maquinas .vm-desktop-table th.vm-tech-col,
+#view-maquinas .vm-desktop-table td.vm-tech-col{
+  width:16%
+}
+#view-maquinas .vm-desktop-table th.vm-rel-col,
+#view-maquinas .vm-desktop-table td.vm-rel-col,
+#view-maquinas .vm-desktop-table th.vm-db-col,
+#view-maquinas .vm-desktop-table td.vm-db-col{
+  width:5%
+}
+#view-maquinas .vm-desktop-table th.vm-actions-col,
+#view-maquinas .vm-desktop-table td.vm-actions-col{
+  width:118px;
+  min-width:118px;
+  padding-right:18px;
+  white-space:nowrap
+}
+#view-maquinas .vm-tech-tags{
+  gap:6px
+}
+#view-maquinas .vm-tech-tags .tag{
+  white-space:normal;
+  overflow-wrap:anywhere;
+  word-break:break-word;
+  max-width:100%;
+  line-height:1.25
 }
 
 

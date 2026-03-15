@@ -78,21 +78,21 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
   <section id="view-dashboard" class="view">
     <div id="stats" class="stats"></div>
     <div class="dash-grid">
-      <div class="panel">
+      <div class="panel panel-health">
         <h3>Saude dos Sistemas</h3>
         <div class="dash-subtitle">Por Status</div>
         <div id="status-bars"></div>
         <div class="dash-subtitle">Por Criticidade</div>
         <div id="criticality-bars"></div>
       </div>
-      <div class="panel">
+      <div class="panel panel-distribution">
         <h3>Distribuicao dos Sistemas</h3>
         <div class="dash-subtitle">Por Categoria</div>
         <div id="category-bars"></div>
         <div class="dash-subtitle">Por Grupo</div>
         <div id="group-bars"></div>
       </div>
-      <div class="panel">
+      <div class="panel panel-maintenance">
         <h3>Sistemas em Manutencao</h3>
         <div id="attention-list"></div>
       </div>
@@ -789,5 +789,4 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
 <script src="assets/app.js?v=<?= filemtime(__DIR__ . DIRECTORY_SEPARATOR . 'assets' . DIRECTORY_SEPARATOR . 'app.js') ?>"></script>
 </body>
 </html>
-
 
