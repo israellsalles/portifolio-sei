@@ -2543,6 +2543,15 @@ function parseVmMachinesCsvContent(string $csvContent): array {
     foreach ($indexToField as $index => $field) {
       $parsed[$field] = trim((string)($columns[$index] ?? ''));
     }
+    $hasAnyValue = false;
+    foreach ($indexToField as $field) {
+      if (trim((string)($parsed[$field] ?? '')) !== '') {
+        $hasAnyValue = true;
+        break;
+      }
+    }
+    // Ignore placeholder rows with only delimiters (e.g. ";;;;;;") from spreadsheet edits.
+    if (!$hasAnyValue) { continue; }
     $parsed['name'] = trim((string)$parsed['name']);
     $parsed['vm_administration'] = normalizeVmCsvAdministration((string)$parsed['vm_administration']);
     $parsed['os_name'] = trim((string)$parsed['os_name']);
@@ -2593,6 +2602,8 @@ function vmCsvPreviewPayload(array $parsedRows, array $existingVms): array {
       'ram_csv' => vmCsvMachinesDiskExportValue((string)($vm['ram'] ?? '')),
       'disk_csv' => vmCsvMachinesDiskExportValue((string)($vm['disk'] ?? '')),
       'archived' => (int)($vm['archived'] ?? 0) > 0 ? 1 : 0,
+      'system_count' => (int)($vm['system_count'] ?? 0),
+      'database_count' => (int)($vm['database_count'] ?? 0),
     ];
   }
 
@@ -2622,13 +2633,23 @@ function vmCsvPreviewPayload(array $parsedRows, array $existingVms): array {
 
   $items = [];
   $applyRows = [];
-  $summary = ['rows_total' => count($parsedRows), 'update' => 0, 'create' => 0, 'skip' => 0, 'error' => 0];
+  $summary = ['rows_total' => count($parsedRows), 'update' => 0, 'create' => 0, 'skip' => 0, 'error' => 0, 'missing' => 0];
+  $matchedActiveIds = [];
+  $csvNameKeys = [];
+  $csvIpKeys = [];
 
   foreach ($parsedRows as $row) {
     if (!is_array($row)) { continue; }
     $name = trim((string)($row['name'] ?? ''));
     $ip = packVmIpListValue((string)($row['ip'] ?? ''));
     $rowIps = normalizeVmIpListValue($ip);
+    $nameKey = strtolower($name);
+    if ($nameKey !== '') { $csvNameKeys[$nameKey] = true; }
+    foreach ($rowIps as $rowIp) {
+      $rowIpKey = strtolower($rowIp);
+      if ($rowIpKey === '') { continue; }
+      $csvIpKeys[$rowIpKey] = true;
+    }
     $admin = normalizeVmCsvAdministration((string)($row['vm_administration'] ?? ''));
     $effectiveAdmin = $admin;
     $vmCategory = 'Producao';
@@ -2724,6 +2745,9 @@ function vmCsvPreviewPayload(array $parsedRows, array $existingVms): array {
     }
 
     if (is_array($existing)) {
+      if ((int)($existing['archived'] ?? 0) === 0) {
+        $matchedActiveIds[(int)($existing['id'] ?? 0)] = true;
+      }
       $current = [
         'id' => (int)($existing['id'] ?? 0),
         'name' => trim((string)($existing['name'] ?? '')),
@@ -2792,6 +2816,65 @@ function vmCsvPreviewPayload(array $parsedRows, array $existingVms): array {
     }
 
     $items[] = $item;
+  }
+
+  foreach ($prepared as $vm) {
+    $id = (int)($vm['id'] ?? 0);
+    if ($id <= 0) { continue; }
+    if ((int)($vm['archived'] ?? 0) > 0) { continue; }
+    if (isset($matchedActiveIds[$id])) { continue; }
+
+    $vmNameKey = (string)($vm['name_key'] ?? '');
+    if ($vmNameKey !== '' && isset($csvNameKeys[$vmNameKey])) { continue; }
+    $presentByIp = false;
+    foreach (($vm['ip_keys'] ?? []) as $vmIpKey) {
+      if ($vmIpKey !== '' && isset($csvIpKeys[$vmIpKey])) {
+        $presentByIp = true;
+        break;
+      }
+    }
+    if ($presentByIp) { continue; }
+
+    $systemCount = (int)($vm['system_count'] ?? 0);
+    $databaseCount = (int)($vm['database_count'] ?? 0);
+    $reasonParts = [
+      'Maquina ativa ausente no CSV (possivel exclusao).',
+      'Nenhuma exclusao automatica sera executada.',
+      'Relacionamentos ativos: Sistemas=' . $systemCount . ', Bases=' . $databaseCount . '.',
+      'Revise e arquive/exclua manualmente, se necessario.',
+    ];
+
+    $items[] = [
+      'row_number' => null,
+      'action' => 'missing',
+      'reason' => implode(' | ', $reasonParts),
+      'name' => trim((string)($vm['name'] ?? '')),
+      'match_by' => '',
+      'changed_fields' => [],
+      'next' => [
+        'name' => trim((string)($vm['name'] ?? '')),
+        'ip' => packVmIpListValue((string)($vm['ip'] ?? '')),
+        'vm_category' => '',
+        'vm_type' => '',
+        'vm_access' => '',
+        'vm_administration' => trim((string)($vm['vm_administration'] ?? '')),
+        'os_name' => trim((string)($vm['os_name'] ?? '')),
+        'vcpus' => trim((string)($vm['vcpus'] ?? '')),
+        'ram_csv' => vmCsvMachinesDiskExportValue((string)($vm['ram_csv'] ?? '')),
+        'disk_csv' => vmCsvMachinesDiskExportValue((string)($vm['disk_csv'] ?? '')),
+      ],
+      'current' => [
+        'id' => $id,
+        'name' => trim((string)($vm['name'] ?? '')),
+        'ip' => packVmIpListValue((string)($vm['ip'] ?? '')),
+        'vm_administration' => trim((string)($vm['vm_administration'] ?? '')),
+        'os_name' => trim((string)($vm['os_name'] ?? '')),
+        'vcpus' => trim((string)($vm['vcpus'] ?? '')),
+        'ram_csv' => vmCsvMachinesDiskExportValue((string)($vm['ram_csv'] ?? '')),
+        'disk_csv' => vmCsvMachinesDiskExportValue((string)($vm['disk_csv'] ?? '')),
+      ],
+    ];
+    $summary['missing']++;
   }
 
   return [

@@ -1501,7 +1501,7 @@ tbody tr:hover td{background:#101d34}
   color:var(--txt)
 }
 .vm-csv-preview-table{
-  min-width:1540px;
+  min-width:1360px;
   width:max-content;
   table-layout:auto
 }
@@ -1521,42 +1521,42 @@ tbody tr:hover td{background:#101d34}
 }
 .vm-csv-preview-table th:nth-child(3),
 .vm-csv-preview-table td:nth-child(3){
-  width:250px;
+  width:170px;
   white-space:normal
 }
 .vm-csv-preview-table th:nth-child(4),
 .vm-csv-preview-table td:nth-child(4){
-  width:170px;
+  width:160px;
   white-space:normal;
   overflow-wrap:anywhere
 }
 .vm-csv-preview-table th:nth-child(5),
 .vm-csv-preview-table td:nth-child(5){
-  width:150px;
+  width:140px;
   white-space:normal;
   overflow-wrap:anywhere
 }
 .vm-csv-preview-table th:nth-child(6),
 .vm-csv-preview-table td:nth-child(6){
-  width:120px;
+  width:108px;
   white-space:nowrap
 }
 .vm-csv-preview-table th:nth-child(7),
 .vm-csv-preview-table td:nth-child(7){
-  width:230px;
+  width:210px;
   white-space:normal;
   overflow-wrap:anywhere
 }
 .vm-csv-preview-table th:nth-child(8),
 .vm-csv-preview-table td:nth-child(8){
-  width:50px;
+  width:48px;
   white-space:nowrap
 }
 .vm-csv-preview-table th:nth-child(9),
 .vm-csv-preview-table td:nth-child(9),
 .vm-csv-preview-table th:nth-child(10),
 .vm-csv-preview-table td:nth-child(10){
-  width:74px
+  width:68px
 }
 .vm-csv-preview-table th:nth-child(9),
 .vm-csv-preview-table th:nth-child(10){
@@ -1570,8 +1570,8 @@ tbody tr:hover td{background:#101d34}
 .vm-csv-preview-table th:nth-child(11),
 .vm-csv-preview-table td:nth-child(11){
   width:auto;
-  min-width:260px;
-  max-width:520px;
+  min-width:220px;
+  max-width:360px;
   white-space:normal;
   overflow-wrap:anywhere
 }
@@ -1586,8 +1586,8 @@ tbody tr:hover td{background:#101d34}
 }
 .vm-csv-create-config{
   display:grid;
-  grid-template-columns:repeat(2,minmax(0,1fr));
-  gap:8px 6px;
+  grid-template-columns:minmax(0,1fr);
+  gap:6px;
   align-items:end
 }
 .vm-csv-create-config label{
@@ -1618,7 +1618,7 @@ tbody tr:hover td{background:#101d34}
     width:calc(100vw - 12px)
   }
   .vm-csv-preview-table{
-    min-width:1450px
+    min-width:1280px
   }
 }
 @media(max-width:900px){
@@ -1627,7 +1627,7 @@ tbody tr:hover td{background:#101d34}
     padding:10px
   }
   .vm-csv-preview-table{
-    min-width:1150px
+    min-width:980px
   }
 }
 .vm-csv-action-pill{
@@ -1657,6 +1657,11 @@ tbody tr:hover td{background:#101d34}
   background:rgba(156,163,175,.16);
   border-color:#9ca3af;
   color:#c5cad4
+}
+.vm-csv-action-missing{
+  background:rgba(245,158,11,.16);
+  border-color:#f59e0b;
+  color:#ffd38a
 }
 .vm-csv-action-error{
   background:rgba(239,68,68,.16);
@@ -3477,6 +3482,40 @@ tbody tr:hover td{background:#eef4ff}
 .vm-report-tags .tag{
   padding:2px 8px;
   font-size:11px
+}
+.vm-resource-tags{
+  margin:8px 0 6px;
+  gap:8px
+}
+.vm-resource-tags .tag{
+  padding:4px 10px;
+  border-radius:9px;
+  border-color:#9fb9f2;
+  background:linear-gradient(180deg,#f4f8ff 0%,#e7f0ff 100%);
+  color:#24467e;
+  font-weight:700;
+  letter-spacing:.1px;
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.6)
+}
+.vm-resource-tags .vm-resource-tag-vcpu{
+  border-color:#9fb9f2;
+  background:linear-gradient(180deg,#f4f8ff 0%,#e7f0ff 100%);
+  color:#24467e
+}
+.vm-resource-tags .vm-resource-tag-ram{
+  border-color:#8ec5a5;
+  background:linear-gradient(180deg,#f3fff8 0%,#e1f7eb 100%);
+  color:#1f6142
+}
+.vm-resource-tags .vm-resource-tag-disk{
+  border-color:#d6b07a;
+  background:linear-gradient(180deg,#fff9f1 0%,#ffefdc 100%);
+  color:#7a4e1b
+}
+.vm-resource-tags .vm-resource-tag-generic{
+  border-color:#b9c8e6;
+  background:linear-gradient(180deg,#f7f9ff 0%,#edf2ff 100%);
+  color:#3c527f
 }
 .vm-report-list{
   margin:0;

@@ -96,6 +96,7 @@ A interface oferece multiplas visoes: cards, lista detalhada, DNS, bases, maquin
   - registros criados
   - registros atualizados
   - registros ignorados
+- Sinalizacao de maquinas ativas ausentes no CSV para revisao manual (sem exclusao automatica)
 
 ### Diagnostico JSON por VM
 

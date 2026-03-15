@@ -1078,6 +1078,7 @@ function vmCsvActionMeta(action){
   const key = String(action || '').trim().toLowerCase();
   if (key === 'update') return { label: 'Atualizar', cls: 'vm-csv-action-update' };
   if (key === 'create') return { label: 'Criar', cls: 'vm-csv-action-create' };
+  if (key === 'missing') return { label: 'Ausente CSV', cls: 'vm-csv-action-missing' };
   if (key === 'error') return { label: 'Erro', cls: 'vm-csv-action-error' };
   return { label: 'Ignorar', cls: 'vm-csv-action-skip' };
 }
@@ -1335,12 +1336,14 @@ function renderVmCsvPreview(data){
   const creates = Number(summary.create || 0);
   const skips = Number(summary.skip || 0);
   const errors = Number(summary.error || 0);
+  const missing = Number(summary.missing || 0);
 
   summaryEl.innerHTML = `
     <div class="vm-csv-preview-stat"><span>Total de linhas</span><strong>${rowsTotal}</strong></div>
     <div class="vm-csv-preview-stat"><span>Atualizar</span><strong>${updates}</strong></div>
     <div class="vm-csv-preview-stat"><span>Criar</span><strong>${creates}</strong></div>
     <div class="vm-csv-preview-stat"><span>Ignorar</span><strong>${skips}</strong></div>
+    <div class="vm-csv-preview-stat"><span>Ausentes CSV</span><strong>${missing}</strong></div>
     <div class="vm-csv-preview-stat"><span>Erros</span><strong>${errors}</strong></div>
   `;
 
@@ -3917,7 +3920,14 @@ function renderVmReport(sourceVms = null){
                 <div class="vm-report-ip">IP ${esc(vmIpSummary(vm))}</div>
               </div>
               ${osLabel ? `<div class="vm-report-sub">SO: ${esc(osLabel)}</div>` : ''}
-              ${specs.length ? `<div class="tags">${specs.map((s)=>`<span class="tag">${esc(s)}</span>`).join('')}</div>` : ''}
+              ${specs.length ? `<div class="tags vm-resource-tags">${specs.map((s)=>{
+                const text = String(s || '').trim();
+                const normalized = text.toLowerCase();
+                const kind = normalized.includes('vcpu')
+                  ? 'vcpu'
+                  : (normalized.startsWith('ram') ? 'ram' : (normalized.startsWith('disco') ? 'disk' : 'generic'));
+                return `<span class="tag vm-resource-tag vm-resource-tag-${kind}">${esc(text)}</span>`;
+              }).join('')}</div>` : ''}
               ${stackTags.length ? `<div class="tags">${stackTags.map((tag)=>`<span class="tag">${esc(tag)}</span>`).join('')}</div>` : ''}
               ${isSgbd
                 ? (instancePortTags.length ? `<div class="tags">${instancePortTags.map((tag)=>`<span class="tag">${esc(tag)}</span>`).join('')}</div>` : `<div class="vm-report-sub">-</div>`)
