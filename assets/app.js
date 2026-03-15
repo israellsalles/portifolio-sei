@@ -3187,6 +3187,103 @@ function renderDashboard(){
     () => '#4f8dfd'
   );
 
+  const byVmAdministration = {};
+  App.vms.forEach((vm) => {
+    const key = String(vmAdministrationLabel(vm) || '').trim() || 'Nao informada';
+    byVmAdministration[key] = (byVmAdministration[key] || 0) + 1;
+  });
+  renderBars(
+    'vm-admin-bars',
+    Object.entries(byVmAdministration).sort((a,b)=>b[1]-a[1]),
+    totalVms,
+    (label) => {
+      const key = norm(label);
+      if (key.includes('sei')) return '#2563eb';
+      if (key.includes('prodeb')) return '#7c3aed';
+      return '#64748b';
+    }
+  );
+
+  const byVmOs = {};
+  App.vms.forEach((vm) => {
+    const key = String(vm.os_name || '').trim() || 'Nao informado';
+    byVmOs[key] = (byVmOs[key] || 0) + 1;
+  });
+  let vmOsEntries = Object.entries(byVmOs).sort((a,b)=>b[1]-a[1]);
+  if (vmOsEntries.length > 8) {
+    const top = vmOsEntries.slice(0, 8);
+    const othersCount = vmOsEntries.slice(8).reduce((acc, row) => acc + Number(row?.[1] || 0), 0);
+    if (othersCount > 0) top.push(['Outros', othersCount]);
+    vmOsEntries = top;
+  }
+  renderBars(
+    'vm-os-bars',
+    vmOsEntries,
+    totalVms,
+    () => '#3b82f6'
+  );
+
+  const normalizeVmResourceValue = (raw, unit='') => {
+    const text = String(raw || '').trim();
+    if (!text) return '';
+    const normalizedRaw = text.replace(',', '.');
+    const numericMatch = normalizedRaw.match(/[0-9]+(?:\.[0-9]+)?/);
+    if (!numericMatch) return text;
+    const parsed = Number(numericMatch[0]);
+    if (!Number.isFinite(parsed)) return text;
+    const base = Number.isInteger(parsed)
+      ? String(parsed)
+      : String(parsed.toFixed(1)).replace(/\.0$/, '').replace('.', ',');
+    if (!unit) return base;
+    return `${base} ${unit}`;
+  };
+  const pushResourceCount = (bucket, value) => {
+    const key = String(value || '').trim();
+    if (!key) return;
+    bucket[key] = (bucket[key] || 0) + 1;
+  };
+  const topResourceEntries = (bucket, prefix, maxItems=4) => {
+    const entries = Object.entries(bucket).sort((a,b) => {
+      if ((b[1] || 0) !== (a[1] || 0)) return (b[1] || 0) - (a[1] || 0);
+      return String(a[0] || '').localeCompare(String(b[0] || ''));
+    });
+    if (!entries.length) return [];
+    const top = entries.slice(0, maxItems).map(([value, count]) => [`${prefix} ${value}`, count]);
+    if (entries.length > maxItems) {
+      const othersCount = entries.slice(maxItems).reduce((acc, row) => acc + Number(row?.[1] || 0), 0);
+      if (othersCount > 0) top.push([`${prefix} Outros`, othersCount]);
+    }
+    return top;
+  };
+  const vcpuCounts = {};
+  const ramCounts = {};
+  const diskCounts = {};
+  App.vms.forEach((vm) => {
+    pushResourceCount(vcpuCounts, normalizeVmResourceValue(vm.vcpus, 'vCPU'));
+    pushResourceCount(ramCounts, normalizeVmResourceValue(vm.ram, 'GB'));
+    pushResourceCount(diskCounts, normalizeVmResourceValue(vm.disk, 'GB'));
+  });
+  const vmResourceEntries = [
+    ...topResourceEntries(vcpuCounts, 'vCPU'),
+    ...topResourceEntries(ramCounts, 'RAM'),
+    ...topResourceEntries(diskCounts, 'Disco'),
+  ];
+  const vmResourceRows = vmResourceEntries.length > 0
+    ? vmResourceEntries
+    : [['Sem recursos informados', totalVms]];
+  renderBars(
+    'vm-resource-bars',
+    vmResourceRows,
+    totalVms,
+    (label) => {
+      const key = norm(label);
+      if (key.startsWith('vcpu')) return '#2563eb';
+      if (key.startsWith('ram')) return '#16a34a';
+      if (key.startsWith('disco')) return '#d97706';
+      return '#64748b';
+    }
+  );
+
   const byDbEngine = {};
   App.databases.forEach((d) => {
     const engine = String(d.db_engine || 'SGBD nao informado').trim() || 'SGBD nao informado';
@@ -3203,6 +3300,12 @@ function renderDashboard(){
 
   const vmLoadTarget = $('vm-load-list');
   if (vmLoadTarget) {
+    const vmTypeRank = (type) => {
+      const label = String(type || '').trim() || 'Sem tipo';
+      const idx = VM_TYPE_OPTIONS.indexOf(label);
+      if (idx >= 0) return idx;
+      return VM_TYPE_OPTIONS.length + (label === 'Sem tipo' ? 0 : 1);
+    };
     const vmLoadRows = App.vms.map((vm) => {
       const use = vmUsage(vm.id);
       const systemsCount = [...new Set([
@@ -3211,35 +3314,62 @@ function renderDashboard(){
         ...use.dev.map((s)=>Number(s?.id || 0)).filter((id) => id > 0),
       ])].length;
       const databasesCount = vmDatabases(vm.id).length;
+      const vmType = vmTypeLabel(vm);
+      const showBasesAsPrimary = vmType === 'SGBD';
+      const primaryLabel = showBasesAsPrimary ? 'Bases' : 'Sistemas';
+      const primaryCount = showBasesAsPrimary ? databasesCount : systemsCount;
+      const secondaryCount = showBasesAsPrimary ? systemsCount : databasesCount;
       return {
         id: Number(vm.id || 0),
         name: String(vm.name || '-'),
+        vmType,
         systemsCount,
         databasesCount,
+        primaryLabel,
+        primaryCount,
+        secondaryCount,
       };
     })
+      .filter((row) => row.vmType === 'Sistemas')
       .sort((a,b) => {
-        if (b.systemsCount !== a.systemsCount) return b.systemsCount - a.systemsCount;
-        if (b.databasesCount !== a.databasesCount) return b.databasesCount - a.databasesCount;
+        const typeDiff = vmTypeRank(a.vmType) - vmTypeRank(b.vmType);
+        if (typeDiff !== 0) return typeDiff;
+        if (b.primaryCount !== a.primaryCount) return b.primaryCount - a.primaryCount;
+        if (b.secondaryCount !== a.secondaryCount) return b.secondaryCount - a.secondaryCount;
         return String(a.name || '').localeCompare(String(b.name || ''));
       })
-      .slice(0, 10);
+      .slice(0, 20);
 
     if (!vmLoadRows.length) {
       vmLoadTarget.innerHTML = '<div class="attention-note">Sem maquinas cadastradas.</div>';
     } else {
-      vmLoadTarget.innerHTML = vmLoadRows.map((row) => `
-        <div class="vm-load-item">
-          <div class="vm-load-name">${esc(row.name || '-')}</div>
-          <div class="vm-load-metrics">
-            <span>Sistemas: ${Number(row.systemsCount || 0)}</span>
-            <span>Bases: ${Number(row.databasesCount || 0)}</span>
-          </div>
+      const grouped = {};
+      vmLoadRows.forEach((row) => {
+        const typeKey = String(row.vmType || '').trim() || 'Sem tipo';
+        if (!grouped[typeKey]) grouped[typeKey] = [];
+        grouped[typeKey].push(row);
+      });
+      const orderedTypes = Object.keys(grouped).sort((a,b) => {
+        const rankDiff = vmTypeRank(a) - vmTypeRank(b);
+        if (rankDiff !== 0) return rankDiff;
+        return String(a || '').localeCompare(String(b || ''));
+      });
+      vmLoadTarget.innerHTML = orderedTypes.map((typeKey) => `
+        <div class="vm-load-group">
+          <div class="vm-load-group-title">${esc(typeKey)}</div>
+          ${grouped[typeKey].map((row) => `
+            <div class="vm-load-item">
+              <div class="vm-load-name">${esc(row.name || '-')}</div>
+              <div class="vm-load-metrics">
+                <span>${esc(row.primaryLabel || 'Sistemas')}: ${Number(row.primaryCount || 0)}</span>
+              </div>
+            </div>
+          `).join('')}
         </div>
       `).join('');
     }
   }
-
+ 
   const quality = $('quality-list');
   if (quality) {
     quality.innerHTML = `
@@ -4278,7 +4408,18 @@ function renderMachines(){
 
 function renderVmReportTab(){
   const resultEl = $('vmr-result-count');
-  const reportScopeVms = App.vms.filter((vm) => VM_REPORT_TYPE_OPTIONS.includes(vmTypeLabel(vm)));
+  const reportScopeVms = App.vms
+    .filter((vm) => VM_REPORT_TYPE_OPTIONS.includes(vmTypeLabel(vm)))
+    .filter((vm) => {
+      const use = vmUsage(vm.id);
+      const systemsCount = new Set([
+        ...use.prod.map((s) => Number(s?.id || 0)).filter((id) => id > 0),
+        ...use.hml.map((s) => Number(s?.id || 0)).filter((id) => id > 0),
+        ...use.dev.map((s) => Number(s?.id || 0)).filter((id) => id > 0),
+      ]).size;
+      const databasesCount = vmDatabases(vm.id).length;
+      return systemsCount > 0 || databasesCount > 0;
+    });
   const filteredVms = filterVmsByCriteria(reportScopeVms, {
     q: $('vmrq')?.value || '',
     category: $('vmrcatf')?.value || '',

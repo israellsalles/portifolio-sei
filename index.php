@@ -93,21 +93,34 @@ $csrfToken = $_SESSION['csrf_token'] ?? '';
         <div id="group-bars"></div>
       </div>
       <div class="panel">
+        <h3>Sistemas em Manutencao</h3>
+        <div id="attention-list"></div>
+      </div>
+      <div class="panel panel-inventory-vms">
         <h3>Inventario de VMs</h3>
-        <div class="dash-subtitle">Por Ambiente</div>
-        <div id="vm-category-bars"></div>
-        <div class="dash-subtitle">Por Tipo</div>
-        <div id="vm-type-bars"></div>
+        <div class="vm-inventory-cols">
+          <div class="vm-inventory-col">
+            <div class="dash-subtitle">Por Ambiente</div>
+            <div id="vm-category-bars"></div>
+          </div>
+          <div class="vm-inventory-col">
+            <div class="dash-subtitle">Por Tipo</div>
+            <div id="vm-type-bars"></div>
+          </div>
+          <div class="vm-inventory-col">
+            <div class="dash-subtitle">Por Administracao</div>
+            <div id="vm-admin-bars"></div>
+          </div>
+          <div class="vm-inventory-col">
+            <div class="dash-subtitle">Por Sistema Operacional</div>
+            <div id="vm-os-bars"></div>
+          </div>
+          <div class="vm-inventory-col">
+            <div class="dash-subtitle">Por Recursos</div>
+            <div id="vm-resource-bars"></div>
+          </div>
+        </div>
       </div>
-      <div class="panel">
-        <h3>Bases e Maquinas de Banco</h3>
-        <div class="dash-subtitle">SGBD / Versao</div>
-        <div id="db-engine-bars"></div>
-        <div class="dash-subtitle">Top Maquinas Mais Utilizadas</div>
-        <div id="vm-load-list"></div>
-      </div>
-      <div class="panel"><h3>Qualidade do Cadastro</h3><div id="quality-list"></div></div>
-      <div class="panel"><h3>Atencao Necessaria</h3><div id="attention-list"></div></div>
     </div>
   </section>
   <section id="view-lista" class="view">

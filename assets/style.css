@@ -785,6 +785,10 @@ main{padding:16px}
   grid-template-columns:1fr 1fr 1.15fr;
   gap:12px
 }
+#view-dashboard .dash-grid{
+  grid-template-columns:repeat(3,minmax(0,1fr));
+  align-items:start
+}
 .machines-grid{
   grid-template-columns:1fr;
   align-items:start
@@ -823,6 +827,68 @@ main{padding:16px}
 }
 .panel .dash-subtitle:first-of-type{
   margin-top:0
+}
+.panel-inventory-vms{
+  grid-column:auto
+}
+#view-dashboard .panel-inventory-vms{
+  grid-column:1 / -1
+}
+.vm-inventory-cols{
+  display:grid;
+  grid-template-columns:repeat(5,minmax(220px,1fr));
+  gap:10px;
+  align-items:start
+}
+#view-dashboard .vm-inventory-cols{
+  grid-template-columns:repeat(5,minmax(0,1fr));
+  gap:12px
+}
+.vm-inventory-col{
+  min-width:0;
+  padding-left:10px;
+  border-left:1px solid rgba(53,86,141,.18)
+}
+.vm-inventory-col:first-child{
+  padding-left:0;
+  border-left:none
+}
+.vm-inventory-col .dash-subtitle{
+  margin-top:0
+}
+.vm-inventory-col .bar-label{
+  font-size:12px
+}
+@media(max-width:1500px){
+  #view-dashboard .vm-inventory-cols{
+    grid-template-columns:repeat(3,minmax(220px,1fr))
+  }
+}
+@media(max-width:1100px){
+  #view-dashboard .dash-grid{
+    grid-template-columns:repeat(2,minmax(0,1fr))
+  }
+  #view-dashboard .vm-inventory-cols{
+    grid-template-columns:repeat(2,minmax(0,1fr))
+  }
+}
+@media(max-width:760px){
+  #view-dashboard .dash-grid{
+    grid-template-columns:1fr
+  }
+  #view-dashboard .vm-inventory-cols{
+    grid-template-columns:1fr
+  }
+  #view-dashboard .vm-inventory-col{
+    padding-left:0;
+    padding-top:8px;
+    border-left:none;
+    border-top:1px solid rgba(53,86,141,.18)
+  }
+  #view-dashboard .vm-inventory-col:first-child{
+    padding-top:0;
+    border-top:none
+  }
 }
 .bar{margin-bottom:12px}
 .bar:last-child{margin-bottom:0}
@@ -896,6 +962,19 @@ main{padding:16px}
 #vm-load-list{
   display:grid;
   gap:0
+}
+.vm-load-group + .vm-load-group{
+  margin-top:8px;
+  padding-top:6px;
+  border-top:1px solid rgba(53,86,141,.18)
+}
+.vm-load-group-title{
+  margin:0 0 2px;
+  font-size:10px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.55px;
+  color:var(--muted)
 }
 .vm-load-item{
   display:flex;
